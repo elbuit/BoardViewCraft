@@ -8,6 +8,43 @@ use lyon_tessellation::math::Point as LPoint;
 use lyon_tessellation::path::Path;
 use lyon_tessellation::{FillOptions, FillTessellator, StrokeOptions, StrokeTessellator};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LodLevel {
+    /// Full circular fan tessellation (r_screen >= 1.5 px)
+    FullCircle,
+    /// Simplified quad primitive (0.75 px <= r_screen < 1.5 px)
+    SimplifiedQuad,
+    /// Fast 1-pixel quad (r_screen < 0.75 px on dense nets, or < 1.0 px)
+    SubpixelPoint,
+    /// Culled (radius <= 0 or negligible)
+    Culled,
+}
+
+impl LodLevel {
+    #[inline]
+    pub fn select(raw_screen_r: f32, is_high_density_net: bool) -> Self {
+        if raw_screen_r <= 0.0 {
+            LodLevel::Culled
+        } else if is_high_density_net {
+            if raw_screen_r < 0.75 {
+                LodLevel::SubpixelPoint
+            } else if raw_screen_r < 1.5 {
+                LodLevel::SimplifiedQuad
+            } else {
+                LodLevel::FullCircle
+            }
+        } else {
+            if raw_screen_r < 1.0 {
+                LodLevel::SubpixelPoint
+            } else if raw_screen_r < 2.0 {
+                LodLevel::SimplifiedQuad
+            } else {
+                LodLevel::FullCircle
+            }
+        }
+    }
+}
+
 pub struct Renderer {
     fill_tess: FillTessellator,
     stroke_tess: StrokeTessellator,
@@ -25,6 +62,43 @@ impl Default for Renderer {
 impl Renderer {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Appends a circle, quad, or sub-pixel point primitive to `mesh` according to LOD.
+    #[inline]
+    pub fn append_lod_circle_to_mesh(
+        mesh: &mut Mesh,
+        center: Pos2,
+        raw_screen_r: f32,
+        is_high_density_net: bool,
+        color: Color32,
+    ) -> LodLevel {
+        let lod = LodLevel::select(raw_screen_r, is_high_density_net);
+        match lod {
+            LodLevel::Culled => {}
+            LodLevel::SubpixelPoint => {
+                Self::append_rect_filled_to_mesh(
+                    mesh,
+                    Pos2::new(center.x - 0.5, center.y - 0.5),
+                    Pos2::new(center.x + 0.5, center.y + 0.5),
+                    color,
+                );
+            }
+            LodLevel::SimplifiedQuad => {
+                let h = raw_screen_r.max(0.75);
+                Self::append_rect_filled_to_mesh(
+                    mesh,
+                    Pos2::new(center.x - h, center.y - h),
+                    Pos2::new(center.x + h, center.y + h),
+                    color,
+                );
+            }
+            LodLevel::FullCircle => {
+                let screen_r = raw_screen_r.clamp(1.5, 40.0);
+                Self::append_circle_to_mesh(mesh, center, screen_r, color);
+            }
+        }
+        lod
     }
 
     /// Appends a direct regular polygon circle to an `egui::Mesh` with no path building or heap allocations.
@@ -293,3 +367,55 @@ impl Renderer {
         Self::buffers_to_egui_mesh(buffers, color)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lod_decimation_threshold() {
+        let mut mesh_dense_subpixel = Mesh::default();
+        let center = Pos2::new(10.0, 10.0);
+        let color = Color32::WHITE;
+
+        // Subpixel element on dense net (> 500 nodes) with r_screen < 0.75 px
+        let lod = Renderer::append_lod_circle_to_mesh(
+            &mut mesh_dense_subpixel,
+            center,
+            0.5,
+            true,
+            color,
+        );
+        assert_eq!(lod, LodLevel::SubpixelPoint);
+        assert_eq!(mesh_dense_subpixel.vertices.len(), 4, "Subpixel LOD must use a single 4-vertex quad");
+        assert_eq!(mesh_dense_subpixel.indices.len(), 6);
+
+        // Intermediate element with 0.75 <= r_screen < 1.5 px
+        let mut mesh_dense_mid = Mesh::default();
+        let lod_mid = Renderer::append_lod_circle_to_mesh(
+            &mut mesh_dense_mid,
+            center,
+            1.0,
+            true,
+            color,
+        );
+        assert_eq!(lod_mid, LodLevel::SimplifiedQuad);
+        assert_eq!(mesh_dense_mid.vertices.len(), 4, "Intermediate LOD must use simplified quad");
+
+        // Full circle with r_screen >= 1.5 px
+        let mut mesh_dense_full = Mesh::default();
+        let lod_full = Renderer::append_lod_circle_to_mesh(
+            &mut mesh_dense_full,
+            center,
+            4.0,
+            true,
+            color,
+        );
+        assert_eq!(lod_full, LodLevel::FullCircle);
+        assert!(mesh_dense_full.vertices.len() >= 7, "Full circle must tessellate fan vertices");
+
+        // Vertex count reduction: quad has 4 vertices vs 7-25 for circle
+        assert!(mesh_dense_subpixel.vertices.len() < mesh_dense_full.vertices.len());
+    }
+}
+

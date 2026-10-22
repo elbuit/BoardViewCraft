@@ -302,306 +302,18 @@ pub fn show_canvas(
             }
         } else {
             // Cache miss: generate meshes and update cache
-            let mut new_meshes = Vec::new();
-
-            // Compute visible world frustum with a generous margin in world coordinates
-            // Margin accommodates element radii and part outlines
-            let margin_mils = (50.0 / vp.scale).max(40.0) as f64;
-            let visible_world = vp.visible_world_rect(rect).expand(margin_mils);
-
-            // 1. Board outline polygon
-            if b.outline_polygon.len() >= 3 {
-                let screen_pts: Vec<Pos2> = b
-                    .outline_polygon
-                    .iter()
-                    .map(|p| vp.world_to_screen(*p, rect))
-                    .collect();
-
-                let fill_mesh = renderer.fill_polygon(&screen_pts, tokens.board_fill);
-                if !fill_mesh.is_empty() {
-                    new_meshes.push(fill_mesh);
-                }
-
-                let stroke_mesh = renderer.stroke_polygon(&screen_pts, 2.0, tokens.board_outline, true);
-                if !stroke_mesh.is_empty() {
-                    new_meshes.push(stroke_mesh);
-                }
-            }
-
-            // 2. Component bounding outlines
-            let selected_p_idx = *selected_part_idx;
-
-            // Parallel geometry generation for part outlines
-            let outlines_mesh: Mesh = b
-                .parts
-                .par_iter()
-                .filter(|part| {
-                    if !part.side.visible_on(vp.side) {
-                        return false;
-                    }
-                    match part.bounding_box {
-                        Some(ref bbox) => bbox.intersects(&visible_world),
-                        None => false,
-                    }
-                })
-                .fold(
-                    Mesh::default,
-                    |mut mesh, part| {
-                        if let Some(ref c_rect) = part.bounding_box {
-                            let is_part_selected = selected_p_idx == Some(part.id);
-                            let stroke_color = if is_part_selected {
-                                tokens.selection
-                            } else {
-                                tokens.part_body
-                            };
-
-                            let p1 = vp.world_to_screen(Point::new(c_rect.min_x, c_rect.min_y), rect);
-                            let p2 = vp.world_to_screen(Point::new(c_rect.max_x, c_rect.min_y), rect);
-                            let p3 = vp.world_to_screen(Point::new(c_rect.max_x, c_rect.max_y), rect);
-                            let p4 = vp.world_to_screen(Point::new(c_rect.min_x, c_rect.max_y), rect);
-
-                            Renderer::append_rect_outline_to_mesh(
-                                &mut mesh,
-                                p1,
-                                p2,
-                                p3,
-                                p4,
-                                0.75, // half_width for 1.5px stroke
-                                stroke_color,
-                            );
-                        }
-                        mesh
-                    },
-                )
-                .reduce(
-                    Mesh::default,
-                    |mut mesh_a, mesh_b| {
-                        mesh_a.append(mesh_b);
-                        mesh_a
-                    },
-                );
-
-            if !outlines_mesh.is_empty() {
-                new_meshes.push(outlines_mesh);
-            }
-
-            // 3. Vias (Batched parallel tessellation with viewport culling & LOD)
-            let cur_hover_via = current_hover_via;
-            let selected_net_ref = selected_net.as_deref();
-
-            let (via_normal_mesh, via_highlight_mesh): (Mesh, Mesh) = b
-                .vias
-                .par_iter()
-                .enumerate()
-                .filter(|(_idx, via)| {
-                    via.pos.x >= visible_world.min_x
-                        && via.pos.x <= visible_world.max_x
-                        && via.pos.y >= visible_world.min_y
-                        && via.pos.y <= visible_world.max_y
-                })
-                .fold(
-                    || (Mesh::default(), Mesh::default()),
-                    |(mut normal_mesh, mut hl_mesh), (idx, via)| {
-                        let is_on_cur_side = via.side.visible_on(vp.side);
-                        let is_net_selected = selected_net_ref
-                            .map(|sn| !via.net_name.is_empty() && sn == via.net_name)
-                            .unwrap_or(false);
-                        let is_hovered = cur_hover_via == Some(idx);
-
-                        let screen_pos = vp.world_to_screen(via.pos, rect);
-                        let raw_screen_r = via.radius as f32 * vp.scale;
-
-                        if is_hovered {
-                            let screen_r = raw_screen_r.clamp(2.0, 30.0);
-                            Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
-                        } else if is_net_selected {
-                            let screen_r = raw_screen_r.clamp(2.0, 30.0);
-                            Renderer::append_circle_to_mesh(
-                                &mut hl_mesh,
-                                screen_pos,
-                                screen_r,
-                                tokens.via_highlight,
-                            );
-                        } else {
-                            let color = if is_on_cur_side {
-                                tokens.via_cur_side
-                            } else {
-                                tokens.via_opp_side
-                            };
-
-                            // LOD optimization: fast quad for psz < 2.0 pixels
-                            if raw_screen_r < 2.0 {
-                                let h = raw_screen_r.max(1.0);
-                                Renderer::append_rect_filled_to_mesh(
-                                    &mut normal_mesh,
-                                    Pos2::new(screen_pos.x - h, screen_pos.y - h),
-                                    Pos2::new(screen_pos.x + h, screen_pos.y + h),
-                                    color,
-                                );
-                            } else {
-                                let screen_r = raw_screen_r.clamp(2.0, 30.0);
-                                Renderer::append_circle_to_mesh(&mut normal_mesh, screen_pos, screen_r, color);
-                            }
-                        }
-
-                        (normal_mesh, hl_mesh)
-                    },
-                )
-                .reduce(
-                    || (Mesh::default(), Mesh::default()),
-                    |(mut norm_a, mut hl_a), (norm_b, hl_b)| {
-                        norm_a.append(norm_b);
-                        hl_a.append(hl_b);
-                        (norm_a, hl_a)
-                    },
-                );
-
-            if !via_normal_mesh.is_empty() {
-                new_meshes.push(via_normal_mesh);
-            }
-            if !via_highlight_mesh.is_empty() {
-                new_meshes.push(via_highlight_mesh);
-            }
-
-            // 4. Pins (Batched parallel tessellation with viewport culling & LOD)
-            let cur_hover_pin = current_hover_pin;
-            let cur_sel_pin = *selected_pin_idx;
-
-            let (pin_normal_mesh, pin_highlight_mesh): (Mesh, Mesh) = b
-                .pins
-                .par_iter()
-                .enumerate()
-                .filter(|(_idx, pin)| {
-                    pin.pos.x >= visible_world.min_x
-                        && pin.pos.x <= visible_world.max_x
-                        && pin.pos.y >= visible_world.min_y
-                        && pin.pos.y <= visible_world.max_y
-                })
-                .fold(
-                    || (Mesh::default(), Mesh::default()),
-                    |(mut normal_mesh, mut hl_mesh), (idx, pin)| {
-                        let is_on_cur_side = pin.side.visible_on(vp.side);
-                        let is_selected_pin = cur_sel_pin == Some(idx);
-                        let is_net_selected = selected_net_ref
-                            .map(|sn| !pin.net_name.is_empty() && sn == pin.net_name)
-                            .unwrap_or(false);
-                        let is_hovered = cur_hover_pin == Some(idx);
-
-                        let screen_pos = vp.world_to_screen(pin.pos, rect);
-                        let raw_screen_r = pin.radius as f32 * vp.scale;
-
-                        if is_selected_pin {
-                            let screen_r = raw_screen_r.clamp(2.0, 40.0);
-                            Renderer::append_circle_to_mesh(
-                                &mut hl_mesh,
-                                screen_pos,
-                                screen_r,
-                                tokens.selection,
-                            );
-                        } else if is_hovered {
-                            let screen_r = raw_screen_r.clamp(2.0, 40.0);
-                            Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
-                        } else if is_net_selected {
-                            let screen_r = raw_screen_r.clamp(2.0, 40.0);
-                            let color = if is_on_cur_side {
-                                tokens.pin_highlight_cur_side
-                            } else {
-                                tokens.pin_highlight_opp_side
-                            };
-                            Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, color);
-                        } else {
-                            let color = if !is_on_cur_side {
-                                Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x40)
-                            } else if pin.net_name.is_empty() || pin.net_name == "UNCONNECTED" {
-                                tokens.pin_unconnected
-                            } else {
-                                tokens.pin_default
-                            };
-
-                            // LOD optimization: fast quad for psz < 2.0 pixels
-                            if raw_screen_r < 2.0 {
-                                let h = raw_screen_r.max(1.0);
-                                Renderer::append_rect_filled_to_mesh(
-                                    &mut normal_mesh,
-                                    Pos2::new(screen_pos.x - h, screen_pos.y - h),
-                                    Pos2::new(screen_pos.x + h, screen_pos.y + h),
-                                    color,
-                                );
-                            } else {
-                                let screen_r = raw_screen_r.clamp(2.0, 40.0);
-                                Renderer::append_circle_to_mesh(&mut normal_mesh, screen_pos, screen_r, color);
-                            }
-                        }
-
-                        (normal_mesh, hl_mesh)
-                    },
-                )
-                .reduce(
-                    || (Mesh::default(), Mesh::default()),
-                    |(mut norm_a, mut hl_a), (norm_b, hl_b)| {
-                        norm_a.append(norm_b);
-                        hl_a.append(hl_b);
-                        (norm_a, hl_a)
-                    },
-                );
-
-            if !pin_normal_mesh.is_empty() {
-                new_meshes.push(pin_normal_mesh);
-            }
-            if !pin_highlight_mesh.is_empty() {
-                new_meshes.push(pin_highlight_mesh);
-            }
-
-            // 5. Net lines web (Batched line mesh inside cached render pipeline)
-            // Following OpenBoardView rules:
-            // - Skip web lines for power/ground rails (e.g. GND, GROUND, VCC, etc.) as they have thousands of nodes and clutter the board.
-            // - Connect selected pin to all other pins & vias in the net.
-            if let Some(sel_idx) = *selected_pin_idx {
-                if let Some(sel_pin) = b.pins.get(sel_idx) {
-                    let net_name = &sel_pin.net_name;
-                    let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
-                        || net_name.eq_ignore_ascii_case("GROUND")
-                        || net_name.starts_with("UNCONNECTED")
-                        || net_name.is_empty();
-
-                    if !is_ground_or_power {
-                        if let Some(net) = b.nets.get(net_name) {
-                            // Only build web lines if the net has a reasonable node count (< 250)
-                            if net.pin_indices.len() + net.via_indices.len() <= 250 {
-                                let sel_pos = vp.world_to_screen(sel_pin.pos, rect);
-                                let mut segments = Vec::new();
-
-                                for &other_idx in &net.pin_indices {
-                                    if other_idx != sel_idx {
-                                        if let Some(other_pin) = b.pins.get(other_idx) {
-                                            let other_pos = vp.world_to_screen(other_pin.pos, rect);
-                                            segments.push((sel_pos, other_pos));
-                                        }
-                                    }
-                                }
-
-                                for &via_idx in &net.via_indices {
-                                    if let Some(via) = b.vias.get(via_idx) {
-                                        let via_pos = vp.world_to_screen(via.pos, rect);
-                                        segments.push((sel_pos, via_pos));
-                                    }
-                                }
-
-                                if !segments.is_empty() {
-                                    let mut web_mesh = Mesh::default();
-                                    Renderer::append_lines_to_mesh(
-                                        &mut web_mesh,
-                                        &segments,
-                                        0.75, // half_width = 0.75 (1.5 px line)
-                                        tokens.net_web,
-                                    );
-                                    new_meshes.push(web_mesh);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            let new_meshes = generate_board_meshes(
+                b,
+                vp,
+                rect,
+                tokens,
+                *selected_pin_idx,
+                *selected_part_idx,
+                selected_net.as_deref(),
+                current_hover_pin,
+                current_hover_via,
+                renderer,
+            );
 
             for mesh in &new_meshes {
                 painter.add(mesh.clone());
@@ -653,3 +365,401 @@ pub fn show_canvas(
 
     response
 }
+
+/// Generates render meshes for all visible board entities using spatial frustum queries,
+/// precomputed net membership, and subpixel LOD tessellation.
+pub fn generate_board_meshes(
+    b: &Board,
+    vp: &Viewport,
+    rect: EguiRect,
+    tokens: &Tokens,
+    selected_pin_idx: Option<usize>,
+    selected_part_idx: Option<usize>,
+    selected_net: Option<&str>,
+    current_hover_pin: Option<usize>,
+    current_hover_via: Option<usize>,
+    renderer: &mut Renderer,
+) -> Vec<Mesh> {
+    let mut new_meshes = Vec::new();
+
+    // Compute visible world frustum with a generous margin in world coordinates
+    let margin_mils = (50.0 / vp.scale).max(40.0) as f64;
+    let visible_world = vp.visible_world_rect(rect).expand(margin_mils);
+
+    // 1. Board outline polygon
+    if b.outline_polygon.len() >= 3 {
+        let screen_pts: Vec<Pos2> = b
+            .outline_polygon
+            .iter()
+            .map(|p| vp.world_to_screen(*p, rect))
+            .collect();
+
+        let fill_mesh = renderer.fill_polygon(&screen_pts, tokens.board_fill);
+        if !fill_mesh.is_empty() {
+            new_meshes.push(fill_mesh);
+        }
+
+        let stroke_mesh = renderer.stroke_polygon(&screen_pts, 2.0, tokens.board_outline, true);
+        if !stroke_mesh.is_empty() {
+            new_meshes.push(stroke_mesh);
+        }
+    }
+
+    // 2. Component bounding outlines
+    let outlines_mesh: Mesh = b
+        .parts
+        .par_iter()
+        .filter(|part| {
+            if !part.side.visible_on(vp.side) {
+                return false;
+            }
+            match part.bounding_box {
+                Some(ref bbox) => bbox.intersects(&visible_world),
+                None => false,
+            }
+        })
+        .fold(
+            Mesh::default,
+            |mut mesh, part| {
+                if let Some(ref c_rect) = part.bounding_box {
+                    let is_part_selected = selected_part_idx == Some(part.id);
+                    let stroke_color = if is_part_selected {
+                        tokens.selection
+                    } else {
+                        tokens.part_body
+                    };
+
+                    let p1 = vp.world_to_screen(Point::new(c_rect.min_x, c_rect.min_y), rect);
+                    let p2 = vp.world_to_screen(Point::new(c_rect.max_x, c_rect.min_y), rect);
+                    let p3 = vp.world_to_screen(Point::new(c_rect.max_x, c_rect.max_y), rect);
+                    let p4 = vp.world_to_screen(Point::new(c_rect.min_x, c_rect.max_y), rect);
+
+                    Renderer::append_rect_outline_to_mesh(
+                        &mut mesh,
+                        p1,
+                        p2,
+                        p3,
+                        p4,
+                        0.75, // half_width for 1.5px stroke
+                        stroke_color,
+                    );
+                }
+                mesh
+            },
+        )
+        .reduce(
+            Mesh::default,
+            |mut mesh_a, mesh_b| {
+                mesh_a.append(mesh_b);
+                mesh_a
+            },
+        );
+
+    if !outlines_mesh.is_empty() {
+        new_meshes.push(outlines_mesh);
+    }
+
+    // Precompute O(1) net membership lookup
+    let active_membership = selected_net
+        .map(|sn| b.net_membership(sn))
+        .unwrap_or_default();
+    let is_high_density = active_membership.is_high_density();
+
+    // 3. Vias (Spatial frustum query + Batched parallel tessellation + LOD)
+    let visible_via_indices = if !b.spatial_grid.is_empty() {
+        b.spatial_grid.query_vias_in_rect(&visible_world)
+    } else {
+        (0..b.vias.len()).collect()
+    };
+
+    let (via_normal_mesh, via_highlight_mesh): (Mesh, Mesh) = visible_via_indices
+        .par_iter()
+        .map(|&idx| (idx, &b.vias[idx]))
+        .filter(|(_idx, via)| {
+            via.pos.x >= visible_world.min_x
+                && via.pos.x <= visible_world.max_x
+                && via.pos.y >= visible_world.min_y
+                && via.pos.y <= visible_world.max_y
+        })
+        .fold(
+            || (Mesh::default(), Mesh::default()),
+            |(mut normal_mesh, mut hl_mesh), (idx, via)| {
+                let is_on_cur_side = via.side.visible_on(vp.side);
+                let is_net_selected = active_membership.contains_via(idx);
+                let is_hovered = current_hover_via == Some(idx);
+
+                let screen_pos = vp.world_to_screen(via.pos, rect);
+                let raw_screen_r = via.radius as f32 * vp.scale;
+
+                if is_hovered {
+                    let screen_r = raw_screen_r.clamp(2.0, 30.0);
+                    Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
+                } else if is_net_selected {
+                    Renderer::append_lod_circle_to_mesh(
+                        &mut hl_mesh,
+                        screen_pos,
+                        raw_screen_r,
+                        is_high_density,
+                        tokens.via_highlight,
+                    );
+                } else {
+                    let color = if is_on_cur_side {
+                        tokens.via_cur_side
+                    } else {
+                        tokens.via_opp_side
+                    };
+
+                    Renderer::append_lod_circle_to_mesh(
+                        &mut normal_mesh,
+                        screen_pos,
+                        raw_screen_r,
+                        false,
+                        color,
+                    );
+                }
+
+                (normal_mesh, hl_mesh)
+            },
+        )
+        .reduce(
+            || (Mesh::default(), Mesh::default()),
+            |(mut norm_a, mut hl_a), (norm_b, hl_b)| {
+                norm_a.append(norm_b);
+                hl_a.append(hl_b);
+                (norm_a, hl_a)
+            },
+        );
+
+    if !via_normal_mesh.is_empty() {
+        new_meshes.push(via_normal_mesh);
+    }
+    if !via_highlight_mesh.is_empty() {
+        new_meshes.push(via_highlight_mesh);
+    }
+
+    // 4. Pins (Spatial frustum query + Batched parallel tessellation + LOD)
+    let visible_pin_indices = if !b.spatial_grid.is_empty() {
+        b.spatial_grid.query_pins_in_rect(&visible_world)
+    } else {
+        (0..b.pins.len()).collect()
+    };
+
+    let (pin_normal_mesh, pin_highlight_mesh): (Mesh, Mesh) = visible_pin_indices
+        .par_iter()
+        .map(|&idx| (idx, &b.pins[idx]))
+        .filter(|(_idx, pin)| {
+            pin.pos.x >= visible_world.min_x
+                && pin.pos.x <= visible_world.max_x
+                && pin.pos.y >= visible_world.min_y
+                && pin.pos.y <= visible_world.max_y
+        })
+        .fold(
+            || (Mesh::default(), Mesh::default()),
+            |(mut normal_mesh, mut hl_mesh), (idx, pin)| {
+                let is_on_cur_side = pin.side.visible_on(vp.side);
+                let is_selected_pin = selected_pin_idx == Some(idx);
+                let is_net_selected = active_membership.contains_pin(idx);
+                let is_hovered = current_hover_pin == Some(idx);
+
+                let screen_pos = vp.world_to_screen(pin.pos, rect);
+                let raw_screen_r = pin.radius as f32 * vp.scale;
+
+                if is_selected_pin {
+                    let screen_r = raw_screen_r.clamp(2.0, 40.0);
+                    Renderer::append_circle_to_mesh(
+                        &mut hl_mesh,
+                        screen_pos,
+                        screen_r,
+                        tokens.selection,
+                    );
+                } else if is_hovered {
+                    let screen_r = raw_screen_r.clamp(2.0, 40.0);
+                    Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
+                } else if is_net_selected {
+                    let color = if is_on_cur_side {
+                        tokens.pin_highlight_cur_side
+                    } else {
+                        tokens.pin_highlight_opp_side
+                    };
+
+                    Renderer::append_lod_circle_to_mesh(
+                        &mut hl_mesh,
+                        screen_pos,
+                        raw_screen_r,
+                        is_high_density,
+                        color,
+                    );
+                } else {
+                    let color = if !is_on_cur_side {
+                        Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x40)
+                    } else if pin.net_name.is_empty() || pin.net_name == "UNCONNECTED" {
+                        tokens.pin_unconnected
+                    } else {
+                        tokens.pin_default
+                    };
+
+                    Renderer::append_lod_circle_to_mesh(
+                        &mut normal_mesh,
+                        screen_pos,
+                        raw_screen_r,
+                        false,
+                        color,
+                    );
+                }
+
+                (normal_mesh, hl_mesh)
+            },
+        )
+        .reduce(
+            || (Mesh::default(), Mesh::default()),
+            |(mut norm_a, mut hl_a), (norm_b, hl_b)| {
+                norm_a.append(norm_b);
+                hl_a.append(hl_b);
+                (norm_a, hl_a)
+            },
+        );
+
+    if !pin_normal_mesh.is_empty() {
+        new_meshes.push(pin_normal_mesh);
+    }
+    if !pin_highlight_mesh.is_empty() {
+        new_meshes.push(pin_highlight_mesh);
+    }
+
+    // 5. Net lines web (Batched line mesh inside cached render pipeline)
+    if let Some(sel_idx) = selected_pin_idx {
+        if let Some(sel_pin) = b.pins.get(sel_idx) {
+            let net_name = &sel_pin.net_name;
+            let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
+                || net_name.eq_ignore_ascii_case("GROUND")
+                || net_name.starts_with("UNCONNECTED")
+                || net_name.is_empty();
+
+            if !is_ground_or_power {
+                if let Some(net) = b.nets.get(net_name) {
+                    if net.pin_indices.len() + net.via_indices.len() <= 250 {
+                        let sel_pos = vp.world_to_screen(sel_pin.pos, rect);
+                        let mut segments = Vec::new();
+
+                        for &other_idx in &net.pin_indices {
+                            if other_idx != sel_idx {
+                                if let Some(other_pin) = b.pins.get(other_idx) {
+                                    let other_pos = vp.world_to_screen(other_pin.pos, rect);
+                                    segments.push((sel_pos, other_pos));
+                                }
+                            }
+                        }
+
+                        for &via_idx in &net.via_indices {
+                            if let Some(via) = b.vias.get(via_idx) {
+                                let via_pos = vp.world_to_screen(via.pos, rect);
+                                segments.push((sel_pos, via_pos));
+                            }
+                        }
+
+                        if !segments.is_empty() {
+                            let mut web_mesh = Mesh::default();
+                            Renderer::append_lines_to_mesh(
+                                &mut web_mesh,
+                                &segments,
+                                0.75, // half_width = 0.75 (1.5 px line)
+                                tokens.net_web,
+                            );
+                            new_meshes.push(web_mesh);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    new_meshes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bvc_core::{Pin, Point, Side, Via};
+    use std::time::Instant;
+
+    #[test]
+    fn bench_dense_net_tessellation() {
+        let mut board = Board::new();
+
+        let num_pins = 2481;
+        let num_vias = 2274;
+
+        board.pins.reserve(num_pins);
+        for i in 0..num_pins {
+            let x = ((i * 13) % 8000) as f64;
+            let y = ((i * 29) % 6000) as f64;
+            board.pins.push(Pin {
+                id: i,
+                part_id: 0,
+                name: format!("P{i}"),
+                pos: Point::new(x, y),
+                side: if i % 2 == 0 { Side::Top } else { Side::Bottom },
+                net_name: "GND".into(),
+                radius: 15.0,
+            });
+        }
+
+        board.vias.reserve(num_vias);
+        for i in 0..num_vias {
+            let x = ((i * 17) % 8000) as f64;
+            let y = ((i * 37) % 6000) as f64;
+            board.vias.push(Via {
+                id: i,
+                pos: Point::new(x, y),
+                side: Side::Both,
+                net_name: "GND".into(),
+                radius: 12.0,
+            });
+        }
+
+        board.rebuild_indices();
+
+        let mut vp = Viewport::default();
+        let bbox = board.bounding_box.unwrap();
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+        vp.fit_to_rect(bbox, canvas_rect);
+
+        let tokens = Tokens::DARK;
+        let mut renderer = Renderer::new();
+
+        // Warmup pass
+        let _ = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            None,
+            None,
+            Some("GND"),
+            None,
+            None,
+            &mut renderer,
+        );
+
+        // Benchmark pass
+        let start = Instant::now();
+        let meshes = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            None,
+            None,
+            Some("GND"),
+            None,
+            None,
+            &mut renderer,
+        );
+        let elapsed = start.elapsed();
+
+        assert!(!meshes.is_empty(), "Meshes must be produced for GND");
+        println!("Dense net tessellation (4,755 GND nodes) took {:?}", elapsed);
+        assert!(elapsed.as_millis() < 80, "Tessellation took {:?}, expected < 80ms in debug build", elapsed);
+    }
+}
+

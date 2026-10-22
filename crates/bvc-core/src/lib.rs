@@ -3,10 +3,12 @@
 pub mod board;
 pub mod model;
 pub mod parser;
+pub mod spatial;
 
 pub use board::Board;
-pub use model::{Net, Part, PartType, Pin, Point, Rect, Side, Via};
+pub use model::{Net, NetMembership, Part, PartType, Pin, Point, Rect, Side, Via};
 pub use parser::{cad::CadParser, gencad::GenCadParser, registry::ParserRegistry, FormatParser, ParseError};
+pub use spatial::{GridCell, SpatialGrid};
 
 #[cfg(test)]
 mod tests {
@@ -230,5 +232,80 @@ N_VIA 10.0 22.0 0 1 0
         let bbox = board.bounding_box.expect("bounding box");
         assert!(bbox.width() > 100.0);
         assert!(bbox.height() > 100.0);
+    }
+
+    #[test]
+    fn test_net_membership_fast_path() {
+        let registry = ParserRegistry::default();
+        let board = registry
+            .parse_file("test.cad", SAMPLE_CAD.as_bytes())
+            .expect("parse sample cad");
+
+        let membership_vcc = board.net_membership("VCC");
+        assert_eq!(membership_vcc.total_nodes, 3); // 2 pins, 1 via
+
+        // Fast O(1) membership check must match string equality exactly
+        for (idx, pin) in board.pins.iter().enumerate() {
+            let expected = pin.net_name == "VCC";
+            assert_eq!(membership_vcc.contains_pin(idx), expected);
+        }
+
+        for (idx, via) in board.vias.iter().enumerate() {
+            let expected = via.net_name == "VCC";
+            assert_eq!(membership_vcc.contains_via(idx), expected);
+        }
+
+        let membership_sig = board.net_membership("SIG_OUT");
+        assert_eq!(membership_sig.total_nodes, 4); // 2 pins, 2 vias
+        for (idx, pin) in board.pins.iter().enumerate() {
+            let expected = pin.net_name == "SIG_OUT";
+            assert_eq!(membership_sig.contains_pin(idx), expected);
+        }
+        for (idx, via) in board.vias.iter().enumerate() {
+            let expected = via.net_name == "SIG_OUT";
+            assert_eq!(membership_sig.contains_via(idx), expected);
+        }
+
+        let membership_empty = board.net_membership("NONEXISTENT");
+        assert_eq!(membership_empty.total_nodes, 0);
+        assert!(!membership_empty.is_high_density());
+        for idx in 0..board.pins.len() {
+            assert!(!membership_empty.contains_pin(idx));
+        }
+        for idx in 0..board.vias.len() {
+            assert!(!membership_empty.contains_via(idx));
+        }
+    }
+
+    #[test]
+    fn test_spatial_grid_rebuild_and_query() {
+        let registry = ParserRegistry::default();
+        let mut board = registry
+            .parse_file("test.cad", SAMPLE_CAD.as_bytes())
+            .expect("parse sample cad");
+
+        assert!(!board.spatial_grid.is_empty());
+        assert_eq!(board.spatial_grid.query_pins_in_rect(&board.bounding_box.unwrap()).len(), board.pins.len());
+        assert_eq!(board.spatial_grid.query_vias_in_rect(&board.bounding_box.unwrap()).len(), board.vias.len());
+
+        // Add pins and trigger rebuild_indices
+        board.pins.push(Pin {
+            id: 99,
+            part_id: 0,
+            name: "NEW".into(),
+            pos: Point::new(50000.0, 50000.0),
+            side: Side::Top,
+            net_name: "NEW_NET".into(),
+            radius: 10.0,
+        });
+        board.rebuild_indices();
+
+        let new_found = board.spatial_grid.query_pins_in_rect(&Rect {
+            min_x: 49000.0,
+            min_y: 49000.0,
+            max_x: 51000.0,
+            max_y: 51000.0,
+        });
+        assert!(new_found.contains(&7)); // 8th pin (index 7)
     }
 }

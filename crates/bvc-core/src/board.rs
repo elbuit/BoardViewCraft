@@ -1,7 +1,8 @@
 //! Board container and indexing structures for BoardViewCraft.
 
 use std::collections::BTreeMap;
-use crate::model::{Net, Part, Pin, Point, Rect, Side, Via};
+use crate::model::{Net, NetMembership, Part, Pin, Point, Rect, Side, Via};
+use crate::spatial::SpatialGrid;
 
 /// High-level board representation with fast lookups.
 #[derive(Debug, Clone, Default)]
@@ -15,6 +16,7 @@ pub struct Board {
     // Lookup caches
     pub nets: BTreeMap<String, Net>,
     pub part_by_name: BTreeMap<String, usize>,
+    pub spatial_grid: SpatialGrid,
 }
 
 impl Board {
@@ -97,6 +99,9 @@ impl Board {
 
         // Compute board bounding box
         self.recompute_bounds();
+
+        // Build 2D uniform spatial grid for fast frustum queries
+        self.spatial_grid = SpatialGrid::build(&self.pins, &self.vias, SpatialGrid::DEFAULT_CELL_SIZE);
     }
 
     pub fn recompute_bounds(&mut self) {
@@ -127,6 +132,35 @@ impl Board {
     /// Finds a pin near `world_pos` on the given side within tolerance `max_dist`.
     pub fn find_pin_near(&self, world_pos: Point, view_side: Side, max_dist: f64) -> Option<usize> {
         let mut best: Option<(usize, f64)> = None;
+
+        if !self.spatial_grid.is_empty() {
+            let search_margin = (max_dist + 50.0).max(100.0);
+            let q_rect = Rect {
+                min_x: world_pos.x - search_margin,
+                max_x: world_pos.x + search_margin,
+                min_y: world_pos.y - search_margin,
+                max_y: world_pos.y + search_margin,
+            };
+            let candidates = self.spatial_grid.query_pins_in_rect(&q_rect);
+            for &idx in &candidates {
+                if let Some(pin) = self.pins.get(idx) {
+                    if !pin.side.visible_on(view_side) {
+                        continue;
+                    }
+                    let d = pin.pos.dist(world_pos);
+                    let hit_radius = (pin.radius * 1.5).max(max_dist);
+                    if d <= hit_radius {
+                        match best {
+                            None => best = Some((idx, d)),
+                            Some((_, best_d)) if d < best_d => best = Some((idx, d)),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            return best.map(|(idx, _)| idx);
+        }
+
         for (idx, pin) in self.pins.iter().enumerate() {
             if !pin.side.visible_on(view_side) {
                 continue;
@@ -147,6 +181,35 @@ impl Board {
     /// Finds a via near `world_pos` within tolerance `max_dist`.
     pub fn find_via_near(&self, world_pos: Point, view_side: Side, max_dist: f64) -> Option<usize> {
         let mut best: Option<(usize, f64)> = None;
+
+        if !self.spatial_grid.is_empty() {
+            let search_margin = (max_dist + 50.0).max(100.0);
+            let q_rect = Rect {
+                min_x: world_pos.x - search_margin,
+                max_x: world_pos.x + search_margin,
+                min_y: world_pos.y - search_margin,
+                max_y: world_pos.y + search_margin,
+            };
+            let candidates = self.spatial_grid.query_vias_in_rect(&q_rect);
+            for &idx in &candidates {
+                if let Some(via) = self.vias.get(idx) {
+                    if !via.side.visible_on(view_side) {
+                        continue;
+                    }
+                    let d = via.pos.dist(world_pos);
+                    let hit_radius = (via.radius * 1.5).max(max_dist);
+                    if d <= hit_radius {
+                        match best {
+                            None => best = Some((idx, d)),
+                            Some((_, best_d)) if d < best_d => best = Some((idx, d)),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            return best.map(|(idx, _)| idx);
+        }
+
         for (idx, via) in self.vias.iter().enumerate() {
             if !via.side.visible_on(view_side) {
                 continue;
@@ -173,5 +236,10 @@ impl Board {
     /// Gets net by name.
     pub fn get_net(&self, name: &str) -> Option<&Net> {
         self.nets.get(name)
+    }
+
+    /// Returns a fast O(1) bitset membership checker for the specified net name.
+    pub fn net_membership(&self, name: &str) -> NetMembership {
+        NetMembership::from_net(self.pins.len(), self.vias.len(), self.get_net(name))
     }
 }

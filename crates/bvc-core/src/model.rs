@@ -166,3 +166,76 @@ pub struct Net {
     pub pin_indices: Vec<usize>,
     pub via_indices: Vec<usize>,
 }
+
+/// Compact O(1) bitset representation for net membership checking.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NetMembership {
+    pin_bits: Vec<u64>,
+    via_bits: Vec<u64>,
+    pub total_nodes: usize,
+}
+
+impl NetMembership {
+    #[inline]
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Precomputes a bitmask of pin and via indices belonging to the given net.
+    pub fn from_net(pin_count: usize, via_count: usize, net: Option<&Net>) -> Self {
+        let Some(net) = net else {
+            return Self::empty();
+        };
+
+        let pin_words = (pin_count + 63) / 64;
+        let mut pin_bits = vec![0u64; pin_words];
+        for &idx in &net.pin_indices {
+            if idx < pin_count {
+                pin_bits[idx / 64] |= 1u64 << (idx % 64);
+            }
+        }
+
+        let via_words = (via_count + 63) / 64;
+        let mut via_bits = vec![0u64; via_words];
+        for &idx in &net.via_indices {
+            if idx < via_count {
+                via_bits[idx / 64] |= 1u64 << (idx % 64);
+            }
+        }
+
+        Self {
+            pin_bits,
+            via_bits,
+            total_nodes: net.pin_indices.len() + net.via_indices.len(),
+        }
+    }
+
+    /// Fast O(1) membership test for pins.
+    #[inline]
+    pub fn contains_pin(&self, pin_idx: usize) -> bool {
+        let word = pin_idx / 64;
+        if word < self.pin_bits.len() {
+            (self.pin_bits[word] & (1u64 << (pin_idx % 64))) != 0
+        } else {
+            false
+        }
+    }
+
+    /// Fast O(1) membership test for vias.
+    #[inline]
+    pub fn contains_via(&self, via_idx: usize) -> bool {
+        let word = via_idx / 64;
+        if word < self.via_bits.len() {
+            (self.via_bits[word] & (1u64 << (via_idx % 64))) != 0
+        } else {
+            false
+        }
+    }
+
+    /// Returns true if the net has > 250 elements (high density, e.g. GND/VCC).
+    #[inline]
+    pub fn is_high_density(&self) -> bool {
+        self.total_nodes > 250
+    }
+}
+
