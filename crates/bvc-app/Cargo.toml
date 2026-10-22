@@ -1,0 +1,19 @@
+[package]
+name = "bvc-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "boardviewcraft"
+path = "src/main.rs"
+
+[dependencies]
+bvc-core = { workspace = true }
+egui = { workspace = true }
+eframe = { workspace = true }
+lyon_tessellation = { workspace = true }
+rayon = { workspace = true }
+rfd = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,4 @@
+[build]
+# Avoid failing due to eframe/egui 0.36 declaring rust-version 1.95 when system compiler is 1.93.1
+rustflags = []
+
