@@ -130,13 +130,15 @@ impl eframe::App for BoardViewApp {
 
         // Actions shortcuts: R (Rotate CW), Shift+R (Rotate CCW), Space (Flip Side), M (Mirror X), Shift+M (Mirror Y), F (Fit), Esc (Deselect)
         if !self.preferences_open {
-            let (r_pressed, shift_down, space_pressed, m_pressed, esc_pressed) = ui.input(|i| {
+            let wants_kb = ui.ctx().egui_wants_keyboard_input() || ui.memory(|m| m.focused().is_some());
+            let (r_pressed, shift_down, space_pressed, m_pressed, esc_pressed, f_pressed) = ui.input(|i| {
                 (
                     i.key_pressed(egui::Key::R),
                     i.modifiers.shift,
                     i.key_pressed(egui::Key::Space),
                     i.key_pressed(egui::Key::M),
                     i.key_pressed(egui::Key::Escape),
+                    i.key_pressed(egui::Key::F),
                 )
             });
 
@@ -151,27 +153,41 @@ impl eframe::App for BoardViewApp {
                 }
             }
 
-            if r_pressed {
-                self.canvas_state.viewport.rotation = if shift_down {
-                    self.canvas_state.viewport.rotation.rotate_ccw()
-                } else {
-                    self.canvas_state.viewport.rotation.rotate_cw()
-                };
-            }
+            if !wants_kb {
+                if r_pressed {
+                    self.canvas_state.viewport.rotation = if shift_down {
+                        self.canvas_state.viewport.rotation.rotate_ccw()
+                    } else {
+                        self.canvas_state.viewport.rotation.rotate_cw()
+                    };
+                }
 
-            if space_pressed {
-                self.canvas_state.viewport.side = if self.canvas_state.viewport.side == Side::Top {
-                    Side::Bottom
-                } else {
-                    Side::Top
-                };
-            }
+                if space_pressed {
+                    self.canvas_state.viewport.side = if self.canvas_state.viewport.side == Side::Top {
+                        Side::Bottom
+                    } else {
+                        Side::Top
+                    };
+                }
 
-            if m_pressed {
-                if shift_down {
-                    self.canvas_state.viewport.mirror_y = !self.canvas_state.viewport.mirror_y;
-                } else {
-                    self.canvas_state.viewport.mirror_x = !self.canvas_state.viewport.mirror_x;
+                if m_pressed {
+                    if shift_down {
+                        self.canvas_state.viewport.mirror_y = !self.canvas_state.viewport.mirror_y;
+                    } else {
+                        self.canvas_state.viewport.mirror_x = !self.canvas_state.viewport.mirror_x;
+                    }
+                }
+
+                if f_pressed {
+                    if let Some(board) = &self.board {
+                        if let Some(bbox) = board.bounding_box {
+                            let rect = ui.clip_rect();
+                            self.canvas_state.viewport.fit_to_rect(bbox, rect);
+                            self.canvas_state.cached_view_key = None;
+                            ui.ctx().request_repaint();
+                            self.status_msg = "Viewport fitted to PCB bounds (F)".to_string();
+                        }
+                    }
                 }
             }
         }
@@ -246,28 +262,8 @@ impl eframe::App for BoardViewApp {
                     self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
                 }
 
-                // Fit to window
-                if ui.button(i18n::tr(lang, "toolbar.fit_window")).clicked() || ui.input(|i| i.key_pressed(egui::Key::F)) {
-                    if let Some(board) = &self.board {
-                        if let Some(bbox) = board.bounding_box {
-                            let rect = ui.clip_rect();
-                            self.canvas_state.viewport.fit_to_rect(bbox, rect);
-                        }
-                    }
-                }
-
                 // Zoom dropdown / presets
                 ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
-                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_fit")).clicked() {
-                        if let Some(board) = &self.board {
-                            if let Some(bbox) = board.bounding_box {
-                                let rect = ui.clip_rect();
-                                self.canvas_state.viewport.fit_to_rect(bbox, rect);
-                            }
-                        }
-                        ui.close();
-                    }
-                    ui.separator();
                     let rect = ui.clip_rect();
                     if ui.button(i18n::tr(lang, "toolbar.zoom_preset_25")).clicked() {
                         self.canvas_state.viewport.zoom_preset(0.25, rect);
@@ -290,12 +286,6 @@ impl eframe::App for BoardViewApp {
                         ui.close();
                     }
                 });
-
-                // Zoom reset (1:1 / 100%)
-                if ui.button(i18n::tr(lang, "toolbar.zoom_reset")).clicked() {
-                    let rect = ui.clip_rect();
-                    self.canvas_state.viewport.zoom_preset(1.0, rect);
-                }
 
                 if let Some(name) = &self.filename {
                     ui.separator();
