@@ -146,6 +146,64 @@ impl Renderer {
         }
     }
 
+    /// Appends a stroked circle (annulus / ring) directly to `mesh` with hollow interior.
+    #[inline]
+    pub fn append_circle_outline_to_mesh(
+        mesh: &mut Mesh,
+        center: Pos2,
+        radius: f32,
+        stroke_width: f32,
+        color: Color32,
+    ) {
+        if radius <= 0.0 || stroke_width <= 0.0 {
+            return;
+        }
+
+        let r_outer = radius + stroke_width * 0.5;
+        let r_inner = (radius - stroke_width * 0.5).max(0.0);
+        let segments = (radius.round() as usize).clamp(8, 32);
+
+        let start_idx = mesh.vertices.len() as u32;
+        mesh.vertices.reserve(segments * 2);
+        mesh.indices.reserve(segments * 6);
+
+        let step = TAU / segments as f32;
+        for i in 0..segments {
+            let angle = i as f32 * step;
+            let (sin_a, cos_a) = angle.sin_cos();
+
+            // Inner vertex
+            mesh.vertices.push(Vertex {
+                pos: Pos2::new(center.x + r_inner * cos_a, center.y + r_inner * sin_a),
+                uv: Pos2::ZERO,
+                color,
+            });
+            // Outer vertex
+            mesh.vertices.push(Vertex {
+                pos: Pos2::new(center.x + r_outer * cos_a, center.y + r_outer * sin_a),
+                uv: Pos2::ZERO,
+                color,
+            });
+        }
+
+        for i in 0..segments {
+            let next_i = (i + 1) % segments;
+            let inner_curr = start_idx + (i as u32 * 2);
+            let outer_curr = inner_curr + 1;
+            let inner_next = start_idx + (next_i as u32 * 2);
+            let outer_next = inner_next + 1;
+
+            // Quad composed of two triangles
+            mesh.indices.push(inner_curr);
+            mesh.indices.push(outer_curr);
+            mesh.indices.push(outer_next);
+
+            mesh.indices.push(inner_curr);
+            mesh.indices.push(outer_next);
+            mesh.indices.push(inner_next);
+        }
+    }
+
     /// Appends a fast 4-vertex axis-aligned filled rectangle (quad) directly to `mesh`.
     #[inline]
     pub fn append_rect_filled_to_mesh(
@@ -416,6 +474,26 @@ mod tests {
 
         // Vertex count reduction: quad has 4 vertices vs 7-25 for circle
         assert!(mesh_dense_subpixel.vertices.len() < mesh_dense_full.vertices.len());
+    }
+
+    #[test]
+    fn test_circle_outline_tessellation() {
+        let mut mesh = Mesh::default();
+        let center = Pos2::new(50.0, 50.0);
+        let color = Color32::RED;
+
+        Renderer::append_circle_outline_to_mesh(&mut mesh, center, 10.0, 2.0, color);
+
+        // Ring with radius 10 clamped segments (10 segments)
+        // 10 inner vertices + 10 outer vertices = 20 vertices
+        // 10 quads * 6 indices = 60 indices
+        assert_eq!(mesh.vertices.len(), 20);
+        assert_eq!(mesh.indices.len(), 60);
+
+        // Zero or negative radius does not append
+        let mut empty_mesh = Mesh::default();
+        Renderer::append_circle_outline_to_mesh(&mut empty_mesh, center, 0.0, 2.0, color);
+        assert!(empty_mesh.is_empty());
     }
 }
 

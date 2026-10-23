@@ -676,7 +676,13 @@ pub fn generate_board_meshes(
         .map(|&idx| (idx, &b.pins[idx]))
         .filter(|(_idx, pin)| {
             let is_on_cur_side = pin.side.visible_on(vp.side);
-            if !show_opposite_elements && !is_on_cur_side {
+            let is_net_selected = active_membership.contains_pin(*_idx);
+
+            // Allow opposite-side pins if either:
+            // 1. show_opposite_elements preference is enabled, OR
+            // 2. a net is actively selected (or a pin of it is selected) and this pin belongs to it.
+            let allow_opposite = show_opposite_elements || is_net_selected;
+            if !allow_opposite && !is_on_cur_side {
                 return false;
             }
             pin.pos.x >= visible_world.min_x
@@ -707,19 +713,26 @@ pub fn generate_board_meshes(
                     let screen_r = raw_screen_r.clamp(2.0, 40.0);
                     Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
                 } else if is_net_selected {
-                    let color = if is_on_cur_side {
-                        tokens.pin_highlight_cur_side
+                    if is_on_cur_side {
+                        // Current side: filled highlight circle
+                        Renderer::append_lod_circle_to_mesh(
+                            &mut hl_mesh,
+                            screen_pos,
+                            raw_screen_r,
+                            is_high_density,
+                            tokens.pin_highlight_cur_side,
+                        );
                     } else {
-                        tokens.pin_highlight_opp_side
-                    };
-
-                    Renderer::append_lod_circle_to_mesh(
-                        &mut hl_mesh,
-                        screen_pos,
-                        raw_screen_r,
-                        is_high_density,
-                        color,
-                    );
+                        // Opposite side: hollow outline / border ONLY!
+                        let stroke_w = if is_high_density { 1.2 } else { 1.8 };
+                        Renderer::append_circle_outline_to_mesh(
+                            &mut hl_mesh,
+                            screen_pos,
+                            raw_screen_r.clamp(1.5, 40.0),
+                            stroke_w,
+                            tokens.pin_highlight_opp_side,
+                        );
+                    }
                 } else {
                     let color = if !is_on_cur_side {
                         Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x40)
