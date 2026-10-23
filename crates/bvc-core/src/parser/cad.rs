@@ -1,15 +1,19 @@
-//! OpenBoardView `.cad` file format parser.
+//! OpenBoardView `.cad` file format parser and umbrella dispatcher.
 //!
-//! Faithful implementation of OpenBoardView's CADFile.cpp format logic:
-//! - Parts: `COMP` block
-//! - Pins: `C_PIN` block
-//! - Nets: `NET` block
-//! - Vias: `N_VIA` block
-//! - Outline generation: bounding box over all pins with 20-mil margin.
+//! Variants:
+//! - FZ-zlib (`0x78` offset 4)
+//! - CPD neutral (`# CPD` or `###Board Information`)
+//! - BRD2 fallback (`BRDOUT:`)
+//! - Test_Link fallback (`var_data:`)
+//! - Legacy OpenBoardView CAD (`COMP`, `C_PIN`, `NET`, `N_VIA`) with 1000.0 multiplier.
 
 use std::collections::BTreeMap;
 use crate::board::Board;
 use crate::model::{Part, PartType, Pin, Point, Side, Via};
+use crate::parser::brd2::Brd2Parser;
+use crate::parser::cpd::CpdParser;
+use crate::parser::fz_zlib::FzZlibParser;
+use crate::parser::test_link::{TestLinkEngine, CAD_TEST_LINK_MARKERS};
 use crate::parser::{FormatParser, ParseError};
 
 pub struct CadParser;
@@ -18,47 +22,21 @@ impl CadParser {
     pub const fn new() -> Self {
         Self
     }
-}
 
-impl Default for CadParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FormatParser for CadParser {
-    fn name(&self) -> &'static str {
-        "CAD"
-    }
-
-    fn extensions(&self) -> &'static [&'static str] {
-        &["cad"]
-    }
-
-    fn verify_format(&self, data: &[u8]) -> bool {
-        // Matches OpenBoardView CADFile.cpp:
-        // verifyFormat(buffer) -> find_str_in_buf("###Panel Added", buf) && find_str_in_buf("C_PIN", buf)
-        let s = String::from_utf8_lossy(data);
-        (s.contains("###Panel Added") || s.contains("COMP")) && s.contains("C_PIN") && !s.contains("GENCAD")
-    }
-
-    fn parse(&self, data: &[u8]) -> Result<Board, ParseError> {
-        let content = String::from_utf8_lossy(data);
+    pub fn parse_openboardview_cad(text: &str) -> Result<Board, ParseError> {
         let mut board = Board::new();
-
         let mut parts_map: BTreeMap<String, usize> = BTreeMap::new();
         let mut current_nail_net = String::new();
 
         const MULTIPLIER: f64 = 1000.0;
         const OUTLINE_MARGIN: f64 = 20.0;
 
-        for (line_idx, raw_line) in content.lines().enumerate() {
+        for (line_idx, raw_line) in text.lines().enumerate() {
             let line = raw_line.trim();
             if line.is_empty() {
                 continue;
             }
 
-            // Split line by whitespace
             let tokens: Vec<&str> = line.split_whitespace().collect();
             if tokens.is_empty() {
                 continue;
@@ -67,15 +45,6 @@ impl FormatParser for CadParser {
             let block = tokens[0];
             match block {
                 "COMP" => {
-                    // OpenBoardView CADFile.cpp:
-                    // READ_STR() -> TYPE ("COMP")
-                    // READ_STR() -> part.name
-                    // READ_STR() -> Part(NR)
-                    // READ_STR() -> Unknown
-                    // READ_STR() -> Unknown
-                    // READ_STR() -> X
-                    // READ_STR() -> Y
-                    // READ_STR() -> loc ("1" = Top, other = Bottom)
                     if tokens.len() >= 8 {
                         let name = tokens[1].to_string();
                         let loc = tokens[7];
@@ -97,16 +66,6 @@ impl FormatParser for CadParser {
                     }
                 }
                 "C_PIN" => {
-                    // OpenBoardView CADFile.cpp:
-                    // READ_STR() -> TYPE ("C_PIN")
-                    // READ_STR() -> part name (with possible '-' stripped)
-                    // READ_DOUBLE() -> posx * multiplier
-                    // READ_DOUBLE() -> posy * multiplier
-                    // READ_DOUBLE() -> unknown
-                    // READ_DOUBLE() -> unknown
-                    // READ_DOUBLE() -> unknown
-                    // READ_STR() -> unknown
-                    // READ_STR() -> netr (strip leading '/' if present)
                     if tokens.len() >= 9 {
                         let full_part = tokens[1];
                         let part_clean = match full_part.find('-') {
@@ -117,7 +76,6 @@ impl FormatParser for CadParser {
                         let part_id = match parts_map.get(part_clean) {
                             Some(&id) => id,
                             None => {
-                                // Auto-register part if not yet encountered
                                 let id = board.parts.len();
                                 board.parts.push(Part {
                                     id,
@@ -161,14 +119,11 @@ impl FormatParser for CadParser {
                             pos: Point::new(pos_x, pos_y),
                             side: part_side,
                             net_name,
-                            radius: 12.0, // Standard pad radius in mils (0.012 in)
+                            radius: 12.0,
                         });
                     }
                 }
                 "NET" => {
-                    // OpenBoardView CADFile.cpp:
-                    // READ_STR() -> TYPE ("NET")
-                    // READ_STR() -> netr (strip leading '/' if present)
                     if tokens.len() >= 2 {
                         let mut net = tokens[1].to_string();
                         if let Some(stripped) = net.strip_prefix('/') {
@@ -178,13 +133,6 @@ impl FormatParser for CadParser {
                     }
                 }
                 "N_VIA" => {
-                    // OpenBoardView CADFile.cpp:
-                    // nail.net = nailnet
-                    // READ_STR() -> TYPE ("N_VIA")
-                    // READ_DOUBLE() -> posx * multiplier
-                    // READ_DOUBLE() -> posy * multiplier
-                    // READ_STR() -> unknown
-                    // READ_DOUBLE() -> side == 1 ? Top : Bottom
                     if tokens.len() >= 5 {
                         let pos_x = tokens[1].parse::<f64>().map_err(|_| ParseError::SyntaxError {
                             line: line_idx + 1,
@@ -209,27 +157,14 @@ impl FormatParser for CadParser {
                             pos: Point::new(pos_x, pos_y),
                             side,
                             net_name: current_nail_net.clone(),
-                            radius: 8.0, // Standard via radius in mils
+                            radius: 8.0,
                         });
                     }
                 }
-                _ => {
-                    // Skip unrecognized blocks
-                }
+                _ => {}
             }
         }
 
-        // Generate outline matching OpenBoardView CADFile.cpp:
-        // OUTLINE_MARGIN = 20
-        // minx = min(pins.x) - OUTLINE_MARGIN
-        // maxx = max(pins.x) + OUTLINE_MARGIN
-        // miny = min(pins.y) - OUTLINE_MARGIN
-        // maxy = max(pins.y) + OUTLINE_MARGIN
-        // format.push_back({minx, miny});
-        // format.push_back({maxx, miny});
-        // format.push_back({maxx, maxy});
-        // format.push_back({minx, maxy});
-        // format.push_back({minx, miny});
         if !board.pins.is_empty() {
             let pin_pts: Vec<Point> = board.pins.iter().map(|p| p.pos).collect();
             if let Some(rect) = crate::model::Rect::from_points(&pin_pts) {
@@ -250,5 +185,66 @@ impl FormatParser for CadParser {
 
         board.rebuild_indices();
         Ok(board)
+    }
+}
+
+impl Default for CadParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FormatParser for CadParser {
+    fn name(&self) -> &'static str {
+        "CAD"
+    }
+
+    fn extensions(&self) -> &'static [&'static str] {
+        &["cad"]
+    }
+
+    fn verify_format(&self, data: &[u8]) -> bool {
+        if FzZlibParser::looks_like_fz_zlib(data) {
+            return true;
+        }
+        if CpdParser::looks_like_cpd(data) {
+            return true;
+        }
+        let sample = &data[..data.len().min(4096)];
+        let s = String::from_utf8_lossy(sample);
+        if s.contains("BRDOUT:") {
+            return true;
+        }
+        if s.contains("var_data:") && (s.contains("Format:") || s.contains("Parts:") || s.contains("Pins:")) {
+            return true;
+        }
+        (s.contains("###Panel Added") || s.contains("COMP")) && s.contains("C_PIN") && !s.contains("GENCAD")
+    }
+
+    fn parse(&self, data: &[u8]) -> Result<Board, ParseError> {
+        // 1. Check FZ-zlib
+        if FzZlibParser::looks_like_fz_zlib(data) {
+            return FzZlibParser::new().parse(data);
+        }
+
+        // 2. Check CPD neutral
+        if CpdParser::looks_like_cpd(data) {
+            return CpdParser::new().parse(data);
+        }
+
+        let s = String::from_utf8_lossy(data);
+
+        // 3. Check BRD2
+        if s.contains("BRDOUT:") {
+            return Brd2Parser::parse_content(&s);
+        }
+
+        // 4. Check Test_Link ASCII
+        if s.contains("var_data:") {
+            return TestLinkEngine::parse_text(&s, &CAD_TEST_LINK_MARKERS);
+        }
+
+        // 5. OpenBoardView legacy CAD format
+        Self::parse_openboardview_cad(&s)
     }
 }

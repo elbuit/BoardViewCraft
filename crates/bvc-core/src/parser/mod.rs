@@ -1,8 +1,19 @@
 //! Format parsing interface and registry.
 
+pub mod asc;
+pub mod bdv;
+pub mod brd;
+pub mod brd2;
 pub mod cad;
+pub mod cpd;
+pub mod dialects;
+pub mod fz;
+pub mod fz_zlib;
 pub mod gencad;
 pub mod registry;
+pub mod test_link;
+pub mod tvw;
+pub mod xzz;
 
 use crate::board::Board;
 use thiserror::Error;

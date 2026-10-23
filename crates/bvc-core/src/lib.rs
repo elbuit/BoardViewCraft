@@ -1,5 +1,7 @@
 //! BoardViewCraft core library.
 
+#![forbid(unsafe_code)]
+
 pub mod board;
 pub mod model;
 pub mod parser;

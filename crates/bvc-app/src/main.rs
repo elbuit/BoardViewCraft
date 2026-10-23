@@ -106,7 +106,18 @@ impl BoardViewApp {
 
     pub fn open_file_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
+            .add_filter(
+                "All Supported Boardviews (*.cad, *.tvw, *.brd, *.fz, *.pcb, *.bdv, *.asc, *.bv, *.bvr, *.cst, *.gr, *.f2b)",
+                &["cad", "tvw", "brd", "fz", "pcb", "bdv", "asc", "bv", "bvr", "cst", "gr", "f2b"],
+            )
             .add_filter("CAD files (*.cad)", &["cad"])
+            .add_filter("TestView files (*.tvw)", &["tvw"])
+            .add_filter("Eagle / BRD files (*.brd)", &["brd"])
+            .add_filter("Foxconn files (*.fz)", &["fz"])
+            .add_filter("XZZ PCB files (*.pcb)", &["pcb"])
+            .add_filter("BDV files (*.bdv)", &["bdv"])
+            .add_filter("ASC files (*.asc)", &["asc"])
+            .add_filter("Other Boardviews (*.bv, *.bvr, *.cst, *.gr, *.f2b)", &["bv", "bvr", "cst", "gr", "f2b"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         {
@@ -201,7 +212,7 @@ impl eframe::App for BoardViewApp {
                 ui.heading(RichText::new("BoardViewCraft").strong().color(self.tokens.accent));
                 ui.separator();
 
-                if ui.button(i18n::tr(lang, "toolbar.open_cad")).clicked() {
+                if ui.button(i18n::tr(lang, "toolbar.open_board")).clicked() {
                     self.open_file_dialog();
                 }
 

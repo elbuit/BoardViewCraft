@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true, optional = true }
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 
 [features]
 default = []
