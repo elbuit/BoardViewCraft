@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn test_preferences_serde() {
         let prefs = Preferences {
-            theme: ThemePreset::OpenBoardViewClassic,
+            theme: ThemePreset::WarmMode,
             custom_tokens: Some(Tokens::DARK),
             language: Language::Catalan,
             show_net_web: false,

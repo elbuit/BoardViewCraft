@@ -65,7 +65,7 @@ impl BoardViewApp {
         } else {
             preferences.theme.tokens()
         };
-        let is_light = preferences.theme == ThemePreset::LightMode;
+        let is_light = false;
         cc.egui_ctx.set_visuals(tokens.egui_visuals(is_light));
 
         Self {
@@ -375,7 +375,7 @@ impl eframe::App for BoardViewApp {
                 } else {
                     prefs.theme.tokens()
                 };
-                let is_light = prefs.theme == ThemePreset::LightMode;
+                let is_light = false;
                 ui.ctx().set_visuals(self.tokens.egui_visuals(is_light));
             }
             // Invalidate canvas mesh cache

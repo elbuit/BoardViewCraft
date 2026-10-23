@@ -7,27 +7,28 @@ use serde::{Deserialize, Serialize};
 pub enum ThemePreset {
     #[default]
     CadcraftDark,
-    OpenBoardViewClassic,
+    #[serde(alias = "OpenBoardViewClassic")]
+    WarmMode,
+    SweetBlue,
     HighContrast,
-    LightMode,
     Custom,
 }
 
 impl ThemePreset {
     pub const ALL: [ThemePreset; 5] = [
         ThemePreset::CadcraftDark,
-        ThemePreset::OpenBoardViewClassic,
+        ThemePreset::WarmMode,
+        ThemePreset::SweetBlue,
         ThemePreset::HighContrast,
-        ThemePreset::LightMode,
         ThemePreset::Custom,
     ];
 
     pub fn display_name(&self) -> &'static str {
         match self {
             ThemePreset::CadcraftDark => "Cadcraft Dark",
-            ThemePreset::OpenBoardViewClassic => "OpenBoardView Classic",
+            ThemePreset::WarmMode => "Warm Mode",
+            ThemePreset::SweetBlue => "Sweet Blue",
             ThemePreset::HighContrast => "High Contrast",
-            ThemePreset::LightMode => "Light Mode",
             ThemePreset::Custom => "Custom...",
         }
     }
@@ -35,9 +36,9 @@ impl ThemePreset {
     pub fn tokens(&self) -> Tokens {
         match self {
             ThemePreset::CadcraftDark => Tokens::DARK,
-            ThemePreset::OpenBoardViewClassic => Tokens::OPEN_BOARD_VIEW,
+            ThemePreset::WarmMode => Tokens::WARM_MODE,
+            ThemePreset::SweetBlue => Tokens::SWEET_BLUE,
             ThemePreset::HighContrast => Tokens::HIGH_CONTRAST,
-            ThemePreset::LightMode => Tokens::LIGHT,
             ThemePreset::Custom => Tokens::DARK,
         }
     }
@@ -121,7 +122,7 @@ impl Tokens {
         status_bar_text: Color32::from_rgb(0xaa, 0xb2, 0xbd),
     };
 
-    pub const OPEN_BOARD_VIEW: Tokens = Tokens {
+    pub const WARM_MODE: Tokens = Tokens {
         chrome: Color32::from_rgb(0x28, 0x28, 0x28),
         chrome_dark: Color32::from_rgb(0x1c, 0x1c, 0x1c),
         panel: Color32::from_rgb(0x22, 0x22, 0x22),
@@ -197,42 +198,42 @@ impl Tokens {
         status_bar_text: Color32::from_rgb(0xee, 0xee, 0xee),
     };
 
-    pub const LIGHT: Tokens = Tokens {
-        chrome: Color32::from_rgb(0xe4, 0xe7, 0xeb),
-        chrome_dark: Color32::from_rgb(0xd8, 0xdc, 0xe2),
-        panel: Color32::from_rgb(0xf0, 0xf2, 0xf5),
-        panel_header: Color32::from_rgb(0xe4, 0xe7, 0xeb),
-        tab_active: Color32::from_rgb(0xff, 0xff, 0xff),
-        control: Color32::from_rgb(0xe2, 0xe5, 0xeb),
-        control_hover: Color32::from_rgb(0xd4, 0xd8, 0xe0),
-        border: Color32::from_rgb(0xc4, 0xc9, 0xd2),
-        canvas: Color32::from_rgb(0xf5, 0xf6, 0xf8), // off-white
-        grid_minor: Color32::from_rgb(0xe8, 0xeb, 0xee),
-        grid_major: Color32::from_rgb(0xd6, 0xda, 0xe0),
-        axis_x: Color32::from_rgb(0xcc, 0x40, 0x40),
-        axis_y: Color32::from_rgb(0x40, 0xaa, 0x40),
-        text: Color32::from_rgb(0x1a, 0x1e, 0x24), // near black
-        text_dim: Color32::from_rgb(0x4f, 0x56, 0x62),
-        text_faint: Color32::from_rgb(0x80, 0x88, 0x94),
-        accent: Color32::from_rgb(0x19, 0x76, 0xd2),
-        selection: Color32::from_rgb(0xe6, 0x7e, 0x00),
-        hover: Color32::from_rgb(0x21, 0x96, 0xf3),
+    pub const SWEET_BLUE: Tokens = Tokens {
+        chrome: Color32::from_rgb(0x1e, 0x24, 0x30),
+        chrome_dark: Color32::from_rgb(0x16, 0x1b, 0x24),
+        panel: Color32::from_rgb(0x1a, 0x20, 0x2c),
+        panel_header: Color32::from_rgb(0x13, 0x18, 0x22),
+        tab_active: Color32::from_rgb(0x2d, 0x37, 0x48),
+        control: Color32::from_rgb(0x27, 0x32, 0x44),
+        control_hover: Color32::from_rgb(0x35, 0x43, 0x5a),
+        border: Color32::from_rgb(0x12, 0x16, 0x1f),
+        canvas: Color32::from_rgb(0x0f, 0x14, 0x1d), // deep navy pastel canvas
+        grid_minor: Color32::from_rgb(0x17, 0x1f, 0x2c),
+        grid_major: Color32::from_rgb(0x22, 0x2d, 0x3d),
+        axis_x: Color32::from_rgb(0x7a, 0x38, 0x38),
+        axis_y: Color32::from_rgb(0x30, 0x6a, 0x78),
+        text: Color32::from_rgb(0xde, 0xe7, 0xf3),
+        text_dim: Color32::from_rgb(0x93, 0xa5, 0xbe),
+        text_faint: Color32::from_rgb(0x5c, 0x6e, 0x87),
+        accent: Color32::from_rgb(0x58, 0xa6, 0xff), // agy soft pastel sky blue
+        selection: Color32::from_rgb(0xff, 0x9e, 0x3b), // agy warm pastel orange
+        hover: Color32::from_rgb(0x79, 0xc0, 0xff),
 
         // Board elements
-        board_outline: Color32::from_rgb(0x2b, 0x30, 0x3a), // dark charcoal
-        board_fill: Color32::from_rgba_premultiplied(0xdc, 0xe1, 0xe6, 0xb4), // rgba(220, 225, 230, 180)
-        part_body: Color32::from_rgba_premultiplied(0xaa, 0xb2, 0xbe, 0x90),
-        part_text: Color32::from_rgb(0x1a, 0x1e, 0x24),
-        pin_default: Color32::from_rgb(0xbb, 0x33, 0x22),
-        pin_unconnected: Color32::from_rgb(0x9a, 0xa0, 0xa8),
-        pin_highlight_cur_side: Color32::from_rgb(0x0e, 0x8a, 0x16), // deep forest green
-        pin_highlight_opp_side: Color32::from_rgb(0x1d, 0x76, 0xdb), // clear blue
-        via_cur_side: Color32::from_rgb(0xb0, 0x78, 0x18),
-        via_opp_side: Color32::from_rgb(0x80, 0x60, 0x20),
-        via_highlight: Color32::from_rgb(0x0e, 0x8a, 0x16),
-        net_web: Color32::from_rgba_premultiplied(0x0e, 0x8a, 0x16, 0xcc),
-        status_bar_bg: Color32::from_rgb(0xe4, 0xe7, 0xeb),
-        status_bar_text: Color32::from_rgb(0x2b, 0x30, 0x3a),
+        board_outline: Color32::from_rgb(0x79, 0xa8, 0xd8), // soft steel blue border
+        board_fill: Color32::from_rgba_premultiplied(0x15, 0x20, 0x30, 0x90),
+        part_body: Color32::from_rgba_premultiplied(0x2c, 0x3c, 0x54, 0x90),
+        part_text: Color32::from_rgb(0xd0, 0xdf, 0xf0),
+        pin_default: Color32::from_rgb(0x4d, 0x90, 0xcd), // pastel soft slate blue
+        pin_unconnected: Color32::from_rgb(0x55, 0x64, 0x78),
+        pin_highlight_cur_side: Color32::from_rgb(0xff, 0x9e, 0x3b), // agy warm pastel orange for selected net
+        pin_highlight_opp_side: Color32::from_rgb(0x79, 0xc0, 0xff), // agy pastel cyan-blue
+        via_cur_side: Color32::from_rgb(0xd9, 0x8a, 0x32), // soft warm amber
+        via_opp_side: Color32::from_rgb(0x5a, 0x48, 0x2c),
+        via_highlight: Color32::from_rgb(0xff, 0xb4, 0x54),
+        net_web: Color32::from_rgba_premultiplied(0xff, 0x9e, 0x3b, 0xd0), // warm orange net web
+        status_bar_bg: Color32::from_rgb(0x13, 0x18, 0x22),
+        status_bar_text: Color32::from_rgb(0x93, 0xa5, 0xbe),
     };
 
     pub fn egui_visuals(&self, is_light: bool) -> egui::Visuals {
