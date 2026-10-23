@@ -232,6 +232,20 @@ N_VIA 10.0 22.0 0 1 0
         let bbox = board.bounding_box.expect("bounding box");
         assert!(bbox.width() > 100.0);
         assert!(bbox.height() > 100.0);
+
+        println!("Net count: {}", board.nets.len());
+        if let Some(net) = board.nets.get("IFPC_TXC*") {
+            println!("FOUND NET IFPC_TXC* with {} pins, {} vias", net.pin_indices.len(), net.via_indices.len());
+            for &pidx in &net.pin_indices {
+                let pin = &board.pins[pidx];
+                let part = &board.parts[pin.part_id];
+                println!("  Pin {}: part={} pin={} pos=({}, {}) side={:?}", pidx, part.name, pin.name, pin.pos.x, pin.pos.y, pin.side);
+            }
+            for &vidx in &net.via_indices {
+                let via = &board.vias[vidx];
+                println!("  Via {}: pos=({}, {}) side={:?}", vidx, via.pos.x, via.pos.y, via.side);
+            }
+        }
     }
 
     #[test]

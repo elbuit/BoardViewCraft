@@ -671,9 +671,11 @@ pub fn generate_board_meshes(
     let (via_normal_mesh, via_highlight_mesh): (Mesh, Mesh) = visible_via_indices
         .par_iter()
         .map(|&idx| (idx, &b.vias[idx]))
-        .filter(|(_idx, via)| {
+        .filter(|(idx, via)| {
             let is_on_cur_side = via.side.visible_on(vp.side);
-            if !show_opposite_elements && !is_on_cur_side {
+            let is_net_selected = active_membership.contains_via(*idx);
+            let allow_opposite = show_opposite_elements || is_net_selected;
+            if !allow_opposite && !is_on_cur_side {
                 return false;
             }
             via.pos.x >= visible_world.min_x
@@ -695,13 +697,25 @@ pub fn generate_board_meshes(
                     let screen_r = raw_screen_r.clamp(2.0, 30.0);
                     Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
                 } else if is_net_selected {
-                    Renderer::append_lod_circle_to_mesh(
-                        &mut hl_mesh,
-                        screen_pos,
-                        raw_screen_r,
-                        is_high_density,
-                        tokens.via_highlight,
-                    );
+                    if is_on_cur_side {
+                        Renderer::append_lod_circle_to_mesh(
+                            &mut hl_mesh,
+                            screen_pos,
+                            raw_screen_r,
+                            is_high_density,
+                            tokens.via_highlight,
+                        );
+                    } else {
+                        // Opposite side via of selected net: render as distinct hollow outline
+                        let stroke_w = if is_high_density { 1.2 } else { 1.6 };
+                        Renderer::append_circle_outline_to_mesh(
+                            &mut hl_mesh,
+                            screen_pos,
+                            raw_screen_r.clamp(1.5, 30.0),
+                            stroke_w,
+                            tokens.pin_highlight_opp_side,
+                        );
+                    }
                 } else {
                     let color = if is_on_cur_side {
                         tokens.via_cur_side
@@ -844,47 +858,85 @@ pub fn generate_board_meshes(
     }
 
     // 5. Net lines web (Batched line mesh inside cached render pipeline)
+    // Uses Minimum Spanning Tree (MST) so that every connected pin and via on the net
+    // is daisy-chained along shortest Euclidean paths, matching real EDA flight lines.
     if show_net_web {
-        if let Some(sel_idx) = selected_pin_idx {
-            if let Some(sel_pin) = b.pins.get(sel_idx) {
-                let net_name = &sel_pin.net_name;
-                let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
-                    || net_name.eq_ignore_ascii_case("GROUND")
-                    || net_name.starts_with("UNCONNECTED")
-                    || net_name.is_empty();
+        if let Some(net_name) = selected_net {
+            let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
+                || net_name.eq_ignore_ascii_case("GROUND")
+                || net_name.starts_with("UNCONNECTED")
+                || net_name.is_empty();
 
-                if !is_ground_or_power {
-                    if let Some(net) = b.nets.get(net_name) {
-                        if net.pin_indices.len() + net.via_indices.len() <= 250 {
-                            let sel_pos = vp.world_to_screen(sel_pin.pos, rect);
-                            let mut segments = Vec::new();
+            if !is_ground_or_power {
+                if let Some(net) = b.nets.get(net_name) {
+                    let total_nodes = net.pin_indices.len() + net.via_indices.len();
+                    if total_nodes >= 2 && total_nodes <= 300 {
+                        // Collect world coordinates of all net pins and vias
+                        let mut nodes: Vec<Point> = Vec::with_capacity(total_nodes);
+                        for &pidx in &net.pin_indices {
+                            if let Some(pin) = b.pins.get(pidx) {
+                                nodes.push(pin.pos);
+                            }
+                        }
+                        for &vidx in &net.via_indices {
+                            if let Some(via) = b.vias.get(vidx) {
+                                nodes.push(via.pos);
+                            }
+                        }
 
-                            for &other_idx in &net.pin_indices {
-                                if other_idx != sel_idx {
-                                    if let Some(other_pin) = b.pins.get(other_idx) {
-                                        let other_pos = vp.world_to_screen(other_pin.pos, rect);
-                                        segments.push((sel_pos, other_pos));
+                        // Compute Euclidean Minimum Spanning Tree using Prim's algorithm
+                        let n = nodes.len();
+                        let mut in_mst = vec![false; n];
+                        let mut min_dist = vec![f64::INFINITY; n];
+                        let mut parent = vec![0usize; n];
+
+                        in_mst[0] = true;
+                        for v in 1..n {
+                            min_dist[v] = nodes[0].dist(nodes[v]);
+                            parent[v] = 0;
+                        }
+
+                        let mut segments = Vec::with_capacity(n - 1);
+                        for _ in 1..n {
+                            let mut best_u = usize::MAX;
+                            let mut best_d = f64::INFINITY;
+                            for u in 1..n {
+                                if !in_mst[u] && min_dist[u] < best_d {
+                                    best_d = min_dist[u];
+                                    best_u = u;
+                                }
+                            }
+
+                            if best_u == usize::MAX {
+                                break;
+                            }
+
+                            in_mst[best_u] = true;
+                            let p_u = vp.world_to_screen(nodes[best_u], rect);
+                            let p_parent = vp.world_to_screen(nodes[parent[best_u]], rect);
+                            segments.push((p_u, p_parent));
+
+                            // Update neighbor distances from best_u
+                            for v in 1..n {
+                                if !in_mst[v] {
+                                    let d = nodes[best_u].dist(nodes[v]);
+                                    if d < min_dist[v] {
+                                        min_dist[v] = d;
+                                        parent[v] = best_u;
                                     }
                                 }
                             }
+                        }
 
-                            for &via_idx in &net.via_indices {
-                                if let Some(via) = b.vias.get(via_idx) {
-                                    let via_pos = vp.world_to_screen(via.pos, rect);
-                                    segments.push((sel_pos, via_pos));
-                                }
-                            }
-
-                            if !segments.is_empty() {
-                                let mut web_mesh = Mesh::default();
-                                Renderer::append_lines_to_mesh(
-                                    &mut web_mesh,
-                                    &segments,
-                                    0.75, // half_width = 0.75 (1.5 px line)
-                                    tokens.net_web,
-                                );
-                                new_meshes.push(web_mesh);
-                            }
+                        if !segments.is_empty() {
+                            let mut web_mesh = Mesh::default();
+                            Renderer::append_lines_to_mesh(
+                                &mut web_mesh,
+                                &segments,
+                                0.75, // half_width = 0.75 (1.5 px line)
+                                tokens.net_web,
+                            );
+                            new_meshes.push(web_mesh);
                         }
                     }
                 }
@@ -900,6 +952,49 @@ mod tests {
     use super::*;
     use bvc_core::{Pin, Point, Side, Via};
     use std::time::Instant;
+
+    #[test]
+    fn test_c35_pin1_net_rendering() {
+        let file_path = "/media/no_raid/devel/boarview/MS-V375 REV 7.0.cad";
+        if !std::path::Path::new(file_path).exists() {
+            return;
+        }
+        let data = std::fs::read(file_path).expect("read cad");
+        let registry = bvc_core::ParserRegistry::default();
+        let board = registry.parse_file("MS-V375.cad", &data).expect("parse cad");
+
+        let net = board.nets.get("IFPC_TXC*").expect("find IFPC_TXC*");
+        println!("IFPC_TXC* pin_indices: {:?}", net.pin_indices);
+        println!("IFPC_TXC* via_indices: {:?}", net.via_indices);
+
+        let mut vp = Viewport::default();
+        let bbox = board.bounding_box.unwrap();
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+        vp.fit_to_rect(bbox, canvas_rect);
+
+        let tokens = Tokens::DARK;
+        let mut renderer = Renderer::new();
+
+        let c35_pin_idx = net.pin_indices[1]; // Pin 7768 (C35-1)
+        let meshes = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            Some(c35_pin_idx),
+            None,
+            Some("IFPC_TXC*"),
+            None,
+            None,
+            &mut renderer,
+            true, // show_net_web
+            false, // show_opposite_elements
+        );
+
+        println!("Generated {} meshes for whole board view", meshes.len());
+        let last_mesh = meshes.last().unwrap();
+        println!("Net web vertices: {}, indices: {}", last_mesh.vertices.len(), last_mesh.indices.len());
+    }
 
     #[test]
     fn bench_dense_net_tessellation() {
