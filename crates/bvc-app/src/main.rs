@@ -114,6 +114,42 @@ impl eframe::App for BoardViewApp {
             self.preferences_open = !self.preferences_open;
         }
 
+        // Actions shortcuts: R (Rotate CW), Shift+R (Rotate CCW), Space (Flip Side), M (Mirror X), Shift+M (Mirror Y), F (Fit)
+        if !self.preferences_open {
+            let (r_pressed, shift_down, space_pressed, m_pressed) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::R),
+                    i.modifiers.shift,
+                    i.key_pressed(egui::Key::Space),
+                    i.key_pressed(egui::Key::M),
+                )
+            });
+
+            if r_pressed {
+                self.canvas_state.viewport.rotation = if shift_down {
+                    self.canvas_state.viewport.rotation.rotate_ccw()
+                } else {
+                    self.canvas_state.viewport.rotation.rotate_cw()
+                };
+            }
+
+            if space_pressed {
+                self.canvas_state.viewport.side = if self.canvas_state.viewport.side == Side::Top {
+                    Side::Bottom
+                } else {
+                    Side::Top
+                };
+            }
+
+            if m_pressed {
+                if shift_down {
+                    self.canvas_state.viewport.mirror_y = !self.canvas_state.viewport.mirror_y;
+                } else {
+                    self.canvas_state.viewport.mirror_x = !self.canvas_state.viewport.mirror_x;
+                }
+            }
+        }
+
         // Cadcraft top toolbar
         Panel::top("top_bar").show(ui, |ui: &mut Ui| {
             ui.add_space(3.0);
@@ -125,17 +161,61 @@ impl eframe::App for BoardViewApp {
                     self.open_file_dialog();
                 }
 
+                // Actions Menu dropdown
+                ui.menu_button("Actions", |ui| {
+                    if ui.button("Rotate 90° CW (R)").clicked() {
+                        self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
+                        ui.close();
+                    }
+                    if ui.button("Rotate 90° CCW (Shift+R)").clicked() {
+                        self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_ccw();
+                        ui.close();
+                    }
+                    if ui.button("Rotate 180°").clicked() {
+                        self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_180();
+                        ui.close();
+                    }
+                    ui.separator();
+                    let is_top = self.canvas_state.viewport.side == Side::Top;
+                    if ui.button(if is_top { "Flip to BOTTOM (Space)" } else { "Flip to TOP (Space)" }).clicked() {
+                        self.canvas_state.viewport.side = if is_top { Side::Bottom } else { Side::Top };
+                        ui.close();
+                    }
+                    if ui.button(format!("Mirror X [Horizontal] (M) [{}]", if self.canvas_state.viewport.mirror_x { "ON" } else { "OFF" })).clicked() {
+                        self.canvas_state.viewport.mirror_x = !self.canvas_state.viewport.mirror_x;
+                        ui.close();
+                    }
+                    if ui.button(format!("Mirror Y [Vertical] (Shift+M) [{}]", if self.canvas_state.viewport.mirror_y { "ON" } else { "OFF" })).clicked() {
+                        self.canvas_state.viewport.mirror_y = !self.canvas_state.viewport.mirror_y;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Reset Orientation").clicked() {
+                        self.canvas_state.viewport.rotation = canvas::Rotation::Deg0;
+                        self.canvas_state.viewport.mirror_x = false;
+                        self.canvas_state.viewport.mirror_y = false;
+                        self.canvas_state.viewport.side = Side::Top;
+                        ui.close();
+                    }
+                });
+
                 if ui.button("Preferences...").clicked() {
                     self.preferences_open = true;
                 }
 
                 ui.separator();
 
-                // Flip side toggle
+                // Quick flip side button
                 let is_top = self.canvas_state.viewport.side == Side::Top;
-                let toggle_label = if is_top { "View: TOP (Flip)" } else { "View: BOTTOM (Flip)" };
-                if ui.button(toggle_label).clicked() {
+                let toggle_label = if is_top { "View: TOP" } else { "View: BOTTOM" };
+                if ui.button(toggle_label).on_hover_text("Click or press Space to flip board side").clicked() {
                     self.canvas_state.viewport.side = if is_top { Side::Bottom } else { Side::Top };
+                }
+
+                // Quick rotation button
+                let rot_label = format!("Rotate: {}", self.canvas_state.viewport.rotation.display_str());
+                if ui.button(rot_label).on_hover_text("Click or press R to rotate 90° CW").clicked() {
+                    self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
                 }
 
                 // Fit to window
@@ -169,11 +249,18 @@ impl eframe::App for BoardViewApp {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut Ui| {
                     let side_str = match self.canvas_state.viewport.side {
-                        Side::Top => "TOP SIDE",
-                        Side::Bottom => "BOTTOM SIDE",
+                        Side::Top => "TOP",
+                        Side::Bottom => "BOTTOM",
                         Side::Both => "BOTH",
                     };
-                    ui.label(RichText::new(format!("[{side_str}] Scale: {:.4}", self.canvas_state.viewport.scale)).color(self.tokens.text_dim));
+                    let rot_str = self.canvas_state.viewport.rotation.display_str();
+                    let mirror_str = match (self.canvas_state.viewport.mirror_x, self.canvas_state.viewport.mirror_y) {
+                        (true, true) => " [Mirror XY]",
+                        (true, false) => " [Mirror X]",
+                        (false, true) => " [Mirror Y]",
+                        (false, false) => "",
+                    };
+                    ui.label(RichText::new(format!("[{side_str} | Rot: {rot_str}{mirror_str}] Scale: {:.4}", self.canvas_state.viewport.scale)).color(self.tokens.text_dim));
                 });
             });
             ui.add_space(2.0);

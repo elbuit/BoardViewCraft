@@ -7,6 +7,64 @@ use egui::epaint::Mesh;
 use egui::{Color32, FontId, Pos2, Rect as EguiRect, Response, Sense, Stroke, Ui};
 use rayon::prelude::*;
 
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Rotation {
+    #[default]
+    Deg0,
+    Deg90,
+    Deg180,
+    Deg270,
+}
+
+impl Rotation {
+    pub fn rotate_cw(self) -> Self {
+        match self {
+            Rotation::Deg0 => Rotation::Deg90,
+            Rotation::Deg90 => Rotation::Deg180,
+            Rotation::Deg180 => Rotation::Deg270,
+            Rotation::Deg270 => Rotation::Deg0,
+        }
+    }
+
+    pub fn rotate_ccw(self) -> Self {
+        match self {
+            Rotation::Deg0 => Rotation::Deg270,
+            Rotation::Deg270 => Rotation::Deg180,
+            Rotation::Deg180 => Rotation::Deg90,
+            Rotation::Deg90 => Rotation::Deg0,
+        }
+    }
+
+    pub fn rotate_180(self) -> Self {
+        match self {
+            Rotation::Deg0 => Rotation::Deg180,
+            Rotation::Deg90 => Rotation::Deg270,
+            Rotation::Deg180 => Rotation::Deg0,
+            Rotation::Deg270 => Rotation::Deg90,
+        }
+    }
+
+    pub fn angle_rad(self) -> f32 {
+        match self {
+            Rotation::Deg0 => 0.0,
+            Rotation::Deg90 => std::f32::consts::FRAC_PI_2,
+            Rotation::Deg180 => std::f32::consts::PI,
+            Rotation::Deg270 => 3.0 * std::f32::consts::FRAC_PI_2,
+        }
+    }
+
+    pub fn display_str(self) -> &'static str {
+        match self {
+            Rotation::Deg0 => "0°",
+            Rotation::Deg90 => "90°",
+            Rotation::Deg180 => "180°",
+            Rotation::Deg270 => "270°",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Viewport {
     /// Center of the view in board coordinates (mils)
@@ -15,6 +73,12 @@ pub struct Viewport {
     pub scale: f32,
     /// Active side view (Top or Bottom)
     pub side: Side,
+    /// Rotation in screen plane
+    pub rotation: Rotation,
+    /// Mirror horizontally (X axis)
+    pub mirror_x: bool,
+    /// Mirror vertically (Y axis)
+    pub mirror_y: bool,
 }
 
 impl Default for Viewport {
@@ -23,56 +87,88 @@ impl Default for Viewport {
             center: Point::ZERO,
             scale: 0.05,
             side: Side::Top,
+            rotation: Rotation::Deg0,
+            mirror_x: false,
+            mirror_y: false,
         }
     }
 }
 
 impl Viewport {
+    /// Effective scale multipliers including side and user mirror flags
+    #[inline]
+    fn effective_factors(&self) -> (f32, f32) {
+        let is_bottom_flipped = self.side == Side::Bottom;
+        let sx = if is_bottom_flipped ^ self.mirror_x {
+            -1.0
+        } else {
+            1.0
+        };
+        let sy = if self.mirror_y { -1.0 } else { 1.0 };
+        (sx, sy)
+    }
+
     /// Transforms world point to screen point.
-    /// When viewing the bottom side, the X axis is mirrored so the board appears naturally flipped.
     pub fn world_to_screen(&self, pt: Point, canvas_rect: EguiRect) -> Pos2 {
         let center_screen = canvas_rect.center();
-        let dx = (pt.x - self.center.x) as f32;
-        let dy = (pt.y - self.center.y) as f32;
+        let (sx, sy) = self.effective_factors();
 
-        let screen_x = if self.side == Side::Bottom {
-            center_screen.x - dx * self.scale
-        } else {
-            center_screen.x + dx * self.scale
-        };
+        // 1. Offset relative to board center and apply reflections
+        let dx = (pt.x - self.center.x) as f32 * sx;
+        let dy = (pt.y - self.center.y) as f32 * sy;
 
-        // Y is inverted in standard screen space (up is negative Y on screen, but positive in CAD)
-        let screen_y = center_screen.y - dy * self.scale;
+        // 2. CAD-to-Screen Y inversion (CAD +Y is up, screen +Y is down)
+        let dy_cad = -dy;
+
+        // 3. 2D rotation in screen plane
+        let theta = self.rotation.angle_rad();
+        let (sin_t, cos_t) = theta.sin_cos();
+        let x_rot = dx * cos_t - dy_cad * sin_t;
+        let y_rot = dx * sin_t + dy_cad * cos_t;
+
+        // 4. Uniform scaling and translation to canvas center
+        let screen_x = center_screen.x + x_rot * self.scale;
+        let screen_y = center_screen.y + y_rot * self.scale;
 
         Pos2::new(screen_x, screen_y)
     }
 
-    /// Transforms screen point to world point.
+    /// Transforms screen point to world point. Exact mathematical inverse of `world_to_screen`.
     pub fn screen_to_world(&self, screen_pt: Pos2, canvas_rect: EguiRect) -> Point {
         let center_screen = canvas_rect.center();
-        let sx = screen_pt.x - center_screen.x;
-        let sy = screen_pt.y - center_screen.y;
+        let (sx, sy) = self.effective_factors();
 
-        let world_x = if self.side == Side::Bottom {
-            self.center.x - (sx / self.scale) as f64
-        } else {
-            self.center.x + (sx / self.scale) as f64
-        };
+        // 1. Un-center and un-scale
+        let x_rot = (screen_pt.x - center_screen.x) / self.scale;
+        let y_rot = (screen_pt.y - center_screen.y) / self.scale;
 
-        let world_y = self.center.y - (sy / self.scale) as f64;
+        // 2. Reverse rotation by -theta
+        let theta = self.rotation.angle_rad();
+        let (sin_t, cos_t) = theta.sin_cos();
+        let dx = x_rot * cos_t + y_rot * sin_t;
+        let dy_cad = -x_rot * sin_t + y_rot * cos_t;
+
+        // 3. Reverse CAD Y inversion
+        let dy = -dy_cad;
+
+        // 4. Reverse reflections and restore world center
+        let world_x = self.center.x + (dx / sx) as f64;
+        let world_y = self.center.y + (dy / sy) as f64;
 
         Point::new(world_x, world_y)
     }
 
     /// Returns the visible world rectangle for the given screen canvas rect.
     pub fn visible_world_rect(&self, canvas_rect: EguiRect) -> Rect {
-        let p_tl = self.screen_to_world(canvas_rect.left_top(), canvas_rect);
-        let p_br = self.screen_to_world(canvas_rect.right_bottom(), canvas_rect);
+        let p1 = self.screen_to_world(canvas_rect.left_top(), canvas_rect);
+        let p2 = self.screen_to_world(canvas_rect.right_top(), canvas_rect);
+        let p3 = self.screen_to_world(canvas_rect.left_bottom(), canvas_rect);
+        let p4 = self.screen_to_world(canvas_rect.right_bottom(), canvas_rect);
 
-        let min_x = p_tl.x.min(p_br.x);
-        let max_x = p_tl.x.max(p_br.x);
-        let min_y = p_tl.y.min(p_br.y);
-        let max_y = p_tl.y.max(p_br.y);
+        let min_x = p1.x.min(p2.x).min(p3.x).min(p4.x);
+        let max_x = p1.x.max(p2.x).max(p3.x).max(p4.x);
+        let min_y = p1.y.min(p2.y).min(p3.y).min(p4.y);
+        let max_y = p1.y.max(p2.y).max(p3.y).max(p4.y);
 
         Rect {
             min_x,
@@ -91,8 +187,13 @@ impl Viewport {
         let avail_w = (canvas_rect.width() - margin).max(10.0);
         let avail_h = (canvas_rect.height() - margin).max(10.0);
 
-        let scale_x = avail_w / board_w;
-        let scale_y = avail_h / board_h;
+        let (dim_w, dim_h) = match self.rotation {
+            Rotation::Deg0 | Rotation::Deg180 => (board_w, board_h),
+            Rotation::Deg90 | Rotation::Deg270 => (board_h, board_w),
+        };
+
+        let scale_x = avail_w / dim_w;
+        let scale_y = avail_h / dim_h;
         self.scale = scale_x.min(scale_y).clamp(0.001, 100.0);
         self.center = bbox.center();
     }
@@ -103,6 +204,9 @@ pub struct ViewCacheKey {
     pub center: (i64, i64), // scaled integer for float comparison or approx
     pub scale_bits: u32,
     pub side: Side,
+    pub rotation: Rotation,
+    pub mirror_x: bool,
+    pub mirror_y: bool,
     pub rect_size: (u32, u32),
     pub selected_pin: Option<usize>,
     pub selected_net: Option<String>,
@@ -110,6 +214,7 @@ pub struct ViewCacheKey {
     pub hovered_pin: Option<usize>,
     pub hovered_via: Option<usize>,
     pub board_ptr: usize,
+    pub show_net_web: bool,
 }
 
 pub struct CanvasState {
@@ -200,14 +305,20 @@ pub fn show_canvas(
         || response.dragged_by(egui::PointerButton::Primary)
     {
         let delta = response.drag_delta();
-        let dx = delta.x / vp.scale;
-        let dy = -delta.y / vp.scale;
+        // Calculate world delta by taking screen delta through inverted un-rotation
+        let (sx, sy) = vp.effective_factors();
+        let theta = vp.rotation.angle_rad();
+        let (sin_t, cos_t) = theta.sin_cos();
 
-        if vp.side == Side::Bottom {
-            vp.center.x -= dx as f64;
-        } else {
-            vp.center.x += dx as f64;
-        }
+        // Screen delta to unrotated delta
+        let dx_rot = delta.x / vp.scale;
+        let dy_rot = delta.y / vp.scale;
+
+        let dx = (dx_rot * cos_t + dy_rot * sin_t) / sx;
+        let dy_cad = -dx_rot * sin_t + dy_rot * cos_t;
+        let dy = -dy_cad / sy;
+
+        vp.center.x -= dx as f64;
         vp.center.y += dy as f64;
     }
 
@@ -287,6 +398,9 @@ pub fn show_canvas(
             center: ((vp.center.x * 1000.0) as i64, (vp.center.y * 1000.0) as i64),
             scale_bits: vp.scale.to_bits(),
             side: vp.side,
+            rotation: vp.rotation,
+            mirror_x: vp.mirror_x,
+            mirror_y: vp.mirror_y,
             rect_size: (rect.width().round() as u32, rect.height().round() as u32),
             selected_pin: *selected_pin_idx,
             selected_net: selected_net.clone(),
@@ -294,6 +408,7 @@ pub fn show_canvas(
             hovered_pin: current_hover_pin,
             hovered_via: current_hover_via,
             board_ptr,
+            show_net_web,
         };
 
         if canvas_state.cached_view_key.as_ref() == Some(&current_key) {
@@ -767,6 +882,54 @@ mod tests {
         assert!(!meshes.is_empty(), "Meshes must be produced for GND");
         println!("Dense net tessellation (4,755 GND nodes) took {:?}", elapsed);
         assert!(elapsed.as_millis() < 80, "Tessellation took {:?}, expected < 80ms in debug build", elapsed);
+    }
+
+    #[test]
+    fn test_viewport_bijective_invariance() {
+        let canvas_rect = EguiRect::from_min_size(Pos2::new(100.0, 50.0), egui::vec2(1280.0, 800.0));
+        let sample_points = [
+            Point::new(0.0, 0.0),
+            Point::new(1234.56, -789.12),
+            Point::new(-4567.89, 3210.45),
+            Point::new(500.0, 500.0),
+        ];
+
+        let rotations = [
+            Rotation::Deg0,
+            Rotation::Deg90,
+            Rotation::Deg180,
+            Rotation::Deg270,
+        ];
+        let sides = [Side::Top, Side::Bottom];
+        let mirrors = [false, true];
+
+        for &rotation in &rotations {
+            for &side in &sides {
+                for &mirror_x in &mirrors {
+                    for &mirror_y in &mirrors {
+                        let vp = Viewport {
+                            center: Point::new(250.0, -150.0),
+                            scale: 0.125,
+                            side,
+                            rotation,
+                            mirror_x,
+                            mirror_y,
+                        };
+
+                        for &p in &sample_points {
+                            let screen = vp.world_to_screen(p, canvas_rect);
+                            let recovered = vp.screen_to_world(screen, canvas_rect);
+                            let err = ((recovered.x - p.x).powi(2) + (recovered.y - p.y).powi(2)).sqrt();
+                            assert!(
+                                err < 1e-3,
+                                "Bijective invariance failed for p={:?}, rot={:?}, side={:?}, mx={}, my={}: err={}",
+                                p, rotation, side, mirror_x, mirror_y, err
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
