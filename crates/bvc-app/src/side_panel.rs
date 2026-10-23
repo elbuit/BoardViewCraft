@@ -1,5 +1,6 @@
 //! Side inspection panel for BoardViewCraft.
 
+use crate::i18n::{self, Language};
 use crate::theme::Tokens;
 use bvc_core::{Board, Side};
 use egui::{RichText, ScrollArea, TextEdit, Ui};
@@ -36,22 +37,23 @@ pub fn show_side_panel(
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
     current_side: Side,
+    lang: Language,
 ) {
     ui.horizontal(|ui| {
         if ui
-            .selectable_label(state.active_tab == Tab::Net, "Net Details")
+            .selectable_label(state.active_tab == Tab::Net, i18n::tr(lang, "side_panel.net_details"))
             .clicked()
         {
             state.active_tab = Tab::Net;
         }
         if ui
-            .selectable_label(state.active_tab == Tab::Part, "Part Details")
+            .selectable_label(state.active_tab == Tab::Part, i18n::tr(lang, "side_panel.part_details"))
             .clicked()
         {
             state.active_tab = Tab::Part;
         }
         if ui
-            .selectable_label(state.active_tab == Tab::Search, "Search / List")
+            .selectable_label(state.active_tab == Tab::Search, i18n::tr(lang, "side_panel.search"))
             .clicked()
         {
             state.active_tab = Tab::Search;

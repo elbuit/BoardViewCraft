@@ -1,0 +1,164 @@
+//! Internationalization (i18n) module for BoardViewCraft.
+//! Supports English, Spanish, and Catalan.
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Language {
+    #[default]
+    English,
+    Spanish,
+    Catalan,
+}
+
+impl Language {
+    pub const ALL: [Language; 3] = [Language::English, Language::Spanish, Language::Catalan];
+
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Language::English => "English",
+            Language::Spanish => "Español",
+            Language::Catalan => "Català",
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Language::English => "en",
+            Language::Spanish => "es",
+            Language::Catalan => "ca",
+        }
+    }
+}
+
+/// Translates a given key into the target language.
+pub fn tr(lang: Language, key: &'static str) -> &'static str {
+    match lang {
+        Language::English => match key {
+            "app.title" => "BoardViewCraft - Pure Rust CAD Board Viewer",
+            "toolbar.open_cad" => "Open CAD...",
+            "toolbar.actions" => "Actions",
+            "toolbar.preferences" => "Preferences...",
+            "toolbar.fit_window" => "Fit Window (F)",
+            "toolbar.zoom_reset" => "1:1",
+            "toolbar.view_top" => "View: TOP",
+            "toolbar.view_bottom" => "View: BOTTOM",
+            "toolbar.rotate" => "Rotate",
+            "status.ready" => "Ready. Open a .cad file to inspect.",
+            "actions.rotate_cw" => "Rotate 90° CW (R)",
+            "actions.rotate_ccw" => "Rotate 90° CCW (Shift+R)",
+            "actions.rotate_180" => "Rotate 180°",
+            "actions.flip_bottom" => "Flip to BOTTOM (Space)",
+            "actions.flip_top" => "Flip to TOP (Space)",
+            "actions.mirror_x" => "Mirror X [Horizontal] (M)",
+            "actions.mirror_y" => "Mirror Y [Vertical] (Shift+M)",
+            "actions.reset" => "Reset Orientation",
+            "side_panel.net_details" => "Net Details",
+            "side_panel.part_details" => "Part Details",
+            "side_panel.search" => "Search",
+            "side_panel.pins_on_net" => "Pins on Net:",
+            "side_panel.vias_on_net" => "Vias on Net:",
+            "side_panel.search_parts" => "Search Parts:",
+            "side_panel.search_nets" => "Search Nets:",
+            "side_panel.side" => "Side",
+            "side_panel.pins" => "Pins",
+            "prefs.title" => "Preferences",
+            "prefs.language" => "Language:",
+            "prefs.appearance" => "Appearance & Theme",
+            "prefs.color_scheme" => "Color Scheme:",
+            "prefs.custom_colors" => "Customize Colors:",
+            "prefs.visualization" => "Visualization",
+            "prefs.show_net_web" => "Show Net Web (Ratline connection lines)",
+            "prefs.show_part_labels" => "Show Part Designators",
+            "prefs.show_pin_annotations" => "Show Pin Annotations & Numbers",
+            "prefs.adaptive_lod" => "Adaptive LOD Decimation",
+            "prefs.show_opposite" => "Show Opposite Side Elements (X-Ray)",
+            "prefs.close" => "Close",
+            _ => key,
+        },
+        Language::Spanish => match key {
+            "app.title" => "BoardViewCraft - Visor CAD de Placas en Rust",
+            "toolbar.open_cad" => "Abrir CAD...",
+            "toolbar.actions" => "Acciones",
+            "toolbar.preferences" => "Preferencias...",
+            "toolbar.fit_window" => "Ajustar ventana (F)",
+            "toolbar.zoom_reset" => "1:1",
+            "toolbar.view_top" => "Capa: SUPERIOR",
+            "toolbar.view_bottom" => "Capa: INFERIOR",
+            "toolbar.rotate" => "Rotar",
+            "status.ready" => "Listo. Abre un archivo .cad para inspeccionar.",
+            "actions.rotate_cw" => "Rotar 90° horario (R)",
+            "actions.rotate_ccw" => "Rotar 90° antihorario (Shift+R)",
+            "actions.rotate_180" => "Rotar 180°",
+            "actions.flip_bottom" => "Voltear a INFERIOR (Espacio)",
+            "actions.flip_top" => "Voltear a SUPERIOR (Espacio)",
+            "actions.mirror_x" => "Espejar X [Horizontal] (M)",
+            "actions.mirror_y" => "Espejar Y [Vertical] (Shift+M)",
+            "actions.reset" => "Restablecer orientación",
+            "side_panel.net_details" => "Detalles de Red",
+            "side_panel.part_details" => "Detalles de Componente",
+            "side_panel.search" => "Buscar",
+            "side_panel.pins_on_net" => "Pines en la Red:",
+            "side_panel.vias_on_net" => "Vías en la Red:",
+            "side_panel.search_parts" => "Buscar Componentes:",
+            "side_panel.search_nets" => "Buscar Redes:",
+            "side_panel.side" => "Capa",
+            "side_panel.pins" => "Pines",
+            "prefs.title" => "Preferencias",
+            "prefs.language" => "Idioma:",
+            "prefs.appearance" => "Apariencia y Tema",
+            "prefs.color_scheme" => "Esquema de Color:",
+            "prefs.custom_colors" => "Personalizar Colores:",
+            "prefs.visualization" => "Visualización",
+            "prefs.show_net_web" => "Mostrar Líneas de Red (Telaraña)",
+            "prefs.show_part_labels" => "Mostrar Nombres de Componente",
+            "prefs.show_pin_annotations" => "Mostrar Números y Anotaciones de Pines",
+            "prefs.adaptive_lod" => "Optimización LOD Adaptativa",
+            "prefs.show_opposite" => "Mostrar Elementos de la Cara Opuesta (Rayos X)",
+            "prefs.close" => "Cerrar",
+            _ => key,
+        },
+        Language::Catalan => match key {
+            "app.title" => "BoardViewCraft - Visor CAD de Plaques en Rust",
+            "toolbar.open_cad" => "Obrir CAD...",
+            "toolbar.actions" => "Accions",
+            "toolbar.preferences" => "Preferències...",
+            "toolbar.fit_window" => "Ajustar finestra (F)",
+            "toolbar.zoom_reset" => "1:1",
+            "toolbar.view_top" => "Capa: SUPERIOR",
+            "toolbar.view_bottom" => "Capa: INFERIOR",
+            "toolbar.rotate" => "Girar",
+            "status.ready" => "A punt. Obre un fitxer .cad per a inspeccionar.",
+            "actions.rotate_cw" => "Girar 90° horari (R)",
+            "actions.rotate_ccw" => "Girar 90° antihorari (Shift+R)",
+            "actions.rotate_180" => "Girar 180°",
+            "actions.flip_bottom" => "Girar a INFERIOR (Espai)",
+            "actions.flip_top" => "Girar a SUPERIOR (Espai)",
+            "actions.mirror_x" => "Espillar X [Horitzontal] (M)",
+            "actions.mirror_y" => "Espillar Y [Vertical] (Shift+M)",
+            "actions.reset" => "Restablir orientació",
+            "side_panel.net_details" => "Detalls de Xarxa",
+            "side_panel.part_details" => "Detalls de Component",
+            "side_panel.search" => "Cercar",
+            "side_panel.pins_on_net" => "Pins a la Xarxa:",
+            "side_panel.vias_on_net" => "Vies a la Xarxa:",
+            "side_panel.search_parts" => "Cercar Components:",
+            "side_panel.search_nets" => "Cercar Xarxes:",
+            "side_panel.side" => "Capa",
+            "side_panel.pins" => "Pins",
+            "prefs.title" => "Preferències",
+            "prefs.language" => "Idioma:",
+            "prefs.appearance" => "Aparença i Tema",
+            "prefs.color_scheme" => "Esquema de Color:",
+            "prefs.custom_colors" => "Personalitzar Colors:",
+            "prefs.visualization" => "Visualització",
+            "prefs.show_net_web" => "Mostrar Línies de Xarxa (Telaranya)",
+            "prefs.show_part_labels" => "Mostrar Noms de Component",
+            "prefs.show_pin_annotations" => "Mostrar Nombres i Anotacions de Pins",
+            "prefs.adaptive_lod" => "Optimització LOD Adaptativa",
+            "prefs.show_opposite" => "Mostrar Elements de la Cara Oposada (Raigs X)",
+            "prefs.close" => "Tancar",
+            _ => key,
+        },
+    }
+}

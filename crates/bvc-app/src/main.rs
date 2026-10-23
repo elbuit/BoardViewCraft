@@ -1,6 +1,7 @@
 //! Main application entry point and window runner for BoardViewCraft.
 
 mod canvas;
+mod i18n;
 mod preferences;
 mod render;
 mod side_panel;
@@ -150,6 +151,8 @@ impl eframe::App for BoardViewApp {
             }
         }
 
+        let lang = self.preferences.language;
+
         // Cadcraft top toolbar
         Panel::top("top_bar").show(ui, |ui: &mut Ui| {
             ui.add_space(3.0);
@@ -157,40 +160,40 @@ impl eframe::App for BoardViewApp {
                 ui.heading(RichText::new("BoardViewCraft").strong().color(self.tokens.accent));
                 ui.separator();
 
-                if ui.button("Open CAD...").clicked() {
+                if ui.button(i18n::tr(lang, "toolbar.open_cad")).clicked() {
                     self.open_file_dialog();
                 }
 
                 // Actions Menu dropdown
-                ui.menu_button("Actions", |ui| {
-                    if ui.button("Rotate 90° CW (R)").clicked() {
+                ui.menu_button(i18n::tr(lang, "toolbar.actions"), |ui| {
+                    if ui.button(i18n::tr(lang, "actions.rotate_cw")).clicked() {
                         self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
                         ui.close();
                     }
-                    if ui.button("Rotate 90° CCW (Shift+R)").clicked() {
+                    if ui.button(i18n::tr(lang, "actions.rotate_ccw")).clicked() {
                         self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_ccw();
                         ui.close();
                     }
-                    if ui.button("Rotate 180°").clicked() {
+                    if ui.button(i18n::tr(lang, "actions.rotate_180")).clicked() {
                         self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_180();
                         ui.close();
                     }
                     ui.separator();
                     let is_top = self.canvas_state.viewport.side == Side::Top;
-                    if ui.button(if is_top { "Flip to BOTTOM (Space)" } else { "Flip to TOP (Space)" }).clicked() {
+                    if ui.button(if is_top { i18n::tr(lang, "actions.flip_bottom") } else { i18n::tr(lang, "actions.flip_top") }).clicked() {
                         self.canvas_state.viewport.side = if is_top { Side::Bottom } else { Side::Top };
                         ui.close();
                     }
-                    if ui.button(format!("Mirror X [Horizontal] (M) [{}]", if self.canvas_state.viewport.mirror_x { "ON" } else { "OFF" })).clicked() {
+                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_x"), if self.canvas_state.viewport.mirror_x { "ON" } else { "OFF" })).clicked() {
                         self.canvas_state.viewport.mirror_x = !self.canvas_state.viewport.mirror_x;
                         ui.close();
                     }
-                    if ui.button(format!("Mirror Y [Vertical] (Shift+M) [{}]", if self.canvas_state.viewport.mirror_y { "ON" } else { "OFF" })).clicked() {
+                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_y"), if self.canvas_state.viewport.mirror_y { "ON" } else { "OFF" })).clicked() {
                         self.canvas_state.viewport.mirror_y = !self.canvas_state.viewport.mirror_y;
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button("Reset Orientation").clicked() {
+                    if ui.button(i18n::tr(lang, "actions.reset")).clicked() {
                         self.canvas_state.viewport.rotation = canvas::Rotation::Deg0;
                         self.canvas_state.viewport.mirror_x = false;
                         self.canvas_state.viewport.mirror_y = false;
@@ -199,7 +202,7 @@ impl eframe::App for BoardViewApp {
                     }
                 });
 
-                if ui.button("Preferences...").clicked() {
+                if ui.button(i18n::tr(lang, "toolbar.preferences")).clicked() {
                     self.preferences_open = true;
                 }
 
@@ -207,19 +210,19 @@ impl eframe::App for BoardViewApp {
 
                 // Quick flip side button
                 let is_top = self.canvas_state.viewport.side == Side::Top;
-                let toggle_label = if is_top { "View: TOP" } else { "View: BOTTOM" };
+                let toggle_label = if is_top { i18n::tr(lang, "toolbar.view_top") } else { i18n::tr(lang, "toolbar.view_bottom") };
                 if ui.button(toggle_label).on_hover_text("Click or press Space to flip board side").clicked() {
                     self.canvas_state.viewport.side = if is_top { Side::Bottom } else { Side::Top };
                 }
 
                 // Quick rotation button
-                let rot_label = format!("Rotate: {}", self.canvas_state.viewport.rotation.display_str());
+                let rot_label = format!("{}: {}", i18n::tr(lang, "toolbar.rotate"), self.canvas_state.viewport.rotation.display_str());
                 if ui.button(rot_label).on_hover_text("Click or press R to rotate 90° CW").clicked() {
                     self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
                 }
 
                 // Fit to window
-                if ui.button("Fit Window (F)").clicked() || ui.input(|i| i.key_pressed(egui::Key::F)) {
+                if ui.button(i18n::tr(lang, "toolbar.fit_window")).clicked() || ui.input(|i| i.key_pressed(egui::Key::F)) {
                     if let Some(board) = &self.board {
                         if let Some(bbox) = board.bounding_box {
                             let rect = ui.clip_rect();
@@ -229,7 +232,7 @@ impl eframe::App for BoardViewApp {
                 }
 
                 // Zoom reset
-                if ui.button("1:1").clicked() {
+                if ui.button(i18n::tr(lang, "toolbar.zoom_reset")).clicked() {
                     self.canvas_state.viewport.scale = 0.05;
                 }
 
@@ -281,6 +284,7 @@ impl eframe::App for BoardViewApp {
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
                     self.canvas_state.viewport.side,
+                    self.preferences.language,
                 );
             });
 
@@ -315,8 +319,12 @@ impl eframe::App for BoardViewApp {
         }
 
         if prefs_changed {
-            if prefs.theme != self.preferences.theme {
-                self.tokens = prefs.theme.tokens();
+            if prefs.theme != self.preferences.theme || prefs.custom_tokens != self.preferences.custom_tokens {
+                self.tokens = if prefs.theme == ThemePreset::Custom {
+                    prefs.custom_tokens.unwrap_or(Tokens::DARK)
+                } else {
+                    prefs.theme.tokens()
+                };
                 let is_light = prefs.theme == ThemePreset::LightMode;
                 ui.ctx().set_visuals(self.tokens.egui_visuals(is_light));
             }

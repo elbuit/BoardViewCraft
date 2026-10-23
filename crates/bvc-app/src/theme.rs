@@ -10,14 +10,16 @@ pub enum ThemePreset {
     OpenBoardViewClassic,
     HighContrast,
     LightMode,
+    Custom,
 }
 
 impl ThemePreset {
-    pub const ALL: [ThemePreset; 4] = [
+    pub const ALL: [ThemePreset; 5] = [
         ThemePreset::CadcraftDark,
         ThemePreset::OpenBoardViewClassic,
         ThemePreset::HighContrast,
         ThemePreset::LightMode,
+        ThemePreset::Custom,
     ];
 
     pub fn display_name(&self) -> &'static str {
@@ -26,6 +28,7 @@ impl ThemePreset {
             ThemePreset::OpenBoardViewClassic => "OpenBoardView Classic",
             ThemePreset::HighContrast => "High Contrast",
             ThemePreset::LightMode => "Light Mode",
+            ThemePreset::Custom => "Custom...",
         }
     }
 
@@ -35,11 +38,12 @@ impl ThemePreset {
             ThemePreset::OpenBoardViewClassic => Tokens::OPEN_BOARD_VIEW,
             ThemePreset::HighContrast => Tokens::HIGH_CONTRAST,
             ThemePreset::LightMode => Tokens::LIGHT,
+            ThemePreset::Custom => Tokens::DARK,
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tokens {
     pub chrome: Color32,
     pub chrome_dark: Color32,
