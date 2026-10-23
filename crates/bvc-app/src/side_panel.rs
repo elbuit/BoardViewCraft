@@ -72,8 +72,9 @@ pub fn show_side_panel(
             if let Some(net_name) = selected_net {
                 ui.horizontal(|ui| {
                     ui.heading(RichText::new(format!("Net: {net_name}")).color(tokens.accent));
-                    if ui.button("📋").on_hover_text("Copy net name to clipboard").clicked() {
-                        ui.ctx().copy_text(net_name.clone());
+                    if ui.button("📋").on_hover_text("Copy full net details (TSV) to clipboard").clicked() {
+                        let text = export_net_details_tsv(b, net_name);
+                        ui.ctx().copy_text(text);
                     }
                 });
                 if let Some(net) = b.get_net(net_name) {
@@ -177,8 +178,9 @@ pub fn show_side_panel(
                 if let Some(part) = b.parts.get(*part_id) {
                     ui.horizontal(|ui| {
                         ui.heading(RichText::new(format!("Part: {}", part.name)).color(tokens.accent));
-                        if ui.button("📋").on_hover_text("Copy part name to clipboard").clicked() {
-                            ui.ctx().copy_text(part.name.clone());
+                        if ui.button("📋").on_hover_text("Copy full part details (TSV) to clipboard").clicked() {
+                            let text = export_part_details_tsv(b, part);
+                            ui.ctx().copy_text(text);
                         }
                     });
                     let side_str = match part.side {
@@ -322,3 +324,135 @@ pub fn show_side_panel(
         }
     }
 }
+
+pub fn export_net_details_tsv(b: &Board, net_name: &str) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("Net:\t{}\n", net_name));
+    if let Some(net) = b.get_net(net_name) {
+        out.push_str(&format!("Pins:\t{}\tVias:\t{}\n\n", net.pin_indices.len(), net.via_indices.len()));
+        out.push_str("Pins on Net:\n");
+        out.push_str("Part\tPin\tSide\tX (mil)\tY (mil)\n");
+        for &pin_idx in &net.pin_indices {
+            if let Some(pin) = b.pins.get(pin_idx) {
+                let part_name = b.parts.get(pin.part_id).map(|p| p.name.as_str()).unwrap_or("?");
+                let side_str = match pin.side {
+                    Side::Top => "Top",
+                    Side::Bottom => "Bottom",
+                    Side::Both => "Both",
+                };
+                out.push_str(&format!("{}\t{}\t{}\t{:.2}\t{:.2}\n", part_name, pin.name, side_str, pin.pos.x, pin.pos.y));
+            }
+        }
+
+        if !net.via_indices.is_empty() {
+            out.push_str("\nVias on Net:\n");
+            out.push_str("Via ID\tSide\tX (mil)\tY (mil)\n");
+            for &via_idx in &net.via_indices {
+                if let Some(via) = b.vias.get(via_idx) {
+                    let side_str = match via.side {
+                        Side::Top => "Top",
+                        Side::Bottom => "Bottom",
+                        Side::Both => "Both",
+                    };
+                    out.push_str(&format!("{}\t{}\t{:.2}\t{:.2}\n", via.id, side_str, via.pos.x, via.pos.y));
+                }
+            }
+        }
+    }
+    out
+}
+
+pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
+    let mut out = String::new();
+    let side_str = match part.side {
+        Side::Top => "Top",
+        Side::Bottom => "Bottom",
+        Side::Both => "Both",
+    };
+    out.push_str(&format!("Part:\t{}\nSide:\t{}\nPins:\t{}\n\n", part.name, side_str, part.pin_indices.len()));
+    out.push_str("Pins:\n");
+    out.push_str("Pin\tNet\tSide\tX (mil)\tY (mil)\n");
+    for &pin_idx in &part.pin_indices {
+        if let Some(pin) = b.pins.get(pin_idx) {
+            let net = if pin.net_name.is_empty() { "UNCONNECTED" } else { &pin.net_name };
+            let pin_side = match pin.side {
+                Side::Top => "Top",
+                Side::Bottom => "Bottom",
+                Side::Both => "Both",
+            };
+            out.push_str(&format!("{}\t{}\t{}\t{:.2}\t{:.2}\n", pin.name, net, pin_side, pin.pos.x, pin.pos.y));
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bvc_core::{Part, PartType, Pin, Point};
+
+    #[test]
+    fn test_export_net_details_tsv() {
+        let mut board = Board::default();
+        board.parts.push(Part {
+            id: 0,
+            name: "U1".to_string(),
+            mfg_code: String::new(),
+            side: Side::Top,
+            part_type: PartType::Smd,
+            p1: Point::ZERO,
+            p2: Point::ZERO,
+            bounding_box: None,
+            pin_indices: vec![0],
+        });
+        board.pins.push(Pin {
+            id: 0,
+            name: "1".to_string(),
+            part_id: 0,
+            net_name: "VCC".to_string(),
+            pos: Point::new(10.5, 20.25),
+            radius: 15.0,
+            side: Side::Top,
+        });
+        board.rebuild_indices();
+
+        let tsv = export_net_details_tsv(&board, "VCC");
+        assert!(tsv.contains("Net:\tVCC"));
+        assert!(tsv.contains("U1\t1\tTop\t10.50\t20.25"));
+    }
+
+    #[test]
+    fn test_export_part_details_tsv() {
+        let mut board = Board::default();
+        let part = Part {
+            id: 0,
+            name: "R1".to_string(),
+            mfg_code: String::new(),
+            side: Side::Bottom,
+            part_type: PartType::Smd,
+            p1: Point::ZERO,
+            p2: Point::ZERO,
+            bounding_box: None,
+            pin_indices: vec![0],
+        };
+        board.parts.push(part.clone());
+        board.pins.push(Pin {
+            id: 0,
+            name: "1".to_string(),
+            part_id: 0,
+            net_name: "GND".to_string(),
+            pos: Point::new(5.0, 5.0),
+            radius: 10.0,
+            side: Side::Bottom,
+        });
+        board.rebuild_indices();
+
+        let tsv = export_part_details_tsv(&board, &part);
+        assert!(tsv.contains("Part:\tR1"));
+        assert!(tsv.contains("Side:\tBottom"));
+        assert!(tsv.contains("1\tGND\tBottom\t5.00\t5.00"));
+    }
+}
+
+
+
