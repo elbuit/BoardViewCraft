@@ -1,15 +1,17 @@
 //! Main application entry point and window runner for BoardViewCraft.
 
 mod canvas;
+mod preferences;
 mod render;
 mod side_panel;
 mod theme;
 
 use bvc_core::{Board, ParserRegistry, Side};
 use canvas::{CanvasState, show_canvas};
+use preferences::{Preferences, show_preferences_window};
 use render::Renderer;
 use side_panel::{SidePanelState, show_side_panel};
-use theme::Tokens;
+use theme::{ThemePreset, Tokens};
 
 use egui::{CentralPanel, Color32, Panel, RichText, Ui, Vec2};
 use std::sync::Arc;
@@ -21,6 +23,8 @@ pub struct BoardViewApp {
     renderer: Renderer,
     canvas_state: CanvasState,
     side_panel_state: SidePanelState,
+    preferences: Preferences,
+    preferences_open: bool,
 
     // Selection state
     selected_pin_idx: Option<usize>,
@@ -41,6 +45,8 @@ impl Default for BoardViewApp {
             renderer: Renderer::new(),
             canvas_state: CanvasState::default(),
             side_panel_state: SidePanelState::default(),
+            preferences: Preferences::default(),
+            preferences_open: false,
             selected_pin_idx: None,
             selected_part_idx: None,
             selected_net: None,
@@ -103,6 +109,11 @@ impl BoardViewApp {
 
 impl eframe::App for BoardViewApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        // Handle global hotkeys
+        if ui.input(|i| (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::Comma)) {
+            self.preferences_open = !self.preferences_open;
+        }
+
         // Cadcraft top toolbar
         Panel::top("top_bar").show(ui, |ui: &mut Ui| {
             ui.add_space(3.0);
@@ -112,6 +123,10 @@ impl eframe::App for BoardViewApp {
 
                 if ui.button("Open CAD...").clicked() {
                     self.open_file_dialog();
+                }
+
+                if ui.button("Preferences...").clicked() {
+                    self.preferences_open = true;
                 }
 
                 ui.separator();
@@ -195,8 +210,32 @@ impl eframe::App for BoardViewApp {
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
                     &mut self.renderer,
+                    self.preferences.show_net_web,
                 );
             });
+
+        // Preferences modal window
+        let mut prefs_changed = false;
+        let mut prefs = self.preferences.clone();
+        if show_preferences_window(
+            ui.ctx(),
+            &mut self.preferences_open,
+            &mut prefs,
+            &self.tokens,
+        ) {
+            prefs_changed = true;
+        }
+
+        if prefs_changed {
+            if prefs.theme != self.preferences.theme {
+                self.tokens = prefs.theme.tokens();
+                let is_light = prefs.theme == ThemePreset::LightMode;
+                ui.ctx().set_visuals(self.tokens.egui_visuals(is_light));
+            }
+            // Invalidate canvas mesh cache
+            self.canvas_state.cached_view_key = None;
+            self.preferences = prefs;
+        }
     }
 }
 

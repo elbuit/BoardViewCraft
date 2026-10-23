@@ -141,6 +141,7 @@ pub fn show_canvas(
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
     renderer: &mut Renderer,
+    show_net_web: bool,
 ) -> Response {
     let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let rect = response.rect;
@@ -313,6 +314,7 @@ pub fn show_canvas(
                 current_hover_pin,
                 current_hover_via,
                 renderer,
+                show_net_web,
             );
 
             for mesh in &new_meshes {
@@ -379,6 +381,7 @@ pub fn generate_board_meshes(
     current_hover_pin: Option<usize>,
     current_hover_via: Option<usize>,
     renderer: &mut Renderer,
+    show_net_web: bool,
 ) -> Vec<Mesh> {
     let mut new_meshes = Vec::new();
 
@@ -627,45 +630,47 @@ pub fn generate_board_meshes(
     }
 
     // 5. Net lines web (Batched line mesh inside cached render pipeline)
-    if let Some(sel_idx) = selected_pin_idx {
-        if let Some(sel_pin) = b.pins.get(sel_idx) {
-            let net_name = &sel_pin.net_name;
-            let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
-                || net_name.eq_ignore_ascii_case("GROUND")
-                || net_name.starts_with("UNCONNECTED")
-                || net_name.is_empty();
+    if show_net_web {
+        if let Some(sel_idx) = selected_pin_idx {
+            if let Some(sel_pin) = b.pins.get(sel_idx) {
+                let net_name = &sel_pin.net_name;
+                let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
+                    || net_name.eq_ignore_ascii_case("GROUND")
+                    || net_name.starts_with("UNCONNECTED")
+                    || net_name.is_empty();
 
-            if !is_ground_or_power {
-                if let Some(net) = b.nets.get(net_name) {
-                    if net.pin_indices.len() + net.via_indices.len() <= 250 {
-                        let sel_pos = vp.world_to_screen(sel_pin.pos, rect);
-                        let mut segments = Vec::new();
+                if !is_ground_or_power {
+                    if let Some(net) = b.nets.get(net_name) {
+                        if net.pin_indices.len() + net.via_indices.len() <= 250 {
+                            let sel_pos = vp.world_to_screen(sel_pin.pos, rect);
+                            let mut segments = Vec::new();
 
-                        for &other_idx in &net.pin_indices {
-                            if other_idx != sel_idx {
-                                if let Some(other_pin) = b.pins.get(other_idx) {
-                                    let other_pos = vp.world_to_screen(other_pin.pos, rect);
-                                    segments.push((sel_pos, other_pos));
+                            for &other_idx in &net.pin_indices {
+                                if other_idx != sel_idx {
+                                    if let Some(other_pin) = b.pins.get(other_idx) {
+                                        let other_pos = vp.world_to_screen(other_pin.pos, rect);
+                                        segments.push((sel_pos, other_pos));
+                                    }
                                 }
                             }
-                        }
 
-                        for &via_idx in &net.via_indices {
-                            if let Some(via) = b.vias.get(via_idx) {
-                                let via_pos = vp.world_to_screen(via.pos, rect);
-                                segments.push((sel_pos, via_pos));
+                            for &via_idx in &net.via_indices {
+                                if let Some(via) = b.vias.get(via_idx) {
+                                    let via_pos = vp.world_to_screen(via.pos, rect);
+                                    segments.push((sel_pos, via_pos));
+                                }
                             }
-                        }
 
-                        if !segments.is_empty() {
-                            let mut web_mesh = Mesh::default();
-                            Renderer::append_lines_to_mesh(
-                                &mut web_mesh,
-                                &segments,
-                                0.75, // half_width = 0.75 (1.5 px line)
-                                tokens.net_web,
-                            );
-                            new_meshes.push(web_mesh);
+                            if !segments.is_empty() {
+                                let mut web_mesh = Mesh::default();
+                                Renderer::append_lines_to_mesh(
+                                    &mut web_mesh,
+                                    &segments,
+                                    0.75, // half_width = 0.75 (1.5 px line)
+                                    tokens.net_web,
+                                );
+                                new_meshes.push(web_mesh);
+                            }
                         }
                     }
                 }
@@ -739,6 +744,7 @@ mod tests {
             None,
             None,
             &mut renderer,
+            true,
         );
 
         // Benchmark pass
@@ -754,6 +760,7 @@ mod tests {
             None,
             None,
             &mut renderer,
+            true,
         );
         let elapsed = start.elapsed();
 

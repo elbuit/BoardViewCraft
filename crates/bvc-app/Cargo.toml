@@ -17,3 +17,5 @@ lyon_tessellation = { workspace = true }
 rayon = { workspace = true }
 rfd = { workspace = true }
 thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
