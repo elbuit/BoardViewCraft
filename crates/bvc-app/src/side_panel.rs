@@ -68,7 +68,12 @@ pub fn show_side_panel(
     match state.active_tab {
         Tab::Net => {
             if let Some(net_name) = selected_net {
-                ui.heading(RichText::new(format!("Net: {net_name}")).color(tokens.accent));
+                ui.horizontal(|ui| {
+                    ui.heading(RichText::new(format!("Net: {net_name}")).color(tokens.accent));
+                    if ui.button("📋").on_hover_text("Copy net name to clipboard").clicked() {
+                        ui.ctx().copy_text(net_name.clone());
+                    }
+                });
                 if let Some(net) = b.get_net(net_name) {
                     ui.label(
                         RichText::new(format!(
@@ -113,16 +118,24 @@ pub fn show_side_panel(
                                     };
 
                                     let is_selected = *selected_pin_idx == Some(pin_idx);
-                                    if ui
-                                        .selectable_label(
-                                            is_selected,
-                                            RichText::new(label_text).color(color),
-                                        )
-                                        .clicked()
-                                    {
+                                    let response = ui.selectable_label(
+                                        is_selected,
+                                        RichText::new(&label_text).color(color),
+                                    );
+                                    if response.clicked() {
                                         *selected_pin_idx = Some(pin_idx);
                                         *selected_part_idx = Some(pin.part_id);
                                     }
+                                    response.context_menu(|ui| {
+                                        if ui.button("Copy Pin Details").clicked() {
+                                            ui.ctx().copy_text(label_text.clone());
+                                            ui.close();
+                                        }
+                                        if ui.button("Copy Coordinates").clicked() {
+                                            ui.ctx().copy_text(format!("{:.3}, {:.3}", pin.pos.x, pin.pos.y));
+                                            ui.close();
+                                        }
+                                    });
                                 }
                             }
                         });
@@ -160,7 +173,12 @@ pub fn show_side_panel(
         Tab::Part => {
             if let Some(part_id) = selected_part_idx {
                 if let Some(part) = b.parts.get(*part_id) {
-                    ui.heading(RichText::new(format!("Part: {}", part.name)).color(tokens.accent));
+                    ui.horizontal(|ui| {
+                        ui.heading(RichText::new(format!("Part: {}", part.name)).color(tokens.accent));
+                        if ui.button("📋").on_hover_text("Copy part name to clipboard").clicked() {
+                            ui.ctx().copy_text(part.name.clone());
+                        }
+                    });
                     let side_str = match part.side {
                         Side::Top => "Top",
                         Side::Bottom => "Bottom",
@@ -190,13 +208,7 @@ pub fn show_side_panel(
                                     }
                                 );
 
-                                if ui
-                                    .selectable_label(
-                                        is_selected,
-                                        RichText::new(pin_label).color(tokens.text),
-                                    )
-                                    .clicked()
-                                {
+                                if is_selected {
                                     *selected_pin_idx = Some(pin_idx);
                                     *selected_net = if pin.net_name.is_empty() {
                                         None
@@ -204,6 +216,31 @@ pub fn show_side_panel(
                                         Some(pin.net_name.clone())
                                     };
                                 }
+
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    RichText::new(&pin_label).color(tokens.text),
+                                );
+                                if response.clicked() {
+                                    *selected_pin_idx = Some(pin_idx);
+                                    *selected_net = if pin.net_name.is_empty() {
+                                        None
+                                    } else {
+                                        Some(pin.net_name.clone())
+                                    };
+                                }
+                                response.context_menu(|ui| {
+                                    if ui.button("Copy Pin Label").clicked() {
+                                        ui.ctx().copy_text(pin_label.clone());
+                                        ui.close();
+                                    }
+                                    if !pin.net_name.is_empty() {
+                                        if ui.button("Copy Net Name").clicked() {
+                                            ui.ctx().copy_text(pin.net_name.clone());
+                                            ui.close();
+                                        }
+                                    }
+                                });
                             }
                         }
                     });
