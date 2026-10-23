@@ -298,6 +298,7 @@ impl eframe::App for BoardViewApp {
                     &mut self.selected_net,
                     &mut self.renderer,
                     self.preferences.show_net_web,
+                    self.preferences.show_opposite_elements,
                 );
             });
 

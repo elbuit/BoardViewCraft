@@ -215,6 +215,7 @@ pub struct ViewCacheKey {
     pub hovered_via: Option<usize>,
     pub board_ptr: usize,
     pub show_net_web: bool,
+    pub show_opposite_elements: bool,
 }
 
 pub struct CanvasState {
@@ -247,6 +248,7 @@ pub fn show_canvas(
     selected_net: &mut Option<String>,
     renderer: &mut Renderer,
     show_net_web: bool,
+    show_opposite_elements: bool,
 ) -> Response {
     let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let rect = response.rect;
@@ -409,6 +411,7 @@ pub fn show_canvas(
             hovered_via: current_hover_via,
             board_ptr,
             show_net_web,
+            show_opposite_elements,
         };
 
         if canvas_state.cached_view_key.as_ref() == Some(&current_key) {
@@ -430,6 +433,7 @@ pub fn show_canvas(
                 current_hover_via,
                 renderer,
                 show_net_web,
+                show_opposite_elements,
             );
 
             for mesh in &new_meshes {
@@ -497,6 +501,7 @@ pub fn generate_board_meshes(
     current_hover_via: Option<usize>,
     renderer: &mut Renderer,
     show_net_web: bool,
+    show_opposite_elements: bool,
 ) -> Vec<Mesh> {
     let mut new_meshes = Vec::new();
 
@@ -594,6 +599,10 @@ pub fn generate_board_meshes(
         .par_iter()
         .map(|&idx| (idx, &b.vias[idx]))
         .filter(|(_idx, via)| {
+            let is_on_cur_side = via.side.visible_on(vp.side);
+            if !show_opposite_elements && !is_on_cur_side {
+                return false;
+            }
             via.pos.x >= visible_world.min_x
                 && via.pos.x <= visible_world.max_x
                 && via.pos.y >= visible_world.min_y
@@ -666,6 +675,10 @@ pub fn generate_board_meshes(
         .par_iter()
         .map(|&idx| (idx, &b.pins[idx]))
         .filter(|(_idx, pin)| {
+            let is_on_cur_side = pin.side.visible_on(vp.side);
+            if !show_opposite_elements && !is_on_cur_side {
+                return false;
+            }
             pin.pos.x >= visible_world.min_x
                 && pin.pos.x <= visible_world.max_x
                 && pin.pos.y >= visible_world.min_y
@@ -860,6 +873,7 @@ mod tests {
             None,
             &mut renderer,
             true,
+            false,
         );
 
         // Benchmark pass
@@ -876,6 +890,7 @@ mod tests {
             None,
             &mut renderer,
             true,
+            false,
         );
         let elapsed = start.elapsed();
 

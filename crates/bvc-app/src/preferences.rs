@@ -11,6 +11,7 @@ pub struct Preferences {
     pub show_part_labels: bool,
     pub show_pin_annotations: bool,
     pub high_density_lod: bool,
+    pub show_opposite_elements: bool,
 }
 
 impl Default for Preferences {
@@ -21,6 +22,7 @@ impl Default for Preferences {
             show_part_labels: true,
             show_pin_annotations: true,
             high_density_lod: true,
+            show_opposite_elements: false,
         }
     }
 }
@@ -124,6 +126,17 @@ pub fn show_preferences_window(
                 changed = true;
             }
 
+            if ui
+                .checkbox(
+                    &mut prefs.show_opposite_elements,
+                    RichText::new("Show Opposite Side Elements (X-Ray)").color(tokens.text),
+                )
+                .on_hover_text("When enabled, dimmed pins and vias on the reverse side of the board are visible.")
+                .changed()
+            {
+                changed = true;
+            }
+
             ui.add_space(16.0);
             ui.separator();
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -152,6 +165,7 @@ mod tests {
             show_part_labels: true,
             show_pin_annotations: false,
             high_density_lod: true,
+            show_opposite_elements: false,
         };
 
         let json = serde_json::to_string(&prefs).expect("Serialize to JSON");
