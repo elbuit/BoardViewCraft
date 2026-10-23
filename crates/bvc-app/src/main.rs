@@ -115,16 +115,28 @@ impl eframe::App for BoardViewApp {
             self.preferences_open = !self.preferences_open;
         }
 
-        // Actions shortcuts: R (Rotate CW), Shift+R (Rotate CCW), Space (Flip Side), M (Mirror X), Shift+M (Mirror Y), F (Fit)
+        // Actions shortcuts: R (Rotate CW), Shift+R (Rotate CCW), Space (Flip Side), M (Mirror X), Shift+M (Mirror Y), F (Fit), Esc (Deselect)
         if !self.preferences_open {
-            let (r_pressed, shift_down, space_pressed, m_pressed) = ui.input(|i| {
+            let (r_pressed, shift_down, space_pressed, m_pressed, esc_pressed) = ui.input(|i| {
                 (
                     i.key_pressed(egui::Key::R),
                     i.modifiers.shift,
                     i.key_pressed(egui::Key::Space),
                     i.key_pressed(egui::Key::M),
+                    i.key_pressed(egui::Key::Escape),
                 )
             });
+
+            if esc_pressed {
+                if self.selected_pin_idx.is_some() || self.selected_net.is_some() || self.selected_part_idx.is_some() {
+                    self.selected_pin_idx = None;
+                    self.selected_part_idx = None;
+                    self.selected_net = None;
+                    self.status_msg = "Selection cleared.".to_string();
+                    self.canvas_state.cached_view_key = None;
+                    ui.ctx().request_repaint();
+                }
+            }
 
             if r_pressed {
                 self.canvas_state.viewport.rotation = if shift_down {
