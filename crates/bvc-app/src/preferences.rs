@@ -4,6 +4,15 @@ use crate::i18n::{self, Language};
 use crate::theme::{ThemePreset, Tokens};
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::ffi::OsString;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const MAX_BYTES: u64 = 64 * 1024;
+static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Preferences {
@@ -29,6 +38,109 @@ impl Default for Preferences {
             high_density_lod: true,
             show_opposite_elements: false,
         }
+    }
+}
+
+pub fn config_dir_from(platform: &str, get: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    if let Some(root) = get("BOARDVIEWCRAFT_CONFIG_DIR") {
+        return (!root.is_empty()).then(|| PathBuf::from(root));
+    }
+    let nonempty = |key| get(key).filter(|value| !value.is_empty()).map(PathBuf::from);
+    match platform {
+        "macos" => nonempty("HOME").map(|home| home.join("Library/Application Support/BoardViewCraft")),
+        "windows" => nonempty("APPDATA").map(|root| root.join("BoardViewCraft")),
+        _ => nonempty("XDG_CONFIG_HOME")
+            .map(|root| root.join("boardviewcraft"))
+            .or_else(|| nonempty("HOME").map(|home| home.join(".config/boardviewcraft"))),
+    }
+}
+
+pub fn default_config_path() -> PathBuf {
+    config_dir_from(std::env::consts::OS, |key| std::env::var_os(key))
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("preferences.json")
+}
+
+impl Preferences {
+    pub fn load() -> Self {
+        Self::load_from(&default_config_path())
+    }
+
+    pub fn load_from(path: &Path) -> Self {
+        match Self::read_file(path) {
+            Ok(Some(prefs)) => prefs,
+            Ok(None) => Self::default(),
+            Err(err) => {
+                eprintln!("Warning: Failed to load preferences from {}: {err}", path.display());
+                Self::default()
+            }
+        }
+    }
+
+    fn read_file(path: &Path) -> Result<Option<Self>, String> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("{}: {error}", path.display())),
+        };
+        let mut bytes = Vec::new();
+        file.take(MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| format!("{}: {error}", path.display()))?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(format!("{}: preferences file exceeds 64 KiB", path.display()));
+        }
+        let value: Value = serde_json::from_slice(&bytes)
+            .map_err(|error| format!("{}: invalid preferences JSON: {error}", path.display()))?;
+        if value.get("version").and_then(Value::as_u64) != Some(1) {
+            return Err(format!("{}: unsupported preferences version", path.display()));
+        }
+        let prefs_val = value
+            .get("preferences")
+            .ok_or_else(|| format!("{}: missing preferences object", path.display()))?;
+        let prefs: Preferences = serde_json::from_value(prefs_val.clone())
+            .map_err(|error| format!("{}: invalid preferences payload: {error}", path.display()))?;
+        Ok(Some(prefs))
+    }
+
+    pub fn save_atomic(&self) -> Result<(), String> {
+        self.save_atomic_to(&default_config_path())
+    }
+
+    pub fn save_atomic_to(&self, path: &Path) -> Result<(), String> {
+        let json_value = serde_json::json!({
+            "version": 1,
+            "preferences": self,
+        });
+        let bytes = serde_json::to_vec_pretty(&json_value).map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err("preferences exceeds 64 KiB".into());
+        }
+        let parent = path.parent().ok_or("preferences path has no parent")?;
+        fs::create_dir_all(parent).map_err(|error| format!("{}: {error}", parent.display()))?;
+        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let temporary = parent.join(format!(".preferences-{}-{sequence}.tmp", std::process::id()));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temporary)
+            .map_err(|error| format!("{}: {error}", temporary.display()))?;
+        let result = (|| {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            drop(file);
+            fs::rename(&temporary, path)
+        })();
+        if let Err(error) = result {
+            let _ = fs::remove_file(&temporary);
+            return Err(format!("{}: could not save preferences: {error}", path.display()));
+        }
+        Ok(())
     }
 }
 
@@ -254,5 +366,86 @@ mod tests {
         let deserialized: Preferences = serde_json::from_str(&json).expect("Deserialize from JSON");
 
         assert_eq!(prefs, deserialized);
+    }
+
+    #[test]
+    fn test_config_dir_resolution() {
+        let get = |key: &str| match key {
+            "BOARDVIEWCRAFT_CONFIG_DIR" => Some(OsString::from("/custom/config/dir")),
+            "HOME" | "APPDATA" | "XDG_CONFIG_HOME" => Some(OsString::from("/unrelated")),
+            _ => None,
+        };
+        for platform in ["macos", "windows", "linux"] {
+            assert_eq!(
+                config_dir_from(platform, get),
+                Some(PathBuf::from("/custom/config/dir"))
+            );
+        }
+
+        // Test Linux XDG and HOME
+        let get_linux_xdg = |key: &str| match key {
+            "XDG_CONFIG_HOME" => Some(OsString::from("/home/user/.config_xdg")),
+            _ => None,
+        };
+        assert_eq!(
+            config_dir_from("linux", get_linux_xdg),
+            Some(PathBuf::from("/home/user/.config_xdg/boardviewcraft"))
+        );
+
+        let get_linux_home = |key: &str| match key {
+            "HOME" => Some(OsString::from("/home/user")),
+            _ => None,
+        };
+        assert_eq!(
+            config_dir_from("linux", get_linux_home),
+            Some(PathBuf::from("/home/user/.config/boardviewcraft"))
+        );
+
+        // Test macOS
+        let get_macos = |key: &str| match key {
+            "HOME" => Some(OsString::from("/Users/alice")),
+            _ => None,
+        };
+        assert_eq!(
+            config_dir_from("macos", get_macos),
+            Some(PathBuf::from("/Users/alice/Library/Application Support/BoardViewCraft"))
+        );
+
+        // Test Windows
+        let get_windows = |key: &str| match key {
+            "APPDATA" => Some(OsString::from("/appdata")),
+            _ => None,
+        };
+        assert_eq!(
+            config_dir_from("windows", get_windows),
+            Some(PathBuf::from("/appdata/BoardViewCraft"))
+        );
+    }
+
+    #[test]
+    fn test_atomic_save_and_load_roundtrip() {
+        let temp_dir = std::env::temp_dir().join(format!("bvc_test_prefs_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let config_file = temp_dir.join("preferences.json");
+
+        let mut prefs = Preferences::default();
+        prefs.language = Language::Spanish;
+        prefs.show_net_web = false;
+        prefs.theme = ThemePreset::HighContrast;
+
+        // Save
+        prefs.save_atomic_to(&config_file).expect("Atomic save should succeed");
+
+        // Verify file exists and load
+        assert!(config_file.exists());
+        let loaded = Preferences::load_from(&config_file);
+        assert_eq!(prefs, loaded);
+
+        // Test corrupted file fallback
+        fs::write(&config_file, b"corrupted json content!").unwrap();
+        let fallback = Preferences::load_from(&config_file);
+        assert_eq!(fallback, Preferences::default());
+
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

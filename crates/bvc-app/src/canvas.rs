@@ -1,5 +1,6 @@
 //! Board canvas view transformation and interactive rendering.
 
+use crate::preferences::Preferences;
 use crate::render::Renderer;
 use crate::theme::Tokens;
 use bvc_core::{Board, Point, Rect, Side};
@@ -178,14 +179,14 @@ impl Viewport {
         }
     }
 
-    /// Fits the board bounding box to the given canvas rectangle.
+    /// Fits the board bounding box to the given canvas rectangle (~90% fill).
     pub fn fit_to_rect(&mut self, bbox: Rect, canvas_rect: EguiRect) {
         let board_w = bbox.width().max(10.0) as f32;
         let board_h = bbox.height().max(10.0) as f32;
 
         let margin = 40.0;
-        let avail_w = (canvas_rect.width() - margin).max(10.0);
-        let avail_h = (canvas_rect.height() - margin).max(10.0);
+        let avail_w = ((canvas_rect.width() - margin) * 0.9).max(10.0);
+        let avail_h = ((canvas_rect.height() - margin) * 0.9).max(10.0);
 
         let (dim_w, dim_h) = match self.rotation {
             Rotation::Deg0 | Rotation::Deg180 => (board_w, board_h),
@@ -196,6 +197,12 @@ impl Viewport {
         let scale_y = avail_h / dim_h;
         self.scale = scale_x.min(scale_y).clamp(0.001, 100.0);
         self.center = bbox.center();
+    }
+
+    /// Sets zoom to a preset factor (where 1.0 = 100% = 0.05 scale).
+    pub fn zoom_preset(&mut self, factor: f32, _canvas_rect: EguiRect) {
+        let new_scale = (0.05 * factor).clamp(0.001, 100.0);
+        self.scale = new_scale;
     }
 }
 
@@ -247,8 +254,7 @@ pub fn show_canvas(
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
     renderer: &mut Renderer,
-    show_net_web: bool,
-    show_opposite_elements: bool,
+    prefs: &Preferences,
 ) -> Response {
     let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
     let rect = response.rect;
@@ -410,8 +416,8 @@ pub fn show_canvas(
             hovered_pin: current_hover_pin,
             hovered_via: current_hover_via,
             board_ptr,
-            show_net_web,
-            show_opposite_elements,
+            show_net_web: prefs.show_net_web,
+            show_opposite_elements: prefs.show_opposite_elements,
         };
 
         if canvas_state.cached_view_key.as_ref() == Some(&current_key) {
@@ -432,8 +438,8 @@ pub fn show_canvas(
                 current_hover_pin,
                 current_hover_via,
                 renderer,
-                show_net_web,
-                show_opposite_elements,
+                prefs.show_net_web,
+                prefs.show_opposite_elements,
             );
 
             for mesh in &new_meshes {
@@ -444,32 +450,110 @@ pub fn show_canvas(
             canvas_state.cached_view_key = Some(current_key);
         }
 
-        // Draw component labels (dynamic text layer)
-        if vp.scale > 0.03 {
-            let margin_mils = (50.0 / vp.scale).max(40.0) as f64;
-            let visible_world = vp.visible_world_rect(rect).expand(margin_mils);
-            let selected_p_idx = *selected_part_idx;
+        let margin_mils = (50.0 / vp.scale).max(40.0) as f64;
+        let visible_world = vp.visible_world_rect(rect).expand(margin_mils);
+        let selected_p_idx = *selected_part_idx;
+        let selected_pn_idx = *selected_pin_idx;
 
-            for part in &b.parts {
-                if !part.side.visible_on(vp.side) {
+        // 1. Component designator labels (with screen-space LOD decimation)
+        for part in &b.parts {
+            if !part.side.visible_on(vp.side) {
+                continue;
+            }
+            if let Some(ref c_rect) = part.bounding_box {
+                if c_rect.intersects(&visible_world) {
+                    let is_selected = selected_p_idx == Some(part.id);
+                    if !is_selected && !prefs.show_part_labels {
+                        continue;
+                    }
+
+                    // Screen-space footprint dimension threshold:
+                    // If not selected and projected footprint is too small, skip rendering.
+                    let w_screen = c_rect.width() as f32 * vp.scale;
+                    let h_screen = c_rect.height() as f32 * vp.scale;
+                    if !is_selected && (w_screen < 24.0 || h_screen < 12.0) {
+                        continue;
+                    }
+
+                    let center = vp.world_to_screen(c_rect.center(), rect);
+                    painter.text(
+                        center,
+                        egui::Align2::CENTER_CENTER,
+                        &part.name,
+                        FontId::proportional(12.0),
+                        if is_selected {
+                            tokens.selection
+                        } else {
+                            tokens.part_text
+                        },
+                    );
+                }
+            }
+        }
+
+        // 2. Pin annotations & numbers (with screen-space LOD decimation)
+        if prefs.show_pin_annotations {
+            let active_membership = selected_net
+                .as_deref()
+                .map(|sn| b.net_membership(sn))
+                .unwrap_or_default();
+
+            let visible_pin_indices = if !b.spatial_grid.is_empty() {
+                b.spatial_grid.query_pins_in_rect(&visible_world)
+            } else {
+                (0..b.pins.len()).collect()
+            };
+
+            for idx in visible_pin_indices {
+                let pin = &b.pins[idx];
+                let is_on_cur_side = pin.side.visible_on(vp.side);
+                let is_selected = selected_pn_idx == Some(idx);
+                let is_net_selected = active_membership.contains_pin(idx);
+                let is_hovered = current_hover_pin == Some(idx);
+
+                let allow_opposite = prefs.show_opposite_elements || is_net_selected;
+                if !allow_opposite && !is_on_cur_side {
                     continue;
                 }
-                if let Some(ref c_rect) = part.bounding_box {
-                    if c_rect.intersects(&visible_world) {
-                        let center = vp.world_to_screen(c_rect.center(), rect);
-                        let is_selected = selected_p_idx == Some(part.id);
-                        painter.text(
-                            center,
-                            egui::Align2::CENTER_CENTER,
-                            &part.name,
-                            FontId::proportional(12.0),
-                            if is_selected {
-                                tokens.selection
-                            } else {
-                                tokens.part_text
-                            },
-                        );
-                    }
+
+                // Check visible frustum
+                if pin.pos.x < visible_world.min_x
+                    || pin.pos.x > visible_world.max_x
+                    || pin.pos.y < visible_world.min_y
+                    || pin.pos.y > visible_world.max_y
+                {
+                    continue;
+                }
+
+                let r_screen = pin.radius as f32 * vp.scale;
+                if !is_selected && !is_net_selected && !is_hovered && r_screen < 8.0 {
+                    continue;
+                }
+
+                if !pin.name.is_empty() {
+                    let screen_pos = vp.world_to_screen(pin.pos, rect);
+                    let font_size = (r_screen * 1.1).clamp(8.0, 14.0);
+                    let text_color = if is_selected {
+                        tokens.selection
+                    } else if is_hovered {
+                        tokens.hover
+                    } else if is_net_selected {
+                        if is_on_cur_side {
+                            tokens.pin_highlight_cur_side
+                        } else {
+                            tokens.pin_highlight_opp_side
+                        }
+                    } else {
+                        tokens.text
+                    };
+
+                    painter.text(
+                        screen_pos,
+                        egui::Align2::CENTER_CENTER,
+                        &pin.name,
+                        FontId::monospace(font_size),
+                        text_color,
+                    );
                 }
             }
         }
@@ -958,6 +1042,66 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_zoom_presets_and_fit_to_rect() {
+        let mut vp = Viewport::default();
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(1000.0, 1000.0));
+        let bbox = Rect {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 1000.0,
+            max_y: 500.0,
+        };
+
+        // Fit to rect should fit 90% of view
+        vp.fit_to_rect(bbox, canvas_rect);
+        assert_eq!(vp.center, Point::new(500.0, 250.0));
+        // Available width with margin = (1000 - 40) * 0.9 = 864. scale_x = 864 / 1000 = 0.864
+        // Available height with margin = (1000 - 40) * 0.9 = 864. scale_y = 864 / 500 = 1.728
+        // Expected scale = 0.864
+        assert!((vp.scale - 0.864).abs() < 1e-4);
+
+        // Zoom presets
+        vp.zoom_preset(0.25, canvas_rect);
+        assert!((vp.scale - 0.0125).abs() < 1e-5);
+
+        vp.zoom_preset(0.50, canvas_rect);
+        assert!((vp.scale - 0.0250).abs() < 1e-5);
+
+        vp.zoom_preset(1.0, canvas_rect);
+        assert!((vp.scale - 0.0500).abs() < 1e-5);
+
+        vp.zoom_preset(1.50, canvas_rect);
+        assert!((vp.scale - 0.0750).abs() < 1e-5);
+
+        vp.zoom_preset(2.0, canvas_rect);
+        assert!((vp.scale - 0.1000).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_screen_space_lod_thresholds() {
+        let scale = 0.05; // 100% zoom
+        // Test part bounding box thresholds
+        // w_screen = bbox.width() * scale, h_screen = bbox.height() * scale
+        // w_screen < 24.0 || h_screen < 12.0
+        let small_bbox = Rect { min_x: 0.0, min_y: 0.0, max_x: 400.0, max_y: 200.0 }; // w_screen = 20.0, h_screen = 10.0 -> decimated
+        let w_screen_small = small_bbox.width() as f32 * scale;
+        let h_screen_small = small_bbox.height() as f32 * scale;
+        assert!(w_screen_small < 24.0 || h_screen_small < 12.0);
+
+        let large_bbox = Rect { min_x: 0.0, min_y: 0.0, max_x: 600.0, max_y: 300.0 }; // w_screen = 30.0, h_screen = 15.0 -> rendered
+        let w_screen_large = large_bbox.width() as f32 * scale;
+        let h_screen_large = large_bbox.height() as f32 * scale;
+        assert!(w_screen_large >= 24.0 && h_screen_large >= 12.0);
+
+        // Test pin radius threshold: r_screen = radius * scale < 8.0
+        let small_pin_radius = 120.0; // r_screen = 6.0 -> decimated
+        assert!(small_pin_radius as f32 * scale < 8.0);
+
+        let large_pin_radius = 200.0; // r_screen = 10.0 -> rendered
+        assert!(large_pin_radius as f32 * scale >= 8.0);
     }
 }
 

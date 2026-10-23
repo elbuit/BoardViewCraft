@@ -58,8 +58,21 @@ impl Default for BoardViewApp {
 }
 
 impl BoardViewApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        Self::default()
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let preferences = Preferences::load();
+        let tokens = if preferences.theme == ThemePreset::Custom {
+            preferences.custom_tokens.unwrap_or(Tokens::DARK)
+        } else {
+            preferences.theme.tokens()
+        };
+        let is_light = preferences.theme == ThemePreset::LightMode;
+        cc.egui_ctx.set_visuals(tokens.egui_visuals(is_light));
+
+        Self {
+            preferences,
+            tokens,
+            ..Self::default()
+        }
     }
 
     pub fn load_file(&mut self, filename: &str, data: &[u8]) {
@@ -243,9 +256,45 @@ impl eframe::App for BoardViewApp {
                     }
                 }
 
-                // Zoom reset
+                // Zoom dropdown / presets
+                ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
+                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_fit")).clicked() {
+                        if let Some(board) = &self.board {
+                            if let Some(bbox) = board.bounding_box {
+                                let rect = ui.clip_rect();
+                                self.canvas_state.viewport.fit_to_rect(bbox, rect);
+                            }
+                        }
+                        ui.close();
+                    }
+                    ui.separator();
+                    let rect = ui.clip_rect();
+                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_25")).clicked() {
+                        self.canvas_state.viewport.zoom_preset(0.25, rect);
+                        ui.close();
+                    }
+                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_50")).clicked() {
+                        self.canvas_state.viewport.zoom_preset(0.50, rect);
+                        ui.close();
+                    }
+                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_100")).clicked() {
+                        self.canvas_state.viewport.zoom_preset(1.0, rect);
+                        ui.close();
+                    }
+                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_150")).clicked() {
+                        self.canvas_state.viewport.zoom_preset(1.50, rect);
+                        ui.close();
+                    }
+                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_200")).clicked() {
+                        self.canvas_state.viewport.zoom_preset(2.0, rect);
+                        ui.close();
+                    }
+                });
+
+                // Zoom reset (1:1 / 100%)
                 if ui.button(i18n::tr(lang, "toolbar.zoom_reset")).clicked() {
-                    self.canvas_state.viewport.scale = 0.05;
+                    let rect = ui.clip_rect();
+                    self.canvas_state.viewport.zoom_preset(1.0, rect);
                 }
 
                 if let Some(name) = &self.filename {
@@ -313,8 +362,7 @@ impl eframe::App for BoardViewApp {
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
                     &mut self.renderer,
-                    self.preferences.show_net_web,
-                    self.preferences.show_opposite_elements,
+                    &self.preferences,
                 );
             });
 
@@ -343,6 +391,7 @@ impl eframe::App for BoardViewApp {
             // Invalidate canvas mesh cache
             self.canvas_state.cached_view_key = None;
             self.preferences = prefs;
+            let _ = self.preferences.save_atomic();
         }
     }
 }
