@@ -313,21 +313,10 @@ pub fn show_canvas(
         || response.dragged_by(egui::PointerButton::Primary)
     {
         let delta = response.drag_delta();
-        // Calculate world delta by taking screen delta through inverted un-rotation
-        let (sx, sy) = vp.effective_factors();
-        let theta = vp.rotation.angle_rad();
-        let (sin_t, cos_t) = theta.sin_cos();
-
-        // Screen delta to unrotated delta
-        let dx_rot = delta.x / vp.scale;
-        let dy_rot = delta.y / vp.scale;
-
-        let dx = (dx_rot * cos_t + dy_rot * sin_t) / sx;
-        let dy_cad = -dx_rot * sin_t + dy_rot * cos_t;
-        let dy = -dy_cad / sy;
-
-        vp.center.x -= dx as f64;
-        vp.center.y += dy as f64;
+        // Move viewport center so the point under the mouse follows the cursor exactly:
+        // Screen point center_screen shifted by -delta corresponds to the new world center.
+        let center_screen = rect.center();
+        vp.center = vp.screen_to_world(center_screen - delta, rect);
     }
 
     // Zoom on mouse wheel
@@ -1102,6 +1091,31 @@ mod tests {
 
         let large_pin_radius = 200.0; // r_screen = 10.0 -> rendered
         assert!(large_pin_radius as f32 * scale >= 8.0);
+    }
+
+    #[test]
+    fn test_pan_delta_follows_cursor() {
+        let mut vp = Viewport::default();
+        let canvas_rect = EguiRect::from_min_size(Pos2::new(100.0, 100.0), egui::vec2(800.0, 600.0));
+        let center_screen = canvas_rect.center();
+
+        let initial_center = vp.center;
+        // Drag mouse down (+y in screen space)
+        let drag_down = egui::vec2(0.0, 50.0);
+        vp.center = vp.screen_to_world(center_screen - drag_down, canvas_rect);
+
+        // A world point initially at center_screen should now be shifted down (+50.0) in screen space
+        let screen_pt_after = vp.world_to_screen(initial_center, canvas_rect);
+        assert!((screen_pt_after.x - center_screen.x).abs() < 1e-3);
+        assert!((screen_pt_after.y - (center_screen.y + 50.0)).abs() < 1e-3);
+
+        // Reset center and drag mouse right (+x in screen space)
+        vp.center = initial_center;
+        let drag_right = egui::vec2(75.0, 0.0);
+        vp.center = vp.screen_to_world(center_screen - drag_right, canvas_rect);
+        let screen_pt_after2 = vp.world_to_screen(initial_center, canvas_rect);
+        assert!((screen_pt_after2.x - (center_screen.x + 75.0)).abs() < 1e-3);
+        assert!((screen_pt_after2.y - center_screen.y).abs() < 1e-3);
     }
 }
 
