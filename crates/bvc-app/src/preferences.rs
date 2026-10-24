@@ -57,7 +57,7 @@ pub struct Preferences {
     pub show_pin_annotations: bool,
     pub high_density_lod: bool,
     pub show_opposite_elements: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub show_vias: bool,
     #[serde(default)]
     pub show_unnamed_vias: bool,
@@ -79,7 +79,7 @@ impl Default for Preferences {
             show_pin_annotations: true,
             high_density_lod: true,
             show_opposite_elements: false,
-            show_vias: true,
+            show_vias: false,
             show_unnamed_vias: false,
             show_pins: true,
         }

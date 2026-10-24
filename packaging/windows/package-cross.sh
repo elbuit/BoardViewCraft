@@ -34,6 +34,15 @@ cp "$EXE_SRC" "$STAGE_DIR/boardviewcraft.exe"
 if [ -f "$ROOT/README.md" ]; then
     cp "$ROOT/README.md" "$STAGE_DIR/"
 fi
+if [ -f "$(dirname "${BASH_SOURCE[0]}")/license.rtf" ]; then
+    cp "$(dirname "${BASH_SOURCE[0]}")/license.rtf" "$STAGE_DIR/"
+fi
+if [ -f "$ROOT/LICENSE-MIT" ]; then
+    cp "$ROOT/LICENSE-MIT" "$STAGE_DIR/"
+fi
+if [ -f "$ROOT/LICENSE-APACHE" ]; then
+    cp "$ROOT/LICENSE-APACHE" "$STAGE_DIR/"
+fi
 
 (cd "$STAGE_DIR" && zip -r "$ZIP_OUT" ./*)
 echo "==> Successfully created Windows portable release: $ZIP_OUT"

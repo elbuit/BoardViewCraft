@@ -1,5 +1,6 @@
 //! Board canvas view transformation and interactive rendering.
 
+use crate::overlay::OverlayManager;
 use crate::preferences::{Preferences, ViaDisplayMode};
 use crate::render::Renderer;
 use crate::theme::Tokens;
@@ -98,7 +99,7 @@ impl Default for Viewport {
 impl Viewport {
     /// Effective scale multipliers including side and user mirror flags
     #[inline]
-    fn effective_factors(&self) -> (f32, f32) {
+    pub fn effective_factors(&self) -> (f32, f32) {
         let is_bottom_flipped = self.side == Side::Bottom;
         let sx = if is_bottom_flipped ^ self.mirror_x {
             -1.0
@@ -109,10 +110,9 @@ impl Viewport {
         (sx, sy)
     }
 
-    /// Transforms world point to screen point.
-    pub fn world_to_screen(&self, pt: Point, canvas_rect: EguiRect) -> Pos2 {
+    /// Transforms world point to screen point with custom reflection factors and custom rotation angle in radians
+    pub fn world_to_screen_with_angle(&self, pt: Point, canvas_rect: EguiRect, sx: f32, sy: f32, theta_rad: f32) -> Pos2 {
         let center_screen = canvas_rect.center();
-        let (sx, sy) = self.effective_factors();
 
         // 1. Offset relative to board center and apply reflections
         let dx = (pt.x - self.center.x) as f32 * sx;
@@ -122,8 +122,7 @@ impl Viewport {
         let dy_cad = -dy;
 
         // 3. 2D rotation in screen plane
-        let theta = self.rotation.angle_rad();
-        let (sin_t, cos_t) = theta.sin_cos();
+        let (sin_t, cos_t) = theta_rad.sin_cos();
         let x_rot = dx * cos_t - dy_cad * sin_t;
         let y_rot = dx * sin_t + dy_cad * cos_t;
 
@@ -132,6 +131,22 @@ impl Viewport {
         let screen_y = center_screen.y + y_rot * self.scale;
 
         Pos2::new(screen_x, screen_y)
+    }
+
+    /// Transforms world point to screen point with custom reflection factors and custom rotation
+    pub fn world_to_screen_with_transform(&self, pt: Point, canvas_rect: EguiRect, sx: f32, sy: f32, rotation: Rotation) -> Pos2 {
+        self.world_to_screen_with_angle(pt, canvas_rect, sx, sy, rotation.angle_rad())
+    }
+
+    /// Transforms world point to screen point with custom reflection factors
+    pub fn world_to_screen_with_factors(&self, pt: Point, canvas_rect: EguiRect, sx: f32, sy: f32) -> Pos2 {
+        self.world_to_screen_with_transform(pt, canvas_rect, sx, sy, self.rotation)
+    }
+
+    /// Transforms world point to screen point.
+    pub fn world_to_screen(&self, pt: Point, canvas_rect: EguiRect) -> Pos2 {
+        let (sx, sy) = self.effective_factors();
+        self.world_to_screen_with_factors(pt, canvas_rect, sx, sy)
     }
 
     /// Transforms screen point to world point. Exact mathematical inverse of `world_to_screen`.
@@ -257,6 +272,8 @@ pub fn show_canvas(
     tokens: &Tokens,
     board: Option<&Board>,
     canvas_state: &mut CanvasState,
+    overlay_manager: &mut OverlayManager,
+    overlay_mode_active: bool,
     selected_pin_idx: &mut Option<usize>,
     selected_via_idx: &mut Option<usize>,
     selected_part_idx: &mut Option<usize>,
@@ -270,8 +287,123 @@ pub fn show_canvas(
     // Background fill
     painter.rect_filled(rect, 0.0, tokens.canvas);
 
-    // Grid rendering (cadcraft style)
     let vp = &mut canvas_state.viewport;
+
+    // Direct Overlay Manipulation:
+    // Active when either Alt is held, OR the right-panel Overlay tab is active (and overlay is loaded and unlocked).
+    let is_alt_down = ui.input(|i| i.modifiers.alt);
+    let active_slot = overlay_manager.slot_for_side(vp.side);
+    let is_overlay_interacting = (is_alt_down || overlay_mode_active) && active_slot.is_loaded() && !active_slot.locked;
+
+    if is_overlay_interacting {
+        if response.dragged_by(egui::PointerButton::Primary) || response.dragged_by(egui::PointerButton::Secondary) {
+            let drag_screen = response.drag_delta();
+            // Convert screen drag delta to world delta
+            let (sx, sy) = vp.effective_factors();
+            let theta = vp.rotation.angle_rad();
+            let (sin_t, cos_t) = theta.sin_cos();
+
+            let dx_rot = drag_screen.x / vp.scale;
+            let dy_rot = drag_screen.y / vp.scale;
+            let dx_cad = dx_rot * cos_t + dy_rot * sin_t;
+            let dy_cad = -dx_rot * sin_t + dy_rot * cos_t;
+            let dy = -dy_cad;
+
+            active_slot.center.x += (dx_cad / sx) as f64;
+            active_slot.center.y += (dy / sy) as f64;
+            ui.ctx().request_repaint();
+        }
+
+        let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
+        if scroll_y != 0.0 {
+            let scale_factor = if scroll_y > 0.0 { 1.05 } else { 1.0 / 1.05 };
+            let new_zoom = active_slot.zoom * scale_factor;
+            active_slot.set_zoom(new_zoom);
+            ui.ctx().request_repaint();
+        }
+    }
+
+    // Render Overlay Photo Quad (behind board elements)
+    if active_slot.visible {
+        if let Some(ref texture) = active_slot.texture {
+            let half_w = (active_slot.size.x * 0.5) as f64;
+            let half_h = (active_slot.size.y * 0.5) as f64;
+            let fine_rad = active_slot.fine_rotation_deg.to_radians();
+            let (sin_f, cos_f) = fine_rad.sin_cos();
+
+            let local_corners = [
+                (-half_w, -half_h),
+                (half_w, -half_h),
+                (half_w, half_h),
+                (-half_w, half_h),
+            ];
+
+            let world_corners: Vec<Point> = local_corners
+                .iter()
+                .map(|&(lx, ly)| {
+                    let rx = lx * (cos_f as f64) - ly * (sin_f as f64);
+                    let ry = lx * (sin_f as f64) + ly * (cos_f as f64);
+                    Point::new(active_slot.center.x + rx, active_slot.center.y + ry)
+                })
+                .collect();
+
+            // Calculate effective reflection and rotation factors for the overlay:
+            // - If the overlay is locked: it stays exactly in the relative alignment it had at lock time,
+            //   rotating and mirroring by the *difference* in PCB orientation since lock time.
+            // - If the overlay is unlocked: it stays fixed to the screen without rotating when the PCB rotates.
+            // - Independent overlay mirror_x / mirror_y are also applied.
+            let (vp_sx, vp_sy) = vp.effective_factors();
+
+            let (final_sx, final_sy, final_rot_rad) = if active_slot.locked {
+                // Relative delta since lock time
+                let rel_sx = vp_sx / active_slot.locked_board_sx;
+                let rel_sy = vp_sy / active_slot.locked_board_sy;
+                let rel_rot = vp.rotation.angle_rad() - active_slot.locked_board_rotation_deg;
+
+                let sx = if active_slot.mirror_x { -rel_sx } else { rel_sx };
+                let sy = if active_slot.mirror_y { -rel_sy } else { rel_sy };
+                (sx, sy, rel_rot)
+            } else {
+                let sx = if active_slot.mirror_x { -1.0 } else { 1.0 };
+                let sy = if active_slot.mirror_y { -1.0 } else { 1.0 };
+                (sx, sy, 0.0)
+            };
+
+            let p0 = vp.world_to_screen_with_angle(world_corners[0], rect, final_sx, final_sy, final_rot_rad);
+            let p1 = vp.world_to_screen_with_angle(world_corners[1], rect, final_sx, final_sy, final_rot_rad);
+            let p2 = vp.world_to_screen_with_angle(world_corners[2], rect, final_sx, final_sy, final_rot_rad);
+            let p3 = vp.world_to_screen_with_angle(world_corners[3], rect, final_sx, final_sy, final_rot_rad);
+
+            let alpha = (active_slot.opacity.clamp(0.0, 1.0) * 255.0) as u8;
+            let tint = Color32::from_white_alpha(alpha);
+
+            let mut img_mesh = Mesh::with_texture(texture.id());
+            img_mesh.add_rect_with_uv(
+                EguiRect::from_min_max(Pos2::ZERO, Pos2::ZERO), // dummy rect, custom vertices below
+                EguiRect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                tint,
+            );
+            // Replace dummy vertices with projected quad
+            img_mesh.vertices.clear();
+            img_mesh.indices.clear();
+
+            let uv0 = Pos2::new(0.0, 0.0);
+            let uv1 = Pos2::new(1.0, 0.0);
+            let uv2 = Pos2::new(1.0, 1.0);
+            let uv3 = Pos2::new(0.0, 1.0);
+
+            let idx0 = img_mesh.vertices.len() as u32;
+            img_mesh.vertices.push(egui::epaint::Vertex { pos: p0, uv: uv0, color: tint });
+            img_mesh.vertices.push(egui::epaint::Vertex { pos: p1, uv: uv1, color: tint });
+            img_mesh.vertices.push(egui::epaint::Vertex { pos: p2, uv: uv2, color: tint });
+            img_mesh.vertices.push(egui::epaint::Vertex { pos: p3, uv: uv3, color: tint });
+
+            img_mesh.indices.extend_from_slice(&[idx0, idx0 + 1, idx0 + 2, idx0, idx0 + 2, idx0 + 3]);
+            painter.add(img_mesh);
+        }
+    }
+
+    // Grid rendering (cadcraft style)
     let grid_spacing_mils = 100.0; // 100 mils = 0.1 inch
     let screen_grid_spacing = (grid_spacing_mils * vp.scale as f64) as f32;
 
@@ -315,11 +447,13 @@ pub fn show_canvas(
         }
     }
 
-    // Interactive Pan (Middle click or Right click drag, or left-drag if not clicking an element)
-    if response.dragged_by(egui::PointerButton::Middle)
-        || response.dragged_by(egui::PointerButton::Secondary)
-        || response.dragged_by(egui::PointerButton::Primary)
-    {
+    // Interactive Pan (Middle click or Right click drag, or left-drag if not clicking an element or moving overlay)
+    let should_pan_canvas = !is_overlay_interacting
+        && (response.dragged_by(egui::PointerButton::Middle)
+            || response.dragged_by(egui::PointerButton::Secondary)
+            || response.dragged_by(egui::PointerButton::Primary));
+
+    if should_pan_canvas {
         let delta = response.drag_delta();
         // Move viewport center so the point under the mouse follows the cursor exactly:
         // Screen point center_screen shifted by -delta corresponds to the new world center.
@@ -327,9 +461,9 @@ pub fn show_canvas(
         vp.center = vp.screen_to_world(center_screen - delta, rect);
     }
 
-    // Zoom on mouse wheel
+    // Zoom on mouse wheel (only zooms PCB viewport when NOT scaling the overlay)
     let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
-    if scroll_y != 0.0 {
+    if scroll_y != 0.0 && !is_overlay_interacting {
         if let Some(hover_pos) = response.hover_pos() {
             let mouse_world_before = vp.screen_to_world(hover_pos, rect);
             let zoom_factor = if scroll_y > 0.0 { 1.15 } else { 1.0 / 1.15 };

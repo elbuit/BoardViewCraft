@@ -1,9 +1,10 @@
 //! Side inspection panel for BoardViewCraft.
 
 use crate::i18n::{self, Language};
+use crate::overlay::OverlayManager;
 use crate::theme::Tokens;
 use bvc_core::{Board, Side};
-use egui::{RichText, ScrollArea, TextEdit, Ui};
+use egui::{Button, Color32, DragValue, RichText, ScrollArea, Slider, TextEdit, Ui};
 
 pub struct SidePanelState {
     pub filter_part: String,
@@ -16,6 +17,7 @@ pub enum Tab {
     Net,
     Part,
     Search,
+    Overlay,
 }
 
 impl Default for SidePanelState {
@@ -33,12 +35,17 @@ pub fn show_side_panel(
     tokens: &Tokens,
     board: Option<&Board>,
     state: &mut SidePanelState,
+    overlay_manager: &mut OverlayManager,
     selected_pin_idx: &mut Option<usize>,
     selected_via_idx: &mut Option<usize>,
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
     current_side: Side,
+    current_rotation_rad: f32,
+    current_sx: f32,
+    current_sy: f32,
     lang: Language,
+    on_load_photo: &mut Option<Side>,
 ) {
     ui.horizontal(|ui| {
         if ui
@@ -59,9 +66,20 @@ pub fn show_side_panel(
         {
             state.active_tab = Tab::Search;
         }
+        if ui
+            .selectable_label(state.active_tab == Tab::Overlay, i18n::tr(lang, "side_panel.overlay"))
+            .clicked()
+        {
+            state.active_tab = Tab::Overlay;
+        }
     });
 
     ui.separator();
+
+    if state.active_tab == Tab::Overlay {
+        show_overlay_panel(ui, tokens, overlay_manager, current_side, current_rotation_rad, current_sx, current_sy, lang, on_load_photo);
+        return;
+    }
 
     let Some(b) = board else {
         ui.label(RichText::new("No board loaded").color(tokens.text_dim()));
@@ -331,7 +349,188 @@ pub fn show_side_panel(
                 }
             });
         }
+        Tab::Overlay => {
+            show_overlay_panel(ui, tokens, overlay_manager, current_side, current_rotation_rad, current_sx, current_sy, lang, on_load_photo);
+        }
     }
+}
+
+pub fn show_overlay_panel(
+    ui: &mut Ui,
+    tokens: &Tokens,
+    overlay_manager: &mut OverlayManager,
+    current_side: Side,
+    current_rotation_rad: f32,
+    current_sx: f32,
+    current_sy: f32,
+    lang: Language,
+    on_load_photo: &mut Option<Side>,
+) {
+    let side_name = match current_side {
+        Side::Top => i18n::tr(lang, "overlay.side_top"),
+        Side::Bottom => i18n::tr(lang, "overlay.side_bottom"),
+        Side::Both => i18n::tr(lang, "overlay.side_both"),
+    };
+
+    ui.heading(RichText::new(format!("{}: {}", i18n::tr(lang, "overlay.title"), side_name)).color(tokens.accent()));
+    ui.add_space(4.0);
+
+    let slot = overlay_manager.slot_for_side(current_side);
+
+    if !slot.is_loaded() {
+        ui.label(RichText::new(i18n::tr(lang, "overlay.no_photo_loaded")).color(tokens.text_dim()));
+        ui.add_space(8.0);
+        if ui.button(format!("📷 {}", i18n::tr(lang, "overlay.load_photo"))).clicked() {
+            *on_load_photo = Some(current_side);
+        }
+        return;
+    }
+
+    if let Some(path) = &slot.file_path {
+        let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("photo");
+        ui.label(RichText::new(format!("{}: {}", i18n::tr(lang, "overlay.file"), file_name)).color(tokens.text_dim()));
+        ui.label(RichText::new(format!("{}x{} px", slot.orig_dimensions.0, slot.orig_dimensions.1)).color(tokens.text_dim()));
+    }
+
+    ui.add_space(8.0);
+    ui.horizontal(|ui| {
+        let lock_icon = if slot.locked { "🔒" } else { "🔓" };
+        let lock_label = format!("{} {}", lock_icon, if slot.locked { i18n::tr(lang, "overlay.locked") } else { i18n::tr(lang, "overlay.unlocked") });
+        if ui.selectable_label(slot.locked, lock_label).clicked() {
+            slot.toggle_lock(current_rotation_rad, current_sx, current_sy);
+        }
+
+        ui.checkbox(&mut slot.visible, i18n::tr(lang, "overlay.visible"));
+    });
+
+    ui.add_space(8.0);
+    ui.separator();
+    ui.add_space(4.0);
+
+    // Opacity
+    ui.horizontal(|ui| {
+        ui.label(i18n::tr(lang, "overlay.opacity"));
+        ui.add(Slider::new(&mut slot.opacity, 0.0..=1.0).show_value(true).custom_formatter(|n, _| format!("{:.0}%", n * 100.0)));
+    });
+
+    ui.add_space(6.0);
+
+    // Position X / Y
+    ui.label(RichText::new(i18n::tr(lang, "overlay.position")).strong());
+    ui.horizontal(|ui| {
+        ui.label("X (mil):");
+        ui.add_enabled(!slot.locked, DragValue::new(&mut slot.center.x).speed(1.0));
+        ui.label("Y (mil):");
+        ui.add_enabled(!slot.locked, DragValue::new(&mut slot.center.y).speed(1.0));
+    });
+
+    ui.add_space(6.0);
+
+    // Size / Scaling
+    ui.label(RichText::new(i18n::tr(lang, "overlay.size")).strong());
+
+    // Zoom slider (% scaling)
+    ui.horizontal(|ui| {
+        ui.label(format!("{}:", i18n::tr(lang, "overlay.zoom")));
+        let mut zoom_pct = slot.zoom * 100.0;
+        if ui
+            .add_enabled(
+                !slot.locked,
+                Slider::new(&mut zoom_pct, 10.0..=500.0)
+                    .suffix("%")
+                    .logarithmic(true)
+                    .show_value(true),
+            )
+            .changed()
+        {
+            slot.set_zoom(zoom_pct / 100.0);
+        }
+        if ui.add_enabled(!slot.locked, Button::new("100%")).clicked() {
+            slot.set_zoom(1.0);
+        }
+    });
+
+    ui.horizontal(|ui| {
+        let aspect = if slot.orig_dimensions.1 > 0 {
+            slot.orig_dimensions.0 as f32 / slot.orig_dimensions.1 as f32
+        } else {
+            1.0
+        };
+
+        ui.label("W:");
+        let mut w = slot.size.x;
+        if ui.add_enabled(!slot.locked, DragValue::new(&mut w).speed(2.0).range(10.0..=1_000_000.0)).changed() {
+            slot.size.x = w;
+            if slot.aspect_locked {
+                slot.size.y = w / aspect.max(0.001);
+            }
+            if slot.base_size.x > 0.0 {
+                slot.zoom = slot.size.x / slot.base_size.x;
+            }
+        }
+
+        ui.label("H:");
+        let mut h = slot.size.y;
+        if ui.add_enabled(!slot.locked, DragValue::new(&mut h).speed(2.0).range(10.0..=1_000_000.0)).changed() {
+            slot.size.y = h;
+            if slot.aspect_locked {
+                slot.size.x = h * aspect;
+            }
+            if slot.base_size.y > 0.0 {
+                slot.zoom = slot.size.y / slot.base_size.y;
+            }
+        }
+    });
+
+    ui.checkbox(&mut slot.aspect_locked, i18n::tr(lang, "overlay.aspect_locked"));
+
+    ui.add_space(6.0);
+
+    // Mirror horizontal & vertical
+    ui.label(RichText::new(i18n::tr(lang, "overlay.mirror_title")).strong());
+    ui.horizontal(|ui| {
+        let mx_label = format!("{} [{}]", i18n::tr(lang, "overlay.mirror_x"), if slot.mirror_x { "ON" } else { "OFF" });
+        if ui.add_enabled(!slot.locked, Button::new(mx_label)).clicked() {
+            slot.mirror_x = !slot.mirror_x;
+        }
+        let my_label = format!("{} [{}]", i18n::tr(lang, "overlay.mirror_y"), if slot.mirror_y { "ON" } else { "OFF" });
+        if ui.add_enabled(!slot.locked, Button::new(my_label)).clicked() {
+            slot.mirror_y = !slot.mirror_y;
+        }
+    });
+
+    ui.add_space(6.0);
+
+    // Fine rotation
+    ui.label(RichText::new(i18n::tr(lang, "overlay.fine_rotation")).strong());
+    ui.horizontal(|ui| {
+        ui.add_enabled(
+            !slot.locked,
+            Slider::new(&mut slot.fine_rotation_deg, -180.0..=180.0)
+                .suffix("°")
+                .show_value(true),
+        );
+        if ui.add_enabled(!slot.locked, Button::new(i18n::tr(lang, "overlay.reset_rot"))).clicked() {
+            slot.fine_rotation_deg = 0.0;
+        }
+    });
+
+    ui.add_space(10.0);
+    ui.separator();
+    ui.add_space(6.0);
+
+    ui.horizontal(|ui| {
+        if ui.button(format!("🔄 {}", i18n::tr(lang, "overlay.replace"))).clicked() {
+            *on_load_photo = Some(current_side);
+        }
+
+        if ui.button(RichText::new(format!("🗑 {}", i18n::tr(lang, "overlay.remove"))).color(Color32::from_rgb(0xd0, 0x50, 0x50))).clicked() {
+            slot.clear();
+        }
+    });
+
+    ui.add_space(8.0);
+    ui.label(RichText::new(i18n::tr(lang, "overlay.hint_drag")).color(tokens.text_dim()).small());
 }
 
 pub fn export_net_details_tsv(b: &Board, net_name: &str) -> String {

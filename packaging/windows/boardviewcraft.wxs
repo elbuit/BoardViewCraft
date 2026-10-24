@@ -20,6 +20,7 @@
                       WorkingDirectory="INSTALLFOLDER"
                       Advertise="yes" />
           </File>
+          <File Id="LicenseRtf" Source="$(var.SourceDir)\license.rtf" />
           <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\boardviewcraft.exe" Value="[#BoardViewCraftExe]" Type="string" />
           <RegistryValue Root="HKLM" Key="Software\Classes\Applications\boardviewcraft.exe\shell\open\command" Value="&quot;[#BoardViewCraftExe]&quot; &quot;%1&quot;" Type="string" />
           <RegistryValue Root="HKLM" Key="Software\Classes\.cad\OpenWithProgids" Name="BoardViewCraft.CAD" Value="" Type="string" />
@@ -36,6 +37,7 @@
       <ComponentRef Id="MainExecutable" />
     </Feature>
 
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.SourceDir)\license.rtf" />
     <ui:WixUI Id="WixUI_Minimal" />
   </Package>
 </Wix>

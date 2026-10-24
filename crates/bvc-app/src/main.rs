@@ -2,6 +2,7 @@
 
 mod canvas;
 mod i18n;
+mod overlay;
 mod preferences;
 mod render;
 mod side_panel;
@@ -9,6 +10,7 @@ mod theme;
 
 use bvc_core::{Board, ParserRegistry, Side};
 use canvas::{CanvasState, show_canvas};
+use overlay::OverlayManager;
 use preferences::{Preferences, show_preferences_window};
 use render::Renderer;
 use side_panel::{SidePanelState, show_side_panel};
@@ -24,6 +26,7 @@ pub struct BoardViewApp {
     renderer: Renderer,
     canvas_state: CanvasState,
     side_panel_state: SidePanelState,
+    overlay_manager: OverlayManager,
     preferences: Preferences,
     preferences_open: bool,
     pending_auto_fit: bool,
@@ -48,6 +51,7 @@ impl Default for BoardViewApp {
             renderer: Renderer::new(),
             canvas_state: CanvasState::default(),
             side_panel_state: SidePanelState::default(),
+            overlay_manager: OverlayManager::default(),
             preferences: Preferences::default(),
             preferences_open: false,
             pending_auto_fit: false,
@@ -133,6 +137,25 @@ impl BoardViewApp {
                     .and_then(|n| n.to_str())
                     .unwrap_or("board.cad");
                 self.load_file(name, &bytes);
+            }
+        }
+    }
+
+    pub fn open_photo_dialog(&mut self, ctx: &egui::Context, side: Side) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Images (*.png, *.jpg, *.jpeg, *.webp, *.bmp)", &["png", "jpg", "jpeg", "webp", "bmp"])
+            .add_filter("All files (*.*)", &["*"])
+            .pick_file()
+        {
+            if let Ok(bytes) = std::fs::read(&path) {
+                let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
+                let slot = self.overlay_manager.slot_for_side(side);
+                if let Err(err) = slot.load_from_bytes(ctx, &path, &bytes, bbox) {
+                    self.status_msg = format!("Failed to load photo: {err}");
+                } else {
+                    self.status_msg = format!("Loaded overlay photo for {side:?}: {}", path.display());
+                    self.side_panel_state.active_tab = side_panel::Tab::Overlay;
+                }
             }
         }
     }
@@ -224,6 +247,12 @@ impl eframe::App for BoardViewApp {
 
                 // Actions Menu dropdown
                 ui.menu_button(i18n::tr(lang, "toolbar.actions"), |ui| {
+                    if ui.button(i18n::tr(lang, "toolbar.load_photo")).clicked() {
+                        let cur_side = self.canvas_state.viewport.side;
+                        self.open_photo_dialog(ui.ctx(), cur_side);
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui.button(i18n::tr(lang, "actions.rotate_cw")).clicked() {
                         self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
                         ui.close();
@@ -367,6 +396,9 @@ impl eframe::App for BoardViewApp {
         });
 
         // Right side details / search panel
+        let mut on_load_photo: Option<Side> = None;
+        let cur_rotation_rad = self.canvas_state.viewport.rotation.angle_rad();
+        let (cur_sx, cur_sy) = self.canvas_state.viewport.effective_factors();
         Panel::right("side_panel")
             .resizable(true)
             .default_size(320.0)
@@ -377,24 +409,36 @@ impl eframe::App for BoardViewApp {
                     &self.tokens,
                     self.board.as_ref(),
                     &mut self.side_panel_state,
+                    &mut self.overlay_manager,
                     &mut self.selected_pin_idx,
                     &mut self.selected_via_idx,
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
                     self.canvas_state.viewport.side,
+                    cur_rotation_rad,
+                    cur_sx,
+                    cur_sy,
                     self.preferences.language,
+                    &mut on_load_photo,
                 );
             });
+
+        if let Some(side) = on_load_photo {
+            self.open_photo_dialog(ui.ctx(), side);
+        }
 
         // Central Canvas Panel
         CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
             .show(ui, |ui: &mut Ui| {
+                let overlay_mode_active = self.side_panel_state.active_tab == side_panel::Tab::Overlay;
                 let response = show_canvas(
                     ui,
                     &self.tokens,
                     self.board.as_ref(),
                     &mut self.canvas_state,
+                    &mut self.overlay_manager,
+                    overlay_mode_active,
                     &mut self.selected_pin_idx,
                     &mut self.selected_via_idx,
                     &mut self.selected_part_idx,

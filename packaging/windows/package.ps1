@@ -79,6 +79,17 @@ if (Test-Path (Join-Path $Root 'README.md')) {
   Copy-Item (Join-Path $Root 'README.md') -Destination (Join-Path $StageDir 'README.md')
 }
 
+$LicenseRtf = Join-Path $PSScriptRoot 'license.rtf'
+if (Test-Path $LicenseRtf) {
+  Copy-Item $LicenseRtf -Destination (Join-Path $StageDir 'license.rtf')
+}
+if (Test-Path (Join-Path $Root 'LICENSE-MIT')) {
+  Copy-Item (Join-Path $Root 'LICENSE-MIT') -Destination (Join-Path $StageDir 'LICENSE-MIT')
+}
+if (Test-Path (Join-Path $Root 'LICENSE-APACHE')) {
+  Copy-Item (Join-Path $Root 'LICENSE-APACHE') -Destination (Join-Path $StageDir 'LICENSE-APACHE')
+}
+
 if (Test-Path $ZipOut) { Remove-Item -Force $ZipOut }
 Compress-Archive -Path "$StageDir\*" -DestinationPath $ZipOut -Force
 Write-Output "Created portable ZIP: $ZipOut"
