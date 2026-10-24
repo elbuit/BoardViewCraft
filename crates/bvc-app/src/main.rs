@@ -12,7 +12,7 @@ use canvas::{CanvasState, show_canvas};
 use preferences::{Preferences, show_preferences_window};
 use render::Renderer;
 use side_panel::{SidePanelState, show_side_panel};
-use theme::{ThemePreset, Tokens};
+use theme::{AppTheme, Tokens};
 
 use egui::{CentralPanel, Color32, Panel, RichText, Ui, Vec2};
 use std::sync::Arc;
@@ -26,9 +26,11 @@ pub struct BoardViewApp {
     side_panel_state: SidePanelState,
     preferences: Preferences,
     preferences_open: bool,
+    pending_auto_fit: bool,
 
     // Selection state
     selected_pin_idx: Option<usize>,
+    selected_via_idx: Option<usize>,
     selected_part_idx: Option<usize>,
     selected_net: Option<String>,
 
@@ -48,7 +50,9 @@ impl Default for BoardViewApp {
             side_panel_state: SidePanelState::default(),
             preferences: Preferences::default(),
             preferences_open: false,
+            pending_auto_fit: false,
             selected_pin_idx: None,
+            selected_via_idx: None,
             selected_part_idx: None,
             selected_net: None,
             status_msg: "Ready. Open a .cad file to inspect.".to_string(),
@@ -60,12 +64,12 @@ impl Default for BoardViewApp {
 impl BoardViewApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let preferences = Preferences::load();
-        let tokens = if preferences.theme == ThemePreset::Custom {
-            preferences.custom_tokens.unwrap_or(Tokens::DARK)
-        } else {
-            preferences.theme.tokens()
-        };
-        let is_light = false;
+        let tokens = Tokens::new_with_custom(
+            preferences.app_theme,
+            preferences.pcb_theme,
+            preferences.custom_pcb_tokens,
+        );
+        let is_light = preferences.app_theme == AppTheme::Light;
         cc.egui_ctx.set_visuals(tokens.egui_visuals(is_light));
 
         Self {
@@ -88,12 +92,14 @@ impl BoardViewApp {
                 );
                 self.filename = Some(filename.to_string());
                 self.selected_pin_idx = None;
+                self.selected_via_idx = None;
                 self.selected_part_idx = None;
                 self.selected_net = None;
 
-                // Center view
+                // Center view and request auto-fit to window on next render frame
                 if let Some(bbox) = board.bounding_box {
                     self.canvas_state.viewport.center = bbox.center();
+                    self.pending_auto_fit = true;
                 }
 
                 self.board = Some(board);
@@ -209,7 +215,7 @@ impl eframe::App for BoardViewApp {
         Panel::top("top_bar").show(ui, |ui: &mut Ui| {
             ui.add_space(3.0);
             ui.horizontal(|ui: &mut Ui| {
-                ui.heading(RichText::new("BoardViewCraft").strong().color(self.tokens.accent));
+                ui.heading(RichText::new("BoardViewCraft").strong().color(self.tokens.accent()));
                 ui.separator();
 
                 if ui.button(i18n::tr(lang, "toolbar.open_board")).clicked() {
@@ -276,6 +282,17 @@ impl eframe::App for BoardViewApp {
                 // Zoom dropdown / presets
                 ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
                     let rect = ui.clip_rect();
+                    if ui.button(i18n::tr(lang, "toolbar.zoom_fit_window")).clicked() {
+                        if let Some(board) = &self.board {
+                            if let Some(bbox) = board.bounding_box {
+                                self.canvas_state.viewport.fit_to_rect(bbox, rect);
+                                self.canvas_state.cached_view_key = None;
+                                ui.ctx().request_repaint();
+                            }
+                        }
+                        ui.close();
+                    }
+                    ui.separator();
                     if ui.button(i18n::tr(lang, "toolbar.zoom_preset_25")).clicked() {
                         self.canvas_state.viewport.zoom_preset(0.25, rect);
                         ui.close();
@@ -300,7 +317,7 @@ impl eframe::App for BoardViewApp {
 
                 if let Some(name) = &self.filename {
                     ui.separator();
-                    ui.label(RichText::new(name).color(self.tokens.text_dim));
+                    ui.label(RichText::new(name).color(self.tokens.text_dim()));
                 }
             });
             ui.add_space(3.0);
@@ -310,7 +327,7 @@ impl eframe::App for BoardViewApp {
         Panel::bottom("status_bar").show(ui, |ui: &mut Ui| {
             ui.add_space(2.0);
             ui.horizontal(|ui: &mut Ui| {
-                ui.label(RichText::new(&self.status_msg).color(self.tokens.status_bar_text));
+                ui.label(RichText::new(&self.status_msg).color(self.tokens.status_bar_text()));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut Ui| {
                     let side_str = match self.canvas_state.viewport.side {
@@ -325,7 +342,7 @@ impl eframe::App for BoardViewApp {
                         (false, true) => " [Mirror Y]",
                         (false, false) => "",
                     };
-                    ui.label(RichText::new(format!("[{side_str} | Rot: {rot_str}{mirror_str}] Scale: {:.4}", self.canvas_state.viewport.scale)).color(self.tokens.text_dim));
+                    ui.label(RichText::new(format!("[{side_str} | Rot: {rot_str}{mirror_str}] Scale: {:.4}", self.canvas_state.viewport.scale)).color(self.tokens.text_dim()));
                 });
             });
             ui.add_space(2.0);
@@ -343,6 +360,7 @@ impl eframe::App for BoardViewApp {
                     self.board.as_ref(),
                     &mut self.side_panel_state,
                     &mut self.selected_pin_idx,
+                    &mut self.selected_via_idx,
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
                     self.canvas_state.viewport.side,
@@ -352,19 +370,34 @@ impl eframe::App for BoardViewApp {
 
         // Central Canvas Panel
         CentralPanel::default()
-            .frame(egui::Frame::NONE.fill(self.tokens.canvas))
+            .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
             .show(ui, |ui: &mut Ui| {
-                show_canvas(
+                let response = show_canvas(
                     ui,
                     &self.tokens,
                     self.board.as_ref(),
                     &mut self.canvas_state,
                     &mut self.selected_pin_idx,
+                    &mut self.selected_via_idx,
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
                     &mut self.renderer,
                     &self.preferences,
                 );
+
+                if self.pending_auto_fit {
+                    let rect = response.rect;
+                    if rect.width() > 10.0 && rect.height() > 10.0 {
+                        if let Some(board) = &self.board {
+                            if let Some(bbox) = board.bounding_box {
+                                self.canvas_state.viewport.fit_to_rect(bbox, rect);
+                                self.canvas_state.cached_view_key = None;
+                                ui.ctx().request_repaint();
+                            }
+                        }
+                        self.pending_auto_fit = false;
+                    }
+                }
             });
 
         // Preferences modal window
@@ -380,13 +413,16 @@ impl eframe::App for BoardViewApp {
         }
 
         if prefs_changed {
-            if prefs.theme != self.preferences.theme || prefs.custom_tokens != self.preferences.custom_tokens {
-                self.tokens = if prefs.theme == ThemePreset::Custom {
-                    prefs.custom_tokens.unwrap_or(Tokens::DARK)
-                } else {
-                    prefs.theme.tokens()
-                };
-                let is_light = false;
+            if prefs.app_theme != self.preferences.app_theme
+                || prefs.pcb_theme != self.preferences.pcb_theme
+                || prefs.custom_pcb_tokens != self.preferences.custom_pcb_tokens
+            {
+                self.tokens = Tokens::new_with_custom(
+                    prefs.app_theme,
+                    prefs.pcb_theme,
+                    prefs.custom_pcb_tokens,
+                );
+                let is_light = prefs.app_theme == AppTheme::Light;
                 ui.ctx().set_visuals(self.tokens.egui_visuals(is_light));
             }
             // Invalidate canvas mesh cache

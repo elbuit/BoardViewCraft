@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="BoardViewCraft"
+           Manufacturer="BoardViewCraft Contributors"
+           Version="$(var.Version)"
+           UpgradeCode="d6ca8fff-f510-4cc5-afa5-846eb9669411"
+           Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BoardViewCraft is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="BoardViewCraft">
+        <Component Id="MainExecutable" Guid="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
+          <File Id="BoardViewCraftExe" Source="$(var.SourceDir)\boardviewcraft.exe" KeyPath="yes">
+            <Shortcut Id="ApplicationStartMenuShortcut"
+                      Directory="ProgramMenuFolder"
+                      Name="BoardViewCraft"
+                      Description="Pure Rust CAD Board Viewer"
+                      WorkingDirectory="INSTALLFOLDER"
+                      Advertise="yes" />
+          </File>
+          <ProgId Id="BoardViewCraft.CAD" Description="CAD Boardview File">
+            <Extension Id="cad" ContentType="application/octet-stream">
+              <Verb Id="open" Command="Open with BoardViewCraft" Argument="&quot;%1&quot;" />
+            </Extension>
+          </ProgId>
+          <ProgId Id="BoardViewCraft.TVW" Description="TestView Boardview File">
+            <Extension Id="tvw" ContentType="application/octet-stream">
+              <Verb Id="open" Command="Open with BoardViewCraft" Argument="&quot;%1&quot;" />
+            </Extension>
+          </ProgId>
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="MainFeature" Title="BoardViewCraft Application" Level="1">
+      <ComponentRef Id="MainExecutable" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_Minimal" />
+  </Package>
+</Wix>

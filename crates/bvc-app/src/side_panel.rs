@@ -34,6 +34,7 @@ pub fn show_side_panel(
     board: Option<&Board>,
     state: &mut SidePanelState,
     selected_pin_idx: &mut Option<usize>,
+    selected_via_idx: &mut Option<usize>,
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
     current_side: Side,
@@ -63,7 +64,7 @@ pub fn show_side_panel(
     ui.separator();
 
     let Some(b) = board else {
-        ui.label(RichText::new("No board loaded").color(tokens.text_dim));
+        ui.label(RichText::new("No board loaded").color(tokens.text_dim()));
         return;
     };
 
@@ -71,7 +72,7 @@ pub fn show_side_panel(
         Tab::Net => {
             if let Some(net_name) = selected_net {
                 ui.horizontal(|ui| {
-                    ui.heading(RichText::new(format!("Net: {net_name}")).color(tokens.accent));
+                    ui.heading(RichText::new(format!("Net: {net_name}")).color(tokens.accent()));
                     if ui.button("📋").on_hover_text("Copy full net details (TSV) to clipboard").clicked() {
                         let text = export_net_details_tsv(b, net_name);
                         ui.ctx().copy_text(text);
@@ -84,7 +85,7 @@ pub fn show_side_panel(
                             net.pin_indices.len(),
                             net.via_indices.len()
                         ))
-                        .color(tokens.text_dim),
+                        .color(tokens.text_dim()),
                     );
 
                     ui.add_space(8.0);
@@ -115,9 +116,9 @@ pub fn show_side_panel(
                                     );
 
                                     let color = if is_cur_side {
-                                        tokens.pin_highlight_cur_side
+                                        tokens.pin_highlight_cur_side()
                                     } else {
-                                        tokens.pin_highlight_opp_side
+                                        tokens.pin_highlight_opp_side()
                                     };
 
                                     let is_selected = *selected_pin_idx == Some(pin_idx);
@@ -127,6 +128,7 @@ pub fn show_side_panel(
                                     );
                                     if response.clicked() {
                                         *selected_pin_idx = Some(pin_idx);
+                                        *selected_via_idx = None;
                                         *selected_part_idx = Some(pin.part_id);
                                     }
                                     response.context_menu(|ui| {
@@ -162,7 +164,7 @@ pub fn show_side_panel(
                                                 "Via #{} ({}) [{:.1}, {:.1}]",
                                                 via.id, side_str, via.pos.x, via.pos.y
                                             ))
-                                            .color(tokens.text_dim),
+                                            .color(tokens.text_dim()),
                                         );
                                     }
                                 }
@@ -170,14 +172,14 @@ pub fn show_side_panel(
                     }
                 }
             } else {
-                ui.label(RichText::new("Click a pin or via to view its net.").color(tokens.text_dim));
+                ui.label(RichText::new("Click a pin or via to view its net.").color(tokens.text_dim()));
             }
         }
         Tab::Part => {
             if let Some(part_id) = selected_part_idx {
                 if let Some(part) = b.parts.get(*part_id) {
                     ui.horizontal(|ui| {
-                        ui.heading(RichText::new(format!("Part: {}", part.name)).color(tokens.accent));
+                        ui.heading(RichText::new(format!("Part: {}", part.name)).color(tokens.accent()));
                         if ui.button("📋").on_hover_text("Copy full part details (TSV) to clipboard").clicked() {
                             let text = export_part_details_tsv(b, part);
                             ui.ctx().copy_text(text);
@@ -190,7 +192,7 @@ pub fn show_side_panel(
                     };
                     ui.label(
                         RichText::new(format!("Side: {side_str} | Pins: {}", part.pin_indices.len()))
-                            .color(tokens.text_dim),
+                            .color(tokens.text_dim()),
                     );
 
                     ui.add_space(8.0);
@@ -223,10 +225,11 @@ pub fn show_side_panel(
 
                                 let response = ui.selectable_label(
                                     is_selected,
-                                    RichText::new(&pin_label).color(tokens.text),
+                                    RichText::new(&pin_label).color(tokens.text()),
                                 );
                                 if response.clicked() {
                                     *selected_pin_idx = Some(pin_idx);
+                                    *selected_via_idx = None;
                                     *selected_net = if pin.net_name.is_empty() {
                                         None
                                     } else {
@@ -250,7 +253,7 @@ pub fn show_side_panel(
                     });
                 }
             } else {
-                ui.label(RichText::new("Click a component pin to view part details.").color(tokens.text_dim));
+                ui.label(RichText::new("Click a component pin to view part details.").color(tokens.text_dim()));
             }
         }
         Tab::Search => {

@@ -1,7 +1,7 @@
 //! User preferences and settings dialog.
 
 use crate::i18n::{self, Language};
-use crate::theme::{ThemePreset, Tokens};
+use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -14,12 +14,41 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const MAX_BYTES: u64 = 64 * 1024;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum ViaDisplayMode {
+    #[default]
+    Web,
+    Radial,
+}
+
+impl ViaDisplayMode {
+    pub const ALL: [ViaDisplayMode; 2] = [
+        ViaDisplayMode::Radial,
+        ViaDisplayMode::Web,
+    ];
+
+    pub fn display_name(&self, lang: Language) -> &'static str {
+        match self {
+            ViaDisplayMode::Radial => i18n::tr(lang, "prefs.via_mode_radial"),
+            ViaDisplayMode::Web => i18n::tr(lang, "prefs.via_mode_web"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Preferences {
     pub language: Language,
-    pub theme: ThemePreset,
-    pub custom_tokens: Option<Tokens>,
+    #[serde(default)]
+    pub app_theme: AppTheme,
+    #[serde(default)]
+    pub pcb_theme: PcbTheme,
+    #[serde(default)]
+    pub custom_pcb_tokens: Option<PcbTokens>,
+    #[serde(default)]
+    pub custom_pcb_theme_name: Option<String>,
     pub show_net_web: bool,
+    #[serde(default)]
+    pub via_display_mode: ViaDisplayMode,
     pub show_part_labels: bool,
     pub show_pin_annotations: bool,
     pub high_density_lod: bool,
@@ -30,9 +59,12 @@ impl Default for Preferences {
     fn default() -> Self {
         Self {
             language: Language::English,
-            theme: ThemePreset::CadcraftDark,
-            custom_tokens: None,
+            app_theme: AppTheme::Dark,
+            pcb_theme: PcbTheme::Cadcraft,
+            custom_pcb_tokens: None,
+            custom_pcb_theme_name: None,
             show_net_web: true,
+            via_display_mode: ViaDisplayMode::Web,
             show_part_labels: true,
             show_pin_annotations: true,
             high_density_lod: true,
@@ -167,7 +199,7 @@ pub fn show_preferences_window(
     let mut is_open = *open;
     let mut close_requested = false;
 
-    Window::new(RichText::new("Preferences").strong().color(tokens.accent))
+    Window::new(RichText::new("Preferences").strong().color(tokens.accent()))
         .open(&mut is_open)
         .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
         .resizable(true)
@@ -179,7 +211,7 @@ pub fn show_preferences_window(
 
             // Language Selector
             ui.horizontal(|ui| {
-                ui.label(RichText::new(i18n::tr(lang, "prefs.language")).strong().color(tokens.text));
+                ui.label(RichText::new(i18n::tr(lang, "prefs.language")).strong().color(tokens.text()));
                 egui::ComboBox::from_id_salt("language_combo")
                     .selected_text(prefs.language.display_name())
                     .show_ui(ui, |ui| {
@@ -192,92 +224,176 @@ pub fn show_preferences_window(
             });
 
             ui.add_space(8.0);
-            ui.heading(RichText::new(i18n::tr(lang, "prefs.appearance")).color(tokens.text));
+            ui.heading(RichText::new(i18n::tr(lang, "prefs.appearance")).color(tokens.text()));
             ui.separator();
 
             ui.horizontal(|ui| {
-                ui.label(RichText::new(i18n::tr(lang, "prefs.color_scheme")).strong().color(tokens.text));
-                egui::ComboBox::from_id_salt("theme_preset_combo")
-                    .selected_text(prefs.theme.display_name())
+                ui.label(RichText::new(i18n::tr(lang, "prefs.app_theme")).strong().color(tokens.text()));
+                egui::ComboBox::from_id_salt("app_theme_combo")
+                    .selected_text(prefs.app_theme.display_name())
                     .show_ui(ui, |ui| {
-                        for preset in ThemePreset::ALL {
+                        for theme in AppTheme::ALL {
                             if ui
-                                .selectable_value(&mut prefs.theme, preset, preset.display_name())
+                                .selectable_value(&mut prefs.app_theme, theme, theme.display_name())
                                 .clicked()
                             {
                                 changed = true;
-                                if preset == ThemePreset::Custom && prefs.custom_tokens.is_none() {
-                                    prefs.custom_tokens = Some(*tokens);
+                            }
+                        }
+                    });
+            });
+
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(i18n::tr(lang, "prefs.pcb_theme")).strong().color(tokens.text()));
+                let current_pcb_theme = prefs.pcb_theme;
+                egui::ComboBox::from_id_salt("pcb_theme_combo")
+                    .selected_text(prefs.pcb_theme.display_name())
+                    .show_ui(ui, |ui| {
+                        for theme in PcbTheme::ALL {
+                            if ui
+                                .selectable_value(&mut prefs.pcb_theme, theme, theme.display_name())
+                                .clicked()
+                            {
+                                changed = true;
+                                if theme == PcbTheme::Custom {
+                                    // Seed custom tokens from the previously active theme if not already customized
+                                    if prefs.custom_pcb_tokens.is_none() {
+                                        let seed = if current_pcb_theme != PcbTheme::Custom {
+                                            current_pcb_theme.tokens()
+                                        } else {
+                                            PcbTokens::CADCRAFT
+                                        };
+                                        prefs.custom_pcb_tokens = Some(seed);
+                                    }
                                 }
                             }
                         }
                     });
             });
 
-            // If Custom theme selected, expose color pickers
-            if prefs.theme == ThemePreset::Custom {
-                let custom = prefs.custom_tokens.get_or_insert_with(|| *tokens);
+            // If Custom PCB theme is selected, expose color pickers and name
+            if prefs.pcb_theme == PcbTheme::Custom {
+                let custom = prefs.custom_pcb_tokens.get_or_insert_with(|| PcbTokens::CADCRAFT);
                 ui.add_space(4.0);
-                ui.label(RichText::new(i18n::tr(lang, "prefs.custom_colors")).strong().color(tokens.accent));
-                egui::Grid::new("custom_colors_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                    ui.label("Canvas Background:");
-                    let mut c = custom.canvas.to_array();
-                    if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                        custom.canvas = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(i18n::tr(lang, "prefs.custom_theme_name")).color(tokens.text()));
+                    let name = prefs.custom_pcb_theme_name.get_or_insert_with(|| "Custom".to_string());
+                    if ui.text_edit_singleline(name).changed() {
                         changed = true;
                     }
-                    ui.end_row();
-
-                    ui.label("Pin Default Color:");
-                    let mut c = custom.pin_default.to_array();
-                    if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                        custom.pin_default = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                        changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Pin Highlight (Active Side):");
-                    let mut c = custom.pin_highlight_cur_side.to_array();
-                    if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                        custom.pin_highlight_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                        changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Via Color:");
-                    let mut c = custom.via_cur_side.to_array();
-                    if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                        custom.via_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                        changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Net Web Lines:");
-                    let mut c = custom.net_web.to_array();
-                    if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                        custom.net_web = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                        changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Board Outline:");
-                    let mut c = custom.board_outline.to_array();
-                    if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                        custom.board_outline = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                        changed = true;
-                    }
-                    ui.end_row();
                 });
+                ui.add_space(4.0);
+                ui.label(RichText::new(i18n::tr(lang, "prefs.custom_colors")).strong().color(tokens.accent()));
+                egui::Grid::new("custom_pcb_colors_grid")
+                    .num_columns(2)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(i18n::tr(lang, "prefs.color_canvas"));
+                        let mut c = custom.canvas.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.canvas = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_board_outline"));
+                        let mut c = custom.board_outline.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.board_outline = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_board_fill"));
+                        let mut c = custom.board_fill.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.board_fill = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_part_body"));
+                        let mut c = custom.part_body.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.part_body = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_part_text"));
+                        let mut c = custom.part_text.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.part_text = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_pin_default"));
+                        let mut c = custom.pin_default.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.pin_default = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_pin_unconnected"));
+                        let mut c = custom.pin_unconnected.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.pin_unconnected = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_pin_cur_side"));
+                        let mut c = custom.pin_highlight_cur_side.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.pin_highlight_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_pin_opp_side"));
+                        let mut c = custom.pin_highlight_opp_side.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.pin_highlight_opp_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_via_cur_side"));
+                        let mut c = custom.via_cur_side.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.via_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_via_highlight"));
+                        let mut c = custom.via_highlight.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.via_highlight = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+
+                        ui.label(i18n::tr(lang, "prefs.color_net_web"));
+                        let mut c = custom.net_web.to_array();
+                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                            custom.net_web = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                            changed = true;
+                        }
+                        ui.end_row();
+                    });
             }
 
             ui.add_space(12.0);
-            ui.heading(RichText::new(i18n::tr(lang, "prefs.visualization")).color(tokens.text));
+            ui.heading(RichText::new(i18n::tr(lang, "prefs.visualization")).color(tokens.text()));
             ui.separator();
 
             if ui
                 .checkbox(
                     &mut prefs.show_net_web,
-                    RichText::new(i18n::tr(lang, "prefs.show_net_web")).color(tokens.text),
+                    RichText::new(i18n::tr(lang, "prefs.show_net_web")).color(tokens.text()),
                 )
                 .on_hover_text("Draw connecting spiderweb lines between pins and vias on the selected net.")
                 .changed()
@@ -285,10 +401,29 @@ pub fn show_preferences_window(
                 changed = true;
             }
 
+            if prefs.show_net_web {
+                ui.horizontal(|ui| {
+                    ui.add_space(16.0);
+                    ui.label(RichText::new(i18n::tr(lang, "prefs.via_display_mode")).color(tokens.text()));
+                    egui::ComboBox::from_id_salt("via_display_mode_combo")
+                        .selected_text(prefs.via_display_mode.display_name(lang))
+                        .show_ui(ui, |ui| {
+                            for mode in ViaDisplayMode::ALL {
+                                if ui
+                                    .selectable_value(&mut prefs.via_display_mode, mode, mode.display_name(lang))
+                                    .clicked()
+                                {
+                                    changed = true;
+                                }
+                            }
+                        });
+                });
+            }
+
             if ui
                 .checkbox(
                     &mut prefs.show_part_labels,
-                    RichText::new(i18n::tr(lang, "prefs.show_part_labels")).color(tokens.text),
+                    RichText::new(i18n::tr(lang, "prefs.show_part_labels")).color(tokens.text()),
                 )
                 .on_hover_text("Render part name labels on components when zoomed in.")
                 .changed()
@@ -299,7 +434,7 @@ pub fn show_preferences_window(
             if ui
                 .checkbox(
                     &mut prefs.show_pin_annotations,
-                    RichText::new(i18n::tr(lang, "prefs.show_pin_annotations")).color(tokens.text),
+                    RichText::new(i18n::tr(lang, "prefs.show_pin_annotations")).color(tokens.text()),
                 )
                 .on_hover_text("Render pin numbers and descriptions when zooming into components.")
                 .changed()
@@ -310,7 +445,7 @@ pub fn show_preferences_window(
             if ui
                 .checkbox(
                     &mut prefs.high_density_lod,
-                    RichText::new(i18n::tr(lang, "prefs.adaptive_lod")).color(tokens.text),
+                    RichText::new(i18n::tr(lang, "prefs.adaptive_lod")).color(tokens.text()),
                 )
                 .on_hover_text("Simplify circles to quads/points on dense nets and high zoom outs for 60+ FPS performance.")
                 .changed()
@@ -321,7 +456,7 @@ pub fn show_preferences_window(
             if ui
                 .checkbox(
                     &mut prefs.show_opposite_elements,
-                    RichText::new(i18n::tr(lang, "prefs.show_opposite")).color(tokens.text),
+                    RichText::new(i18n::tr(lang, "prefs.show_opposite")).color(tokens.text()),
                 )
                 .on_hover_text("When enabled, dimmed pins and vias on the reverse side of the board are visible.")
                 .changed()
@@ -352,10 +487,13 @@ mod tests {
     #[test]
     fn test_preferences_serde() {
         let prefs = Preferences {
-            theme: ThemePreset::WarmMode,
-            custom_tokens: Some(Tokens::DARK),
+            app_theme: AppTheme::Light,
+            pcb_theme: PcbTheme::Custom,
+            custom_pcb_tokens: Some(PcbTokens::CADCRAFT),
+            custom_pcb_theme_name: Some("My Custom PCB".to_string()),
             language: Language::Catalan,
             show_net_web: false,
+            via_display_mode: ViaDisplayMode::Radial,
             show_part_labels: true,
             show_pin_annotations: false,
             high_density_lod: true,
@@ -431,7 +569,10 @@ mod tests {
         let mut prefs = Preferences::default();
         prefs.language = Language::Spanish;
         prefs.show_net_web = false;
-        prefs.theme = ThemePreset::HighContrast;
+        prefs.via_display_mode = ViaDisplayMode::Radial;
+        prefs.app_theme = AppTheme::Light;
+        prefs.pcb_theme = PcbTheme::Custom;
+        prefs.custom_pcb_tokens = Some(PcbTokens::CADCRAFT);
 
         // Save
         prefs.save_atomic_to(&config_file).expect("Atomic save should succeed");

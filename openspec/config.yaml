@@ -1,0 +1,73 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Rust 2024 / eframe / egui 0.36 / tiny-skia / cadcraft crates (geom, render, engine, ui-egui)
+  Architecture: Layered clean-room Rust boardview viewer referencing OpenBoardView format decoders and cadcraft engine/UI patterns
+  Testing: cargo test (unit, integration, kittest UI snapshot tests), cargo clippy, cargo fmt
+  Style: Never panic in non-test code, no unwrap, unsafe_code = "forbid", idiomatic Rust Result<T, E>
+
+strict_tdd: false
+
+projects:
+  - path: BoardViewCraft
+    stack: Rust (boardview viewer app/workspace)
+    test_command: "cargo test"
+    framework: cargo test
+    layers:
+      unit: true
+      integration: true
+      e2e: false
+    coverage: false
+    linter: "cargo clippy"
+    type_checker: "cargo check"
+    formatter: "cargo fmt --check"
+  - path: cadcraft
+    stack: Rust (reference CAD workspace, 12 crates, 3 apps, xtask)
+    test_command: "cargo test --workspace --ignore-rust-version"
+    framework: cargo test
+    layers:
+      unit: true
+      integration: true
+      e2e: true
+    coverage: false
+    linter: "cargo clippy --workspace --all-targets --ignore-rust-version"
+    type_checker: "cargo check --workspace --ignore-rust-version"
+    formatter: "cargo fmt --check"
+  - path: OpenBoardView
+    stack: C++11 (reference boardview viewer, CMake, SDL2, ImGui)
+    test_command: "—"
+    framework: "—"
+    layers:
+      unit: false
+      integration: false
+      e2e: false
+    coverage: false
+    linter: "—"
+    type_checker: "—"
+    formatter: "clang-format"
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Reference OpenBoardView format parsing logic and cadcraft architecture standards
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Document layer boundaries and command patterns
+    - Detail data structures for boardview entities (pins, nets, parts, vias, outlines)
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Enforce never-crash: no unwrap/expect/panic in library code
+      - unsafe_code = "forbid"
+    tdd: false
+    test_command: "cargo test"
+  verify:
+    test_command: "cargo test"
+    build_command: "cargo check"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas

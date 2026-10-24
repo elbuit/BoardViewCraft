@@ -1,11 +1,11 @@
 //! Board canvas view transformation and interactive rendering.
 
-use crate::preferences::Preferences;
+use crate::preferences::{Preferences, ViaDisplayMode};
 use crate::render::Renderer;
 use crate::theme::Tokens;
 use bvc_core::{Board, Point, Rect, Side};
 use egui::epaint::Mesh;
-use egui::{Color32, FontId, Pos2, Rect as EguiRect, Response, Sense, Stroke, Ui};
+use egui::{Color32, FontId, Pos2, Rect as EguiRect, Response, RichText, Sense, Stroke, Ui};
 use rayon::prelude::*;
 
 use serde::{Deserialize, Serialize};
@@ -216,12 +216,14 @@ pub struct ViewCacheKey {
     pub mirror_y: bool,
     pub rect_size: (u32, u32),
     pub selected_pin: Option<usize>,
+    pub selected_via: Option<usize>,
     pub selected_net: Option<String>,
     pub selected_part: Option<usize>,
     pub hovered_pin: Option<usize>,
     pub hovered_via: Option<usize>,
     pub board_ptr: usize,
     pub show_net_web: bool,
+    pub via_display_mode: ViaDisplayMode,
     pub show_opposite_elements: bool,
 }
 
@@ -231,6 +233,7 @@ pub struct CanvasState {
     pub hovered_via: Option<usize>,
     pub cached_meshes: Vec<egui::Mesh>,
     pub cached_view_key: Option<ViewCacheKey>,
+    pub context_menu_pin: Option<(usize, Pos2)>,
 }
 
 impl Default for CanvasState {
@@ -241,6 +244,7 @@ impl Default for CanvasState {
             hovered_via: None,
             cached_meshes: Vec::new(),
             cached_view_key: None,
+            context_menu_pin: None,
         }
     }
 }
@@ -251,6 +255,7 @@ pub fn show_canvas(
     board: Option<&Board>,
     canvas_state: &mut CanvasState,
     selected_pin_idx: &mut Option<usize>,
+    selected_via_idx: &mut Option<usize>,
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
     renderer: &mut Renderer,
@@ -350,17 +355,44 @@ pub fn show_canvas(
     canvas_state.hovered_pin = current_hover_pin;
     canvas_state.hovered_via = current_hover_via;
 
-    // Selection on click
-    if response.clicked() {
+    // Selection and Context Menu on click
+    let is_ctrl_down = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
+    let secondary_clicked = response.secondary_clicked();
+    let is_context_trigger = secondary_clicked || (response.clicked() && is_ctrl_down);
+
+    if is_context_trigger {
+        if let Some(pin_idx) = current_hover_pin {
+            if let Some(b) = board {
+                if let Some(pin) = b.pins.get(pin_idx) {
+                    *selected_pin_idx = Some(pin_idx);
+                    *selected_via_idx = None;
+                    *selected_part_idx = Some(pin.part_id);
+                    *selected_net = if pin.net_name.is_empty() {
+                        None
+                    } else {
+                        Some(pin.net_name.clone())
+                    };
+
+                    let click_pos = response.hover_pos().unwrap_or(rect.center());
+                    canvas_state.context_menu_pin = Some((pin_idx, click_pos));
+                }
+            }
+        } else {
+            canvas_state.context_menu_pin = None;
+        }
+    } else if response.clicked() {
+        canvas_state.context_menu_pin = None;
         if let Some(pin_idx) = current_hover_pin {
             if *selected_pin_idx == Some(pin_idx) {
                 // Clicking the already-selected pin deselects it
                 *selected_pin_idx = None;
+                *selected_via_idx = None;
                 *selected_part_idx = None;
                 *selected_net = None;
             } else if let Some(b) = board {
                 if let Some(pin) = b.pins.get(pin_idx) {
                     *selected_pin_idx = Some(pin_idx);
+                    *selected_via_idx = None;
                     *selected_part_idx = Some(pin.part_id);
                     *selected_net = if pin.net_name.is_empty() {
                         None
@@ -372,11 +404,14 @@ pub fn show_canvas(
         } else if let Some(via_idx) = current_hover_via {
             if let Some(b) = board {
                 if let Some(via) = b.vias.get(via_idx) {
-                    if *selected_pin_idx == None && selected_net.as_deref() == Some(&via.net_name) {
+                    if *selected_via_idx == Some(via_idx) || (*selected_pin_idx == None && selected_net.as_deref() == Some(&via.net_name)) {
                         // Clicking the same via deselects
+                        *selected_pin_idx = None;
+                        *selected_via_idx = None;
                         *selected_net = None;
                     } else {
                         *selected_pin_idx = None;
+                        *selected_via_idx = Some(via_idx);
                         *selected_net = if via.net_name.is_empty() {
                             None
                         } else {
@@ -400,12 +435,14 @@ pub fn show_canvas(
             mirror_y: vp.mirror_y,
             rect_size: (rect.width().round() as u32, rect.height().round() as u32),
             selected_pin: *selected_pin_idx,
+            selected_via: *selected_via_idx,
             selected_net: selected_net.clone(),
             selected_part: *selected_part_idx,
             hovered_pin: current_hover_pin,
             hovered_via: current_hover_via,
             board_ptr,
             show_net_web: prefs.show_net_web,
+            via_display_mode: prefs.via_display_mode,
             show_opposite_elements: prefs.show_opposite_elements,
         };
 
@@ -422,12 +459,14 @@ pub fn show_canvas(
                 rect,
                 tokens,
                 *selected_pin_idx,
+                *selected_via_idx,
                 *selected_part_idx,
                 selected_net.as_deref(),
                 current_hover_pin,
                 current_hover_via,
                 renderer,
                 prefs.show_net_web,
+                prefs.via_display_mode,
                 prefs.show_opposite_elements,
             );
 
@@ -519,12 +558,31 @@ pub fn show_canvas(
                     continue;
                 }
 
-                if !pin.name.is_empty() {
-                    let screen_pos = vp.world_to_screen(pin.pos, rect);
+                let screen_pos = vp.world_to_screen(pin.pos, rect);
+
+                if is_selected {
+                    // For selected pin: show net name (or fallback to pin name), drawn inside circle outline or negative text
+                    let display_text = if !pin.net_name.is_empty() {
+                        &pin.net_name
+                    } else if !pin.name.is_empty() {
+                        &pin.name
+                    } else {
+                        ""
+                    };
+
+                    if !display_text.is_empty() {
+                        let font_size = (r_screen * 0.9).clamp(8.0, 16.0);
+                        painter.text(
+                            screen_pos,
+                            egui::Align2::CENTER_CENTER,
+                            display_text,
+                            FontId::monospace(font_size),
+                            tokens.selection,
+                        );
+                    }
+                } else if !pin.name.is_empty() {
                     let font_size = (r_screen * 1.1).clamp(8.0, 14.0);
-                    let text_color = if is_selected {
-                        tokens.selection
-                    } else if is_hovered {
+                    let text_color = if is_hovered {
                         tokens.hover
                     } else if is_net_selected {
                         if is_on_cur_side {
@@ -547,12 +605,107 @@ pub fn show_canvas(
             }
         }
 
-        // Ring around selected pin
+        // Ring around selected pin: drawn as a single outer circle contour
         if let Some(idx) = *selected_pin_idx {
             if let Some(pin) = b.pins.get(idx) {
                 let screen_pos = vp.world_to_screen(pin.pos, rect);
-                let screen_r = (pin.radius as f32 * vp.scale).clamp(2.0, 40.0);
+                let screen_r = (pin.radius as f32 * vp.scale).clamp(3.0, 40.0);
                 painter.circle_stroke(screen_pos, screen_r + 3.0, Stroke::new(2.0, tokens.selection));
+            }
+        }
+
+        // Render Pin Context Menu Popup if open
+        if let Some((pin_idx, menu_pos)) = canvas_state.context_menu_pin {
+            if let Some(pin) = b.pins.get(pin_idx) {
+                let part_name = b
+                    .parts
+                    .get(pin.part_id)
+                    .map(|p| p.name.as_str())
+                    .unwrap_or("?");
+                let lang = prefs.language;
+
+                let mut close_menu = false;
+                let menu_id = egui::Id::new("pin_context_menu_area");
+
+                egui::Area::new(menu_id)
+                    .fixed_pos(menu_pos)
+                    .order(egui::Order::Foreground)
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::menu(ui.style())
+                            .fill(tokens.chrome)
+                            .stroke(Stroke::new(1.0, tokens.border))
+                            .corner_radius(4.0)
+                            .inner_margin(8.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(180.0);
+                                ui.heading(
+                                    RichText::new(format!("{}.{}", part_name, pin.name))
+                                        .color(tokens.accent)
+                                        .strong(),
+                                );
+                                ui.separator();
+
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.net")).color(tokens.text_dim));
+                                    ui.label(
+                                        RichText::new(if pin.net_name.is_empty() {
+                                            "UNCONNECTED"
+                                        } else {
+                                            &pin.net_name
+                                        })
+                                        .color(tokens.text)
+                                        .strong(),
+                                    );
+                                });
+
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.side")).color(tokens.text_dim));
+                                    ui.label(
+                                        RichText::new(if pin.side.is_top() { "TOP" } else { "BOTTOM" })
+                                            .color(tokens.text),
+                                    );
+                                });
+
+                                ui.add_space(6.0);
+                                ui.separator();
+
+                                if !pin.net_name.is_empty() {
+                                    if ui
+                                        .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_net")).color(tokens.text))
+                                        .clicked()
+                                    {
+                                        ui.ctx().copy_text(pin.net_name.clone());
+                                        close_menu = true;
+                                    }
+                                }
+
+                                let pin_info = format!(
+                                    "{}.{} ({})",
+                                    part_name,
+                                    pin.name,
+                                    if pin.net_name.is_empty() {
+                                        "UNCONNECTED"
+                                    } else {
+                                        &pin.net_name
+                                    }
+                                );
+                                if ui
+                                    .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_pin_info")).color(tokens.text))
+                                    .clicked()
+                                {
+                                    ui.ctx().copy_text(pin_info);
+                                    close_menu = true;
+                                }
+
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    close_menu = true;
+                                }
+                            });
+                    });
+
+                if close_menu {
+                    canvas_state.context_menu_pin = None;
+                }
             }
         }
     }
@@ -568,12 +721,14 @@ pub fn generate_board_meshes(
     rect: EguiRect,
     tokens: &Tokens,
     selected_pin_idx: Option<usize>,
+    selected_via_idx: Option<usize>,
     selected_part_idx: Option<usize>,
     selected_net: Option<&str>,
     current_hover_pin: Option<usize>,
     current_hover_via: Option<usize>,
     renderer: &mut Renderer,
     show_net_web: bool,
+    via_display_mode: ViaDisplayMode,
     show_opposite_elements: bool,
 ) -> Vec<Mesh> {
     let mut new_meshes = Vec::new();
@@ -789,13 +944,8 @@ pub fn generate_board_meshes(
                 let raw_screen_r = pin.radius as f32 * vp.scale;
 
                 if is_selected_pin {
-                    let screen_r = raw_screen_r.clamp(2.0, 40.0);
-                    Renderer::append_circle_to_mesh(
-                        &mut hl_mesh,
-                        screen_pos,
-                        screen_r,
-                        tokens.selection,
-                    );
+                    // Selected pin outline is rendered exclusively by the painter pass with the outer ring + label,
+                    // avoiding double concentric circles.
                 } else if is_hovered {
                     let screen_r = raw_screen_r.clamp(2.0, 40.0);
                     Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
@@ -858,10 +1008,20 @@ pub fn generate_board_meshes(
     }
 
     // 5. Net lines web (Batched line mesh inside cached render pipeline)
-    // Uses Minimum Spanning Tree (MST) so that every connected pin and via on the net
-    // is daisy-chained along shortest Euclidean paths, matching real EDA flight lines.
+    // - If nothing is selected (neither pin nor via), do not render any flight lines.
+    // - If an element (pin or via) is selected:
+    //     * Radial: Lines radiating from the selected point to every other pin and via on the net.
+    //     * Web (Telaraña): Minimum Spanning Tree (MST) route connecting all points on the net.
     if show_net_web {
-        if let Some(net_name) = selected_net {
+        let selected_point: Option<Point> = if let Some(pidx) = selected_pin_idx {
+            b.pins.get(pidx).map(|p| p.pos)
+        } else if let Some(vidx) = selected_via_idx {
+            b.vias.get(vidx).map(|v| v.pos)
+        } else {
+            None
+        };
+
+        if let (Some(origin), Some(net_name)) = (selected_point, selected_net) {
             let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
                 || net_name.eq_ignore_ascii_case("GROUND")
                 || net_name.starts_with("UNCONNECTED")
@@ -869,60 +1029,73 @@ pub fn generate_board_meshes(
 
             if !is_ground_or_power {
                 if let Some(net) = b.nets.get(net_name) {
-                    let total_nodes = net.pin_indices.len() + net.via_indices.len();
-                    if total_nodes >= 2 && total_nodes <= 300 {
-                        // Collect world coordinates of all net pins and vias
-                        let mut nodes: Vec<Point> = Vec::with_capacity(total_nodes);
-                        for &pidx in &net.pin_indices {
-                            if let Some(pin) = b.pins.get(pidx) {
-                                nodes.push(pin.pos);
-                            }
+                    let mut nodes: Vec<Point> = Vec::with_capacity(net.pin_indices.len() + net.via_indices.len());
+                    for &pidx in &net.pin_indices {
+                        if let Some(pin) = b.pins.get(pidx) {
+                            nodes.push(pin.pos);
                         }
-                        for &vidx in &net.via_indices {
-                            if let Some(via) = b.vias.get(vidx) {
-                                nodes.push(via.pos);
-                            }
+                    }
+                    for &vidx in &net.via_indices {
+                        if let Some(via) = b.vias.get(vidx) {
+                            nodes.push(via.pos);
                         }
+                    }
 
-                        // Compute Euclidean Minimum Spanning Tree using Prim's algorithm
-                        let n = nodes.len();
-                        let mut in_mst = vec![false; n];
-                        let mut min_dist = vec![f64::INFINITY; n];
-                        let mut parent = vec![0usize; n];
+                    let total_nodes = nodes.len();
+                    if total_nodes >= 2 && total_nodes <= 400 {
+                        let mut segments = Vec::new();
 
-                        in_mst[0] = true;
-                        for v in 1..n {
-                            min_dist[v] = nodes[0].dist(nodes[v]);
-                            parent[v] = 0;
-                        }
-
-                        let mut segments = Vec::with_capacity(n - 1);
-                        for _ in 1..n {
-                            let mut best_u = usize::MAX;
-                            let mut best_d = f64::INFINITY;
-                            for u in 1..n {
-                                if !in_mst[u] && min_dist[u] < best_d {
-                                    best_d = min_dist[u];
-                                    best_u = u;
+                        match via_display_mode {
+                            ViaDisplayMode::Radial => {
+                                // Radial: lines from the selected point to all other nodes on the net
+                                let p_origin = vp.world_to_screen(origin, rect);
+                                for target in &nodes {
+                                    if target.dist(origin) > 1e-4 {
+                                        let p_target = vp.world_to_screen(*target, rect);
+                                        segments.push((p_origin, p_target));
+                                    }
                                 }
                             }
+                            ViaDisplayMode::Web => {
+                                // Web (Telaraña): Euclidean MST linking all points along optimal path
+                                let n = nodes.len();
+                                let mut in_mst = vec![false; n];
+                                let mut min_dist = vec![f64::INFINITY; n];
+                                let mut parent = vec![0usize; n];
 
-                            if best_u == usize::MAX {
-                                break;
-                            }
+                                in_mst[0] = true;
+                                for v in 1..n {
+                                    min_dist[v] = nodes[0].dist(nodes[v]);
+                                    parent[v] = 0;
+                                }
 
-                            in_mst[best_u] = true;
-                            let p_u = vp.world_to_screen(nodes[best_u], rect);
-                            let p_parent = vp.world_to_screen(nodes[parent[best_u]], rect);
-                            segments.push((p_u, p_parent));
+                                for _ in 1..n {
+                                    let mut best_u = usize::MAX;
+                                    let mut best_d = f64::INFINITY;
+                                    for u in 1..n {
+                                        if !in_mst[u] && min_dist[u] < best_d {
+                                            best_d = min_dist[u];
+                                            best_u = u;
+                                        }
+                                    }
 
-                            // Update neighbor distances from best_u
-                            for v in 1..n {
-                                if !in_mst[v] {
-                                    let d = nodes[best_u].dist(nodes[v]);
-                                    if d < min_dist[v] {
-                                        min_dist[v] = d;
-                                        parent[v] = best_u;
+                                    if best_u == usize::MAX {
+                                        break;
+                                    }
+
+                                    in_mst[best_u] = true;
+                                    let p_u = vp.world_to_screen(nodes[best_u], rect);
+                                    let p_parent = vp.world_to_screen(nodes[parent[best_u]], rect);
+                                    segments.push((p_u, p_parent));
+
+                                    for v in 1..n {
+                                        if !in_mst[v] {
+                                            let d = nodes[best_u].dist(nodes[v]);
+                                            if d < min_dist[v] {
+                                                min_dist[v] = d;
+                                                parent[v] = best_u;
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -983,11 +1156,13 @@ mod tests {
             &tokens,
             Some(c35_pin_idx),
             None,
+            None,
             Some("IFPC_TXC*"),
             None,
             None,
             &mut renderer,
             true, // show_net_web
+            ViaDisplayMode::Web,
             false, // show_opposite_elements
         );
 
@@ -1047,6 +1222,7 @@ mod tests {
             &vp,
             canvas_rect,
             &tokens,
+            Some(0),
             None,
             None,
             Some("GND"),
@@ -1054,6 +1230,7 @@ mod tests {
             None,
             &mut renderer,
             true,
+            ViaDisplayMode::Web,
             false,
         );
 
@@ -1064,6 +1241,7 @@ mod tests {
             &vp,
             canvas_rect,
             &tokens,
+            Some(0),
             None,
             None,
             Some("GND"),
@@ -1071,6 +1249,7 @@ mod tests {
             None,
             &mut renderer,
             true,
+            ViaDisplayMode::Web,
             false,
         );
         let elapsed = start.elapsed();
@@ -1211,6 +1390,130 @@ mod tests {
         let screen_pt_after2 = vp.world_to_screen(initial_center, canvas_rect);
         assert!((screen_pt_after2.x - (center_screen.x + 75.0)).abs() < 1e-3);
         assert!((screen_pt_after2.y - center_screen.y).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_via_display_mode_flight_lines() {
+        let mut board = Board::new();
+        // 2 pins, 2 vias on net "TEST_NET"
+        board.pins.push(Pin {
+            id: 0,
+            part_id: 0,
+            name: "1".into(),
+            pos: Point::new(0.0, 0.0),
+            side: Side::Top,
+            net_name: "TEST_NET".into(),
+            radius: 10.0,
+        });
+        board.pins.push(Pin {
+            id: 1,
+            part_id: 0,
+            name: "2".into(),
+            pos: Point::new(100.0, 0.0),
+            side: Side::Top,
+            net_name: "TEST_NET".into(),
+            radius: 10.0,
+        });
+        board.vias.push(Via {
+            id: 0,
+            pos: Point::new(50.0, 50.0),
+            side: Side::Both,
+            net_name: "TEST_NET".into(),
+            radius: 8.0,
+        });
+        board.vias.push(Via {
+            id: 1,
+            pos: Point::new(50.0, -50.0),
+            side: Side::Both,
+            net_name: "TEST_NET".into(),
+            radius: 8.0,
+        });
+        board.rebuild_indices();
+
+        let vp = Viewport::default();
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let tokens = Tokens::DARK;
+        let mut renderer = Renderer::new();
+
+        // 1. If nothing is selected, NO flight lines are rendered at all
+        let meshes_none = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            None,
+            None,
+            None,
+            Some("TEST_NET"),
+            None,
+            None,
+            &mut renderer,
+            true,
+            ViaDisplayMode::Web,
+            false,
+        );
+        // Only board outline/fill meshes, no net web
+        assert!(!meshes_none.iter().any(|m| m.vertices.len() == 4 || m.vertices.len() == 12));
+
+        // 2. Web mode with pin 0 selected: 4 nodes -> 3 segments = 12 vertices
+        let meshes_web = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            Some(0),
+            None,
+            None,
+            Some("TEST_NET"),
+            None,
+            None,
+            &mut renderer,
+            true,
+            ViaDisplayMode::Web,
+            false,
+        );
+        let web = meshes_web.last().unwrap();
+        assert_eq!(web.vertices.len(), 12);
+
+        // 3. Radial mode with pin 0 selected: lines from pin 0 to the other 3 nodes (pin 1, via 0, via 1) = 3 segments = 12 vertices
+        let meshes_radial = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            Some(0),
+            None,
+            None,
+            Some("TEST_NET"),
+            None,
+            None,
+            &mut renderer,
+            true,
+            ViaDisplayMode::Radial,
+            false,
+        );
+        let web_radial = meshes_radial.last().unwrap();
+        assert_eq!(web_radial.vertices.len(), 12);
+
+        // 4. Radial mode with via 0 selected: lines from via 0 to pin 0, pin 1, via 1 = 3 segments = 12 vertices
+        let meshes_radial_via = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            None,
+            Some(0),
+            None,
+            Some("TEST_NET"),
+            None,
+            None,
+            &mut renderer,
+            true,
+            ViaDisplayMode::Radial,
+            false,
+        );
+        let web_radial_via = meshes_radial_via.last().unwrap();
+        assert_eq!(web_radial_via.vertices.len(), 12);
     }
 }
 
