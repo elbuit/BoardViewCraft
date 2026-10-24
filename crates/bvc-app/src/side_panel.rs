@@ -91,11 +91,13 @@ pub fn show_side_panel(
                     ui.add_space(8.0);
                     ui.label(RichText::new("Pins on Net:").strong());
 
+                    let row_height = 20.0;
                     ScrollArea::vertical()
                         .id_salt("net_pins_scroll")
                         .max_height(280.0)
-                        .show(ui, |ui| {
-                            for &pin_idx in &net.pin_indices {
+                        .show_rows(ui, row_height, net.pin_indices.len(), |ui, row_range| {
+                            for row_idx in row_range {
+                                let pin_idx = net.pin_indices[row_idx];
                                 if let Some(pin) = b.pins.get(pin_idx) {
                                     let part_name = b
                                         .parts
@@ -148,11 +150,13 @@ pub fn show_side_panel(
                     if !net.via_indices.is_empty() {
                         ui.add_space(8.0);
                         ui.label(RichText::new("Vias on Net:").strong());
+                        let via_row_height = 18.0;
                         ScrollArea::vertical()
                             .id_salt("net_vias_scroll")
                             .max_height(150.0)
-                            .show(ui, |ui| {
-                                for &via_idx in &net.via_indices {
+                            .show_rows(ui, via_row_height, net.via_indices.len(), |ui, row_range| {
+                                for row_idx in row_range {
+                                    let via_idx = net.via_indices[row_idx];
                                     if let Some(via) = b.vias.get(via_idx) {
                                         let side_str = match via.side {
                                             Side::Top => "Top",
@@ -198,59 +202,61 @@ pub fn show_side_panel(
                     ui.add_space(8.0);
                     ui.label(RichText::new("Pins:").strong());
 
+                    let row_height = 20.0;
                     ScrollArea::vertical()
                         .id_salt("part_pins_scroll")
-                        .show(ui, |ui| {
-                        for &pin_idx in &part.pin_indices {
-                            if let Some(pin) = b.pins.get(pin_idx) {
-                                let is_selected = *selected_pin_idx == Some(pin_idx);
-                                let pin_label = format!(
-                                    "Pin {}: Net '{}'",
-                                    pin.name,
-                                    if pin.net_name.is_empty() {
-                                        "UNCONNECTED"
-                                    } else {
-                                        &pin.net_name
-                                    }
-                                );
+                        .show_rows(ui, row_height, part.pin_indices.len(), |ui, row_range| {
+                            for row_idx in row_range {
+                                let pin_idx = part.pin_indices[row_idx];
+                                if let Some(pin) = b.pins.get(pin_idx) {
+                                    let is_selected = *selected_pin_idx == Some(pin_idx);
+                                    let pin_label = format!(
+                                        "Pin {}: Net '{}'",
+                                        pin.name,
+                                        if pin.net_name.is_empty() {
+                                            "UNCONNECTED"
+                                        } else {
+                                            &pin.net_name
+                                        }
+                                    );
 
-                                if is_selected {
-                                    *selected_pin_idx = Some(pin_idx);
-                                    *selected_net = if pin.net_name.is_empty() {
-                                        None
-                                    } else {
-                                        Some(pin.net_name.clone())
-                                    };
-                                }
-
-                                let response = ui.selectable_label(
-                                    is_selected,
-                                    RichText::new(&pin_label).color(tokens.text()),
-                                );
-                                if response.clicked() {
-                                    *selected_pin_idx = Some(pin_idx);
-                                    *selected_via_idx = None;
-                                    *selected_net = if pin.net_name.is_empty() {
-                                        None
-                                    } else {
-                                        Some(pin.net_name.clone())
-                                    };
-                                }
-                                response.context_menu(|ui| {
-                                    if ui.button("Copy Pin Label").clicked() {
-                                        ui.ctx().copy_text(pin_label.clone());
-                                        ui.close();
+                                    if is_selected {
+                                        *selected_pin_idx = Some(pin_idx);
+                                        *selected_net = if pin.net_name.is_empty() {
+                                            None
+                                        } else {
+                                            Some(pin.net_name.clone())
+                                        };
                                     }
-                                    if !pin.net_name.is_empty() {
-                                        if ui.button("Copy Net Name").clicked() {
-                                            ui.ctx().copy_text(pin.net_name.clone());
+
+                                    let response = ui.selectable_label(
+                                        is_selected,
+                                        RichText::new(&pin_label).color(tokens.text()),
+                                    );
+                                    if response.clicked() {
+                                        *selected_pin_idx = Some(pin_idx);
+                                        *selected_via_idx = None;
+                                        *selected_net = if pin.net_name.is_empty() {
+                                            None
+                                        } else {
+                                            Some(pin.net_name.clone())
+                                        };
+                                    }
+                                    response.context_menu(|ui| {
+                                        if ui.button("Copy Pin Label").clicked() {
+                                            ui.ctx().copy_text(pin_label.clone());
                                             ui.close();
                                         }
-                                    }
-                                });
+                                        if !pin.net_name.is_empty() {
+                                            if ui.button("Copy Net Name").clicked() {
+                                                ui.ctx().copy_text(pin.net_name.clone());
+                                                ui.close();
+                                            }
+                                        }
+                                    });
+                                }
                             }
-                        }
-                    });
+                        });
                 }
             } else {
                 ui.label(RichText::new("Click a component pin to view part details.").color(tokens.text_dim()));

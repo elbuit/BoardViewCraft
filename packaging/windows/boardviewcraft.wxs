@@ -20,16 +20,12 @@
                       WorkingDirectory="INSTALLFOLDER"
                       Advertise="yes" />
           </File>
-          <ProgId Id="BoardViewCraft.CAD" Description="CAD Boardview File">
-            <Extension Id="cad" ContentType="application/octet-stream">
-              <Verb Id="open" Command="Open with BoardViewCraft" Argument="&quot;%1&quot;" />
-            </Extension>
-          </ProgId>
-          <ProgId Id="BoardViewCraft.TVW" Description="TestView Boardview File">
-            <Extension Id="tvw" ContentType="application/octet-stream">
-              <Verb Id="open" Command="Open with BoardViewCraft" Argument="&quot;%1&quot;" />
-            </Extension>
-          </ProgId>
+          <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\boardviewcraft.exe" Value="[#BoardViewCraftExe]" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\Applications\boardviewcraft.exe\shell\open\command" Value="&quot;[#BoardViewCraftExe]&quot; &quot;%1&quot;" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\.cad\OpenWithProgids" Name="BoardViewCraft.CAD" Value="" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\.tvw\OpenWithProgids" Name="BoardViewCraft.TVW" Value="" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\BoardViewCraft.CAD\shell\open\command" Value="&quot;[#BoardViewCraftExe]&quot; &quot;%1&quot;" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\BoardViewCraft.TVW\shell\open\command" Value="&quot;[#BoardViewCraftExe]&quot; &quot;%1&quot;" Type="string" />
         </Component>
       </Directory>
     </StandardDirectory>

@@ -26,6 +26,37 @@
     <true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key>
     <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.boardviewcraft.cad</string>
+            <key>UTTypeDescription</key>
+            <string>CAD Boardview File</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array><string>cad</string></array>
+            </dict>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.boardviewcraft.tvw</string>
+            <key>UTTypeDescription</key>
+            <string>TestView Boardview File</string>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array><string>tvw</string></array>
+            </dict>
+        </dict>
+    </array>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>
@@ -33,9 +64,11 @@
             <string>CAD Boardview File</string>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
-            <key>CFBundleTypeExtensions</key>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
             <array>
-                <string>cad</string>
+                <string>com.boardviewcraft.cad</string>
             </array>
         </dict>
         <dict>
@@ -43,9 +76,11 @@
             <string>TestView Boardview File</string>
             <key>CFBundleTypeRole</key>
             <string>Viewer</string>
-            <key>CFBundleTypeExtensions</key>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
             <array>
-                <string>tvw</string>
+                <string>com.boardviewcraft.tvw</string>
             </array>
         </dict>
     </array>

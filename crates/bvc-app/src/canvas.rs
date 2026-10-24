@@ -525,6 +525,7 @@ pub fn show_canvas(
                 .as_deref()
                 .map(|sn| b.net_membership(sn))
                 .unwrap_or_default();
+            let is_high_density = active_membership.is_high_density();
 
             let visible_pin_indices = if !b.spatial_grid.is_empty() {
                 b.spatial_grid.query_pins_in_rect(&visible_world)
@@ -554,7 +555,21 @@ pub fn show_canvas(
                 }
 
                 let r_screen = pin.radius as f32 * vp.scale;
-                if !is_selected && !is_net_selected && !is_hovered && r_screen < 8.0 {
+
+                // Screen-space LOD decimation:
+                // 1) The actively selected pin and hovered pin always render text if large enough (> 4px).
+                // 2) If the net is high density (e.g. GND/power with many pins), suppress text for all non-selected net pins.
+                // 3) Other net pins require at least 8.0px screen radius to avoid drowning the frame in text layouts.
+                // 4) Unselected pins require at least 8.0px.
+                if !is_selected && !is_hovered {
+                    if is_net_selected {
+                        if is_high_density || r_screen < 8.0 {
+                            continue;
+                        }
+                    } else if r_screen < 8.0 {
+                        continue;
+                    }
+                } else if r_screen < 4.0 {
                     continue;
                 }
 
