@@ -88,7 +88,7 @@ if (Get-Command 'wix' -ErrorAction SilentlyContinue) {
   $MsiOut = Join-Path $Dist "boardviewcraft-$Version-windows-$Arch.msi"
   $WxsFile = Join-Path $PSScriptRoot 'boardviewcraft.wxs'
   Invoke-Native "Building WiX MSI installer" {
-    wix build $WxsFile -d "Version=$MsiVersion" -d "SourceDir=$StageDir" -o $MsiOut
+    wix build $WxsFile -ext WixToolset.UI.wixext/5.0.2 -d "Version=$MsiVersion" -d "SourceDir=$StageDir" -o $MsiOut
   }
   Write-Output "Created MSI installer: $MsiOut"
 } else {
