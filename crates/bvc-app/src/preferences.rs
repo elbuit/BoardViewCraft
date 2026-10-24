@@ -14,6 +14,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 const MAX_BYTES: u64 = 64 * 1024;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ViaDisplayMode {
     #[default]
@@ -53,6 +57,12 @@ pub struct Preferences {
     pub show_pin_annotations: bool,
     pub high_density_lod: bool,
     pub show_opposite_elements: bool,
+    #[serde(default = "default_true")]
+    pub show_vias: bool,
+    #[serde(default)]
+    pub show_unnamed_vias: bool,
+    #[serde(default = "default_true")]
+    pub show_pins: bool,
 }
 
 impl Default for Preferences {
@@ -69,6 +79,9 @@ impl Default for Preferences {
             show_pin_annotations: true,
             high_density_lod: true,
             show_opposite_elements: false,
+            show_vias: true,
+            show_unnamed_vias: false,
+            show_pins: true,
         }
     }
 }
@@ -464,6 +477,39 @@ pub fn show_preferences_window(
                 changed = true;
             }
 
+            if ui
+                .checkbox(
+                    &mut prefs.show_pins,
+                    RichText::new(i18n::tr(lang, "prefs.show_pins")).color(tokens.text()),
+                )
+                .on_hover_text("Render component pins and pads on the board.")
+                .changed()
+            {
+                changed = true;
+            }
+
+            if ui
+                .checkbox(
+                    &mut prefs.show_vias,
+                    RichText::new(i18n::tr(lang, "prefs.show_vias")).color(tokens.text()),
+                )
+                .on_hover_text("Render PCB vias and test probe nails on the board.")
+                .changed()
+            {
+                changed = true;
+            }
+
+            if ui
+                .checkbox(
+                    &mut prefs.show_unnamed_vias,
+                    RichText::new(i18n::tr(lang, "prefs.show_unnamed_vias")).color(tokens.text()),
+                )
+                .on_hover_text("When disabled, vias and test pads with empty net names are hidden to reduce clutter.")
+                .changed()
+            {
+                changed = true;
+            }
+
             ui.add_space(16.0);
             ui.separator();
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -498,6 +544,9 @@ mod tests {
             show_pin_annotations: false,
             high_density_lod: true,
             show_opposite_elements: false,
+            show_vias: true,
+            show_unnamed_vias: false,
+            show_pins: true,
         };
 
         let json = serde_json::to_string(&prefs).expect("Serialize to JSON");

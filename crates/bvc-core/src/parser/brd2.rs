@@ -7,6 +7,7 @@
 //! `PINS: <n_pins>`
 //! `NAILS: <n_nails>`
 
+use std::collections::HashMap;
 use crate::board::Board;
 use crate::model::{Part, PartType, Pin, Point, Side, Via};
 use crate::parser::{FormatParser, ParseError};
@@ -60,10 +61,11 @@ impl Brd2Parser {
                 n_pins
             };
 
-            let part_side = if *side_num == 2 {
-                Side::Bottom
-            } else {
-                Side::Top
+            // BRD2 specification §4.5: 1 -> Top, 2 -> Bottom, any other value -> Both
+            let part_side = match *side_num {
+                1 => Side::Top,
+                2 => Side::Bottom,
+                _ => Side::Both,
             };
 
             let part_id = board.parts.len();
@@ -83,15 +85,12 @@ impl Brd2Parser {
             if start <= end && end <= n_pins {
                 for (local_idx, p_idx) in (start..end).enumerate() {
                     let (px, py, net_id, pin_side_num) = pins_raw[p_idx];
-                    let net_name = if net_id > 0 && net_id <= nets.len() {
-                        nets[net_id - 1].clone()
-                    } else {
-                        String::new()
-                    };
-                    let pin_side = if pin_side_num == 2 {
-                        Side::Bottom
-                    } else {
-                        Side::Top
+                    let net_name = nets.get(&net_id).cloned().unwrap_or_default();
+                    // BRD2 specification §4.6: 1 -> Top, 2 -> Bottom, else Both
+                    let pin_side = match pin_side_num {
+                        1 => Side::Top,
+                        2 => Side::Bottom,
+                        _ => Side::Both,
                     };
 
                     let pin_id = board.pins.len();
@@ -110,15 +109,12 @@ impl Brd2Parser {
 
         // Nails -> Vias
         for (_probe, x, y, net_id, side_num) in nails_raw {
-            let net_name = if net_id > 0 && net_id <= nets.len() {
-                nets[net_id - 1].clone()
-            } else {
-                String::new()
-            };
-            let side = if side_num == 2 {
-                Side::Bottom
-            } else {
+            let net_name = nets.get(&net_id).cloned().unwrap_or_default();
+            // BRD2 specification §4.7: exactly 1 -> Top, any other value -> Bottom
+            let side = if side_num == 1 {
                 Side::Top
+            } else {
+                Side::Bottom
             };
             let via_id = board.vias.len();
             board.vias.push(Via {
@@ -211,18 +207,26 @@ impl Brd2Parser {
         Ok(pts)
     }
 
-    fn parse_nets(lines: &[&str]) -> Result<Vec<String>, ParseError> {
+    fn parse_nets(lines: &[&str]) -> Result<HashMap<usize, String>, ParseError> {
         let (idx, count) = Self::find_block(lines, "NETS:")?;
         if count == 0 {
-            return Ok(Vec::new());
+            return Ok(HashMap::new());
         }
         let block = Self::iter_block_lines(lines, idx, count);
-        let mut nets = Vec::with_capacity(block.len());
+        let mut nets = HashMap::with_capacity(block.len());
         for &ln in &block {
             let mut parts = ln.split_whitespace();
-            let _id = parts.next();
-            let name = parts.next().unwrap_or("").to_string();
-            nets.push(name);
+            if let Some(id_str) = parts.next() {
+                if let Ok(id) = id_str.parse::<usize>() {
+                    let rest = ln[id_str.len()..].trim();
+                    let name = if rest == "UNCONNECTED" {
+                        String::new()
+                    } else {
+                        rest.to_string()
+                    };
+                    nets.insert(id, name);
+                }
+            }
         }
         Ok(nets)
     }

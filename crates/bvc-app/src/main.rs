@@ -279,6 +279,24 @@ impl eframe::App for BoardViewApp {
                     self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
                 }
 
+                // Quick pin visibility toggle button
+                let pins_status = if self.preferences.show_pins { "ON" } else { "OFF" };
+                let pins_label = format!("{}: {}", i18n::tr(lang, "toolbar.pins"), pins_status);
+                if ui.button(pins_label).on_hover_text("Toggle component pin/pad visibility").clicked() {
+                    self.preferences.show_pins = !self.preferences.show_pins;
+                    self.canvas_state.cached_view_key = None;
+                    ui.ctx().request_repaint();
+                }
+
+                // Quick via visibility toggle button
+                let vias_status = if self.preferences.show_vias { "ON" } else { "OFF" };
+                let vias_label = format!("{}: {}", i18n::tr(lang, "toolbar.vias"), vias_status);
+                if ui.button(vias_label).on_hover_text("Toggle PCB via visibility").clicked() {
+                    self.preferences.show_vias = !self.preferences.show_vias;
+                    self.canvas_state.cached_view_key = None;
+                    ui.ctx().request_repaint();
+                }
+
                 // Zoom dropdown / presets
                 ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
                     let rect = ui.clip_rect();

@@ -309,6 +309,9 @@ fn test_real_test1_tvw_production_binary() {
         let board = registry.parse_file("test1.tvw", &data).expect("parse test1.tvw production binary");
         assert!(board.parts.len() > 1000, "Expected >1000 parts, got {}", board.parts.len());
         assert!(board.pins.len() > 1000, "Expected >1000 pins, got {}", board.pins.len());
+        assert!(!board.vias.is_empty(), "Expected test pads mapped as vias, got {}", board.vias.len());
+        assert!(!board.outline_polygon.is_empty(), "Expected non-empty board outline polygon");
+        assert!(board.outline_polygon.len() >= 4, "Expected real surface polygon outline, got {} vertices", board.outline_polygon.len());
         assert!(!board.nets.is_empty(), "Expected non-empty net list");
     }
 }

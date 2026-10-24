@@ -225,6 +225,9 @@ pub struct ViewCacheKey {
     pub show_net_web: bool,
     pub via_display_mode: ViaDisplayMode,
     pub show_opposite_elements: bool,
+    pub show_vias: bool,
+    pub show_unnamed_vias: bool,
+    pub show_pins: bool,
 }
 
 pub struct CanvasState {
@@ -444,6 +447,9 @@ pub fn show_canvas(
             show_net_web: prefs.show_net_web,
             via_display_mode: prefs.via_display_mode,
             show_opposite_elements: prefs.show_opposite_elements,
+            show_vias: prefs.show_vias,
+            show_unnamed_vias: prefs.show_unnamed_vias,
+            show_pins: prefs.show_pins,
         };
 
         if canvas_state.cached_view_key.as_ref() == Some(&current_key) {
@@ -468,6 +474,9 @@ pub fn show_canvas(
                 prefs.show_net_web,
                 prefs.via_display_mode,
                 prefs.show_opposite_elements,
+                prefs.show_vias,
+                prefs.show_unnamed_vias,
+                prefs.show_pins,
             );
 
             for mesh in &new_meshes {
@@ -503,12 +512,20 @@ pub fn show_canvas(
                         continue;
                     }
 
+                    // Dynamic font size scaled with component footprint dimensions (clamp between 10.0 and 28.0 pt)
+                    let min_dim = w_screen.min(h_screen);
+                    let font_size = if min_dim > 24.0 {
+                        (10.0 + (min_dim - 24.0) * 0.12).clamp(10.0, 28.0)
+                    } else {
+                        10.0
+                    };
+
                     let center = vp.world_to_screen(c_rect.center(), rect);
                     painter.text(
                         center,
                         egui::Align2::CENTER_CENTER,
                         &part.name,
-                        FontId::proportional(12.0),
+                        FontId::proportional(font_size),
                         if is_selected {
                             tokens.selection
                         } else {
@@ -745,6 +762,9 @@ pub fn generate_board_meshes(
     show_net_web: bool,
     via_display_mode: ViaDisplayMode,
     show_opposite_elements: bool,
+    show_vias: bool,
+    show_unnamed_vias: bool,
+    show_pins: bool,
 ) -> Vec<Mesh> {
     let mut new_meshes = Vec::new();
 
@@ -780,7 +800,18 @@ pub fn generate_board_meshes(
                 return false;
             }
             match part.bounding_box {
-                Some(ref bbox) => bbox.intersects(&visible_world),
+                Some(ref bbox) => {
+                    let is_part_selected = selected_part_idx == Some(part.id);
+                    if !is_part_selected {
+                        // LOD decimation: skip dense outlines for small components when zoomed out
+                        let w_screen = bbox.width() * (vp.scale as f64);
+                        let h_screen = bbox.height() * (vp.scale as f64);
+                        if w_screen < 18.0 && h_screen < 18.0 {
+                            return false;
+                        }
+                    }
+                    bbox.intersects(&visible_world)
+                }
                 None => false,
             }
         })
@@ -842,8 +873,22 @@ pub fn generate_board_meshes(
         .par_iter()
         .map(|&idx| (idx, &b.vias[idx]))
         .filter(|(idx, via)| {
-            let is_on_cur_side = via.side.visible_on(vp.side);
             let is_net_selected = active_membership.contains_via(*idx);
+            let is_hovered = current_hover_via == Some(*idx);
+            let is_active = is_net_selected || is_hovered;
+
+            // Global via visibility check (unless selected/hovered)
+            if !show_vias && !is_active {
+                return false;
+            }
+
+            // Unnamed via/pad filtering (empty net or "UNCONNECTED")
+            let is_unnamed = via.net_name.is_empty() || via.net_name == "UNCONNECTED";
+            if !show_unnamed_vias && is_unnamed && !is_active {
+                return false;
+            }
+
+            let is_on_cur_side = via.side.visible_on(vp.side);
             let allow_opposite = show_opposite_elements || is_net_selected;
             if !allow_opposite && !is_on_cur_side {
                 return false;
@@ -934,6 +979,14 @@ pub fn generate_board_meshes(
         .filter(|(_idx, pin)| {
             let is_on_cur_side = pin.side.visible_on(vp.side);
             let is_net_selected = active_membership.contains_pin(*_idx);
+            let is_hovered = current_hover_pin == Some(*_idx);
+            let is_selected_pin = selected_pin_idx == Some(*_idx);
+            let is_active = is_net_selected || is_hovered || is_selected_pin;
+
+            // Global pin visibility check (unless selected/hovered/net-active)
+            if !show_pins && !is_active {
+                return false;
+            }
 
             // Allow opposite-side pins if either:
             // 1. show_opposite_elements preference is enabled, OR
@@ -1179,6 +1232,9 @@ mod tests {
             true, // show_net_web
             ViaDisplayMode::Web,
             false, // show_opposite_elements
+            true,  // show_vias
+            false, // show_unnamed_vias
+            true,  // show_pins
         );
 
         println!("Generated {} meshes for whole board view", meshes.len());
@@ -1247,6 +1303,9 @@ mod tests {
             true,
             ViaDisplayMode::Web,
             false,
+            true,
+            false,
+            true,
         );
 
         // Benchmark pass
@@ -1266,6 +1325,9 @@ mod tests {
             true,
             ViaDisplayMode::Web,
             false,
+            true,
+            false,
+            true,
         );
         let elapsed = start.elapsed();
 
@@ -1466,6 +1528,9 @@ mod tests {
             true,
             ViaDisplayMode::Web,
             false,
+            true,
+            false,
+            true,
         );
         // Only board outline/fill meshes, no net web
         assert!(!meshes_none.iter().any(|m| m.vertices.len() == 4 || m.vertices.len() == 12));
@@ -1486,6 +1551,9 @@ mod tests {
             true,
             ViaDisplayMode::Web,
             false,
+            true,
+            false,
+            true,
         );
         let web = meshes_web.last().unwrap();
         assert_eq!(web.vertices.len(), 12);
@@ -1506,6 +1574,9 @@ mod tests {
             true,
             ViaDisplayMode::Radial,
             false,
+            true,
+            false,
+            true,
         );
         let web_radial = meshes_radial.last().unwrap();
         assert_eq!(web_radial.vertices.len(), 12);
@@ -1526,6 +1597,9 @@ mod tests {
             true,
             ViaDisplayMode::Radial,
             false,
+            true,
+            false,
+            true,
         );
         let web_radial_via = meshes_radial_via.last().unwrap();
         assert_eq!(web_radial_via.vertices.len(), 12);

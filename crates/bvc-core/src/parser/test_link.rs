@@ -158,12 +158,16 @@ impl TestLinkEngine {
         board.outline_polygon = outline;
 
         for (refdes, type_layer, _) in &parts_raw {
-            let side = if (type_layer & 0x2) != 0 {
-                Side::Bottom
-            } else {
-                Side::Top
+            // Per OBV BRDFile.cpp and BRD specification §3.4:
+            // Side: 1, 4, 5, 6, 7 -> Top; 2 and >= 8 -> Bottom; 0, 3 -> Top (reader default)
+            let side = match *type_layer {
+                1 | 4 | 5 | 6 | 7 => Side::Top,
+                2 => Side::Bottom,
+                v if v >= 8 => Side::Bottom,
+                _ => Side::Top,
             };
-            let part_type = if (type_layer & 0x4) != 0 {
+            // SMD when (type_layer & 0x0C) != 0, else ThroughHole
+            let part_type = if (type_layer & 0x0C) != 0 {
                 PartType::Smd
             } else {
                 PartType::ThroughHole

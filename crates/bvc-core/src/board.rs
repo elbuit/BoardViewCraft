@@ -64,9 +64,12 @@ impl Board {
             }
         }
 
-        // Precompute part bounding boxes with standard 18.0 mil margin
-        const PART_MARGIN: f64 = 18.0;
+        // Precompute part bounding boxes if not already defined by the file format (e.g. TVW bx1/by1/bx2/by2)
+        const PART_MARGIN: f64 = 6.0;
         for part in &mut self.parts {
+            if part.bounding_box.is_some() {
+                continue;
+            }
             if part.pin_indices.is_empty() {
                 part.bounding_box = None;
                 continue;
