@@ -565,8 +565,8 @@ impl eframe::App for BoardViewApp {
             self.open_photo_dialog(ui.ctx(), side);
         }
 
-        // Automatic cross-probing: sync with PDF schematic ONLY when a component is explicitly selected
-        if self.pdf_viewer.is_open && self.selected_pin_idx.is_none() {
+        // Automatic cross-probing: sync with PDF schematic whenever a component is selected
+        if self.pdf_viewer.is_open {
             if let Some(part_idx) = self.selected_part_idx {
                 if let Some(board) = &self.board {
                     if let Some(part) = board.parts.get(part_idx) {
@@ -766,7 +766,8 @@ impl eframe::App for BoardViewApp {
 
                         // Reverse Cross-probing: Click on PDF text token to select & center part/net in PCB layout
                         if resp.clicked() {
-                            if let Some(click_pos) = resp.interact_pointer_pos() {
+                            let click_opt = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).or_else(|| ui.input(|i| i.pointer.interact_pos()));
+                            if let Some(click_pos) = click_opt {
                                 if rect.contains(click_pos) {
                                     // Inverse map: screen pos -> PDF point
                                     let scale_x = orig_dim.x / page_size_pts.x.max(1.0);
@@ -781,10 +782,12 @@ impl eframe::App for BoardViewApp {
                                     });
 
                                     if let Some(occ) = clicked_token {
-                                        let token_str = occ.text.trim();
+                                        let token_raw = occ.text.trim();
+                                        let token_clean = crate::pdf::SchematicIndex::normalize_key(token_raw);
                                         if let Some(board) = &self.board {
                                             // 1. Try matching component designator (e.g. C123, U5, R10)
-                                            if let Some(part) = board.find_part_by_name(token_str) {
+                                            let part_match = board.find_part_by_name(token_raw).or_else(|| board.find_part_by_name(&token_clean));
+                                            if let Some(part) = part_match {
                                                 self.selected_part_idx = Some(part.id);
                                                 self.selected_pin_idx = part.pin_indices.first().copied();
                                                 self.selected_via_idx = None;
@@ -808,12 +811,13 @@ impl eframe::App for BoardViewApp {
                                                     self.canvas_state.viewport.center = first_pin.pos;
                                                 }
 
+                                                self.side_panel_state.active_tab = side_panel::Tab::Part;
                                                 self.canvas_state.cached_view_key = None;
                                                 self.status_msg = format!("Selected part {} from schematic PDF", part.name);
                                                 ui.ctx().request_repaint();
                                             }
                                             // 2. Try matching net name (e.g. PP3V3_S5, GND, +12V)
-                                            else if let Some(net) = board.get_net(token_str) {
+                                            else if let Some(net) = board.get_net(token_raw).or_else(|| board.get_net(&token_clean)) {
                                                 self.selected_net = Some(net.name.clone());
                                                 self.selected_pin_idx = net.pin_indices.first().copied();
                                                 self.selected_via_idx = None;
@@ -823,6 +827,7 @@ impl eframe::App for BoardViewApp {
                                                     self.canvas_state.viewport.center = first_pin.pos;
                                                 }
 
+                                                self.side_panel_state.active_tab = side_panel::Tab::Net;
                                                 self.canvas_state.cached_view_key = None;
                                                 self.status_msg = format!("Selected net {} ({} pins) from schematic PDF", net.name, net.pin_indices.len());
                                                 ui.ctx().request_repaint();

@@ -326,6 +326,7 @@ pub fn show_side_panel(
                                         };
                                     }
                                 }
+                                state.active_tab = Tab::Part;
                             }
                         }
                     }
