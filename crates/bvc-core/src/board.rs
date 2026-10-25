@@ -230,6 +230,30 @@ impl Board {
         best.map(|(idx, _)| idx)
     }
 
+    /// Finds a part whose bounding box contains `world_pos` on `view_side`.
+    /// When multiple components overlap, prefers the one with the smallest bounding box area.
+    pub fn find_part_near(&self, world_pos: Point, view_side: Side) -> Option<usize> {
+        let mut best_idx: Option<usize> = None;
+        let mut best_area = f64::INFINITY;
+
+        for (idx, part) in self.parts.iter().enumerate() {
+            if !part.side.visible_on(view_side) {
+                continue;
+            }
+            if let Some(bbox) = &part.bounding_box {
+                if bbox.contains(world_pos) {
+                    let area = bbox.width() * bbox.height();
+                    if area < best_area {
+                        best_area = area;
+                        best_idx = Some(idx);
+                    }
+                }
+            }
+        }
+
+        best_idx
+    }
+
     /// Finds part by exact or case-insensitive name.
     pub fn find_part_by_name(&self, name: &str) -> Option<&Part> {
         let key = name.trim().to_ascii_uppercase();

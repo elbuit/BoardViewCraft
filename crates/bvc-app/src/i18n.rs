@@ -38,6 +38,8 @@ pub fn tr(lang: Language, key: &'static str) -> &'static str {
         Language::English => match key {
             "app.title" => "BoardViewCraft - Pure Rust Board Viewer",
             "toolbar.open_board" => "Open Board...",
+            "toolbar.open_recent" => "Open Recent",
+            "toolbar.no_recent_files" => "No recent files",
             "toolbar.actions" => "Actions",
             "toolbar.preferences" => "Preferences...",
             "toolbar.zoom" => "Zoom",
@@ -156,6 +158,8 @@ pub fn tr(lang: Language, key: &'static str) -> &'static str {
         Language::Spanish => match key {
             "app.title" => "BoardViewCraft - Visor de Placas en Rust",
             "toolbar.open_board" => "Abrir Board...",
+            "toolbar.open_recent" => "Archivos Recientes",
+            "toolbar.no_recent_files" => "Sin archivos recientes",
             "toolbar.actions" => "Acciones",
             "toolbar.preferences" => "Preferencias...",
             "toolbar.zoom" => "Zoom",
@@ -274,6 +278,8 @@ pub fn tr(lang: Language, key: &'static str) -> &'static str {
         Language::Catalan => match key {
             "app.title" => "BoardViewCraft - Visor de Plaques en Rust",
             "toolbar.open_board" => "Obrir Board...",
+            "toolbar.open_recent" => "Fitxers Recents",
+            "toolbar.no_recent_files" => "Sense fitxers recents",
             "toolbar.actions" => "Accions",
             "toolbar.preferences" => "Preferències...",
             "toolbar.zoom" => "Zoom",
