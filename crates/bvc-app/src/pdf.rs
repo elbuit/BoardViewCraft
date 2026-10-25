@@ -109,6 +109,7 @@ pub struct PdfSchematicViewer {
     pub zoom: f32,
     pub pan_offset: Vec2,
     pub is_open: bool,
+    pub pending_center_on_match: bool,
 
     // High-fidelity page textures cached by page number
     page_textures: HashMap<usize, CachedPageTexture>,
@@ -157,6 +158,7 @@ impl Default for PdfSchematicViewer {
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
             is_open: false,
+            pending_center_on_match: false,
             page_textures: HashMap::new(),
             raster_tx: req_tx,
             raster_rx: res_rx,
@@ -400,6 +402,7 @@ impl PdfSchematicViewer {
 
         if let Some(first) = self.search_results.first() {
             self.current_page = first.page_number;
+            self.pending_center_on_match = true;
         }
         true
     }
@@ -408,6 +411,7 @@ impl PdfSchematicViewer {
         if !self.search_results.is_empty() {
             self.selected_result_idx = (self.selected_result_idx + 1) % self.search_results.len();
             self.current_page = self.search_results[self.selected_result_idx].page_number;
+            self.pending_center_on_match = true;
         }
     }
 
@@ -419,6 +423,7 @@ impl PdfSchematicViewer {
                 self.selected_result_idx -= 1;
             }
             self.current_page = self.search_results[self.selected_result_idx].page_number;
+            self.pending_center_on_match = true;
         }
     }
 }

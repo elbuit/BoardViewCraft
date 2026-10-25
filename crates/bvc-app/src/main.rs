@@ -376,7 +376,12 @@ impl eframe::App for BoardViewApp {
                         self.open_photo_dialog(ui.ctx(), cur_side);
                         ui.close();
                     }
-                    if ui.button(if self.pdf_viewer.is_open { "Hide Schematic PDF" } else { "Open Schematic PDF..." }).clicked() {
+                    let pdf_toggle_label = if self.pdf_viewer.is_open {
+                        i18n::tr(lang, "pdf.hide")
+                    } else {
+                        i18n::tr(lang, "pdf.open")
+                    };
+                    if ui.button(pdf_toggle_label).clicked() {
                         if !self.pdf_viewer.is_open && self.pdf_viewer.path.is_none() {
                             self.open_pdf_dialog();
                         } else {
@@ -581,12 +586,12 @@ impl eframe::App for BoardViewApp {
                 .size_range(280.0..=ui.available_width() * 0.75)
                 .show(ui, |ui: &mut Ui| {
                     ui.horizontal(|ui| {
-                        ui.heading(RichText::new("Schematic PDF").strong().color(self.tokens.accent()));
+                        ui.heading(RichText::new(i18n::tr(lang, "pdf.title")).strong().color(self.tokens.accent()));
                         if let Some(fn_str) = &self.pdf_viewer.filename {
                             ui.label(RichText::new(fn_str).small().color(self.tokens.text_dim()));
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("✖").on_hover_text("Close Schematic PDF").clicked() {
+                            if ui.button("✖").on_hover_text(i18n::tr(lang, "pdf.close")).clicked() {
                                 self.pdf_viewer.is_open = false;
                             }
                         });
@@ -595,11 +600,14 @@ impl eframe::App for BoardViewApp {
 
                     // Navigation bar
                     ui.horizontal(|ui| {
-                        if ui.button("⏴").on_hover_text("Previous page").clicked() && self.pdf_viewer.current_page > 1 {
+                        if ui.button("⏴").on_hover_text(i18n::tr(lang, "pdf.page_prev")).clicked() && self.pdf_viewer.current_page > 1 {
                             self.pdf_viewer.current_page -= 1;
                         }
-                        ui.label(format!("Page {} of {}", self.pdf_viewer.current_page, self.pdf_viewer.total_pages));
-                        if ui.button("⏵").on_hover_text("Next page").clicked() && self.pdf_viewer.current_page < self.pdf_viewer.total_pages {
+                        let page_counter_text = i18n::tr(lang, "pdf.page_counter")
+                            .replacen("{}", &self.pdf_viewer.current_page.to_string(), 1)
+                            .replacen("{}", &self.pdf_viewer.total_pages.to_string(), 1);
+                        ui.label(page_counter_text);
+                        if ui.button("⏵").on_hover_text(i18n::tr(lang, "pdf.page_next")).clicked() && self.pdf_viewer.current_page < self.pdf_viewer.total_pages {
                             self.pdf_viewer.current_page += 1;
                         }
 
@@ -607,11 +615,12 @@ impl eframe::App for BoardViewApp {
                             ui.separator();
                             let count = self.pdf_viewer.search_results.len();
                             let current = self.pdf_viewer.selected_result_idx + 1;
-                            ui.label(RichText::new(format!("{current}/{count} hits")).color(self.tokens.accent()));
-                            if ui.button("Prev").clicked() {
+                            let hits_label = format!("{current}/{count} {}", i18n::tr(lang, "pdf.hits"));
+                            ui.label(RichText::new(hits_label).color(self.tokens.accent()));
+                            if ui.button(i18n::tr(lang, "pdf.hit_prev")).clicked() {
                                 self.pdf_viewer.prev_match();
                             }
-                            if ui.button("Next").clicked() {
+                            if ui.button(i18n::tr(lang, "pdf.hit_next")).clicked() {
                                 self.pdf_viewer.next_match();
                             }
                         }
@@ -620,7 +629,8 @@ impl eframe::App for BoardViewApp {
 
                     // PDF Page viewer canvas area with interactive pan and zoom
                     let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
-                    ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(255, 255, 255));
+                    let painter = ui.painter().with_clip_rect(rect);
+                    painter.rect_filled(rect, 4.0, Color32::from_rgb(255, 255, 255));
 
                     if resp.dragged() {
                         self.pdf_viewer.pan_offset += resp.drag_delta();
@@ -684,12 +694,34 @@ impl eframe::App for BoardViewApp {
                         let effective_scale = auto_scale * self.pdf_viewer.zoom;
                         let render_size = orig_dim * effective_scale;
 
+                        // Center viewport on selected match if requested (e.g. cross-probing or next/prev match)
+                        if self.pdf_viewer.pending_center_on_match {
+                            if let Some(hit) = self.pdf_viewer.search_results.get(self.pdf_viewer.selected_result_idx) {
+                                if hit.page_number == self.pdf_viewer.current_page {
+                                    let page_size_pts = self.pdf_viewer.index.lock().ok().and_then(|idx| {
+                                        idx.page_sizes.get(&self.pdf_viewer.current_page).copied()
+                                    }).unwrap_or(egui::vec2(1224.0, 792.0));
+
+                                    let center_pt = hit.bbox.center();
+                                    let comp_raster_x = center_pt.x * (orig_dim.x / page_size_pts.x.max(1.0)) * effective_scale;
+                                    let comp_raster_y = center_pt.y * (orig_dim.y / page_size_pts.y.max(1.0)) * effective_scale;
+
+                                    // pan_offset required so comp_screen == rect.center():
+                                    self.pdf_viewer.pan_offset = egui::vec2(
+                                        render_size.x * 0.5 - comp_raster_x,
+                                        render_size.y * 0.5 - comp_raster_y,
+                                    );
+                                    self.pdf_viewer.pending_center_on_match = false;
+                                }
+                            }
+                        }
+
                         let render_pos = rect.min
                             + (rect.size() - render_size) * 0.5
                             + self.pdf_viewer.pan_offset;
 
                         let img_rect = Rect::from_min_size(render_pos, render_size);
-                        ui.painter().image(
+                        painter.image(
                             texture.id(),
                             img_rect,
                             Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
@@ -722,8 +754,8 @@ impl eframe::App for BoardViewApp {
                                     Color32::from_rgba_unmultiplied(100, 180, 255, 120)
                                 };
 
-                                ui.painter().rect_filled(marker_rect, 2.0, bg_color);
-                                ui.painter().rect_stroke(
+                                painter.rect_filled(marker_rect, 2.0, bg_color);
+                                painter.rect_stroke(
                                     marker_rect,
                                     2.0,
                                     egui::Stroke::new(2.0, Color32::from_rgb(220, 20, 40)),
@@ -732,8 +764,9 @@ impl eframe::App for BoardViewApp {
                             }
                         }
                     } else {
-                        let page_label = format!("Loading Schematic Page {}...", self.pdf_viewer.current_page);
-                        ui.painter().text(
+                        let page_label = i18n::tr(lang, "pdf.loading_page")
+                            .replace("{}", &self.pdf_viewer.current_page.to_string());
+                        painter.text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
                             page_label,
