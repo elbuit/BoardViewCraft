@@ -58,10 +58,15 @@ fi
 mkdir -p "$STAGE/usr/share/icons"
 if [[ -d "$ROOT/assets/app-icon/hicolor" ]]; then
   cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/usr/share/icons/"
-  # Rename app icons if named cadcraft
-  find "$STAGE/usr/share/icons" -name "*cadcraft.png" | while read -r icon; do
+  # Ensure both boardviewcraft.png and io.github.elbuit.BoardViewCraft.png exist in every size
+  find "$STAGE/usr/share/icons" -name "*.png" | while read -r icon; do
     dir="$(dirname "$icon")"
-    mv "$icon" "$dir/boardviewcraft.png"
+    if [[ ! -f "$dir/io.github.elbuit.BoardViewCraft.png" && -f "$dir/boardviewcraft.png" ]]; then
+      cp "$dir/boardviewcraft.png" "$dir/io.github.elbuit.BoardViewCraft.png"
+    fi
+    if [[ ! -f "$dir/boardviewcraft.png" && -f "$dir/io.github.elbuit.BoardViewCraft.png" ]]; then
+      cp "$dir/io.github.elbuit.BoardViewCraft.png" "$dir/boardviewcraft.png"
+    fi
   done
 fi
 
@@ -85,6 +90,7 @@ if has appimage; then
   ICON_SRC="$STAGE/usr/share/icons/hicolor/256x256/apps/boardviewcraft.png"
   if [[ -f "$ICON_SRC" ]]; then
     cp "$ICON_SRC" "$APPDIR/boardviewcraft.png"
+    cp "$ICON_SRC" "$APPDIR/io.github.elbuit.BoardViewCraft.png"
     ln -s "boardviewcraft.png" "$APPDIR/.DirIcon"
   fi
 
