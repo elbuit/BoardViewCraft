@@ -6,9 +6,23 @@
 //! - Multi-page navigation, pan & zoom, and highlight overlays.
 
 use egui::{ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+/// Rasterization resolution levels: normal (150 DPI) and zoomed-in high-fidelity (300 DPI)
+const DPI_NORMAL: u32 = 150;
+const DPI_HIGH: u32 = 300;
+
+struct PageRasterResult {
+    page: usize,
+    dpi: u32,
+    dimensions: Vec2,
+    color_image: ColorImage,
+}
 
 /// A recognized token occurrence with exact page coordinates for cross-probing.
 #[derive(Clone, Debug, PartialEq)]
@@ -74,13 +88,21 @@ impl SchematicIndex {
     }
 }
 
-/// Embedded schematic viewer and raster renderer.
+/// Cached texture entry with its rendered DPI level
+struct CachedPageTexture {
+    handle: TextureHandle,
+    dim: Vec2,
+    dpi: u32,
+}
+
+/// Embedded schematic viewer and raster renderer with asynchronous loading and multi-LOD.
 pub struct PdfSchematicViewer {
     pub path: Option<PathBuf>,
     pub filename: Option<String>,
     pub current_page: usize,
     pub total_pages: usize,
-    pub index: SchematicIndex,
+    pub index: Arc<Mutex<SchematicIndex>>,
+    pub is_indexing: Arc<Mutex<bool>>,
     pub active_search: String,
     pub search_results: Vec<SchematicOccurrence>,
     pub selected_result_idx: usize,
@@ -89,18 +111,46 @@ pub struct PdfSchematicViewer {
     pub is_open: bool,
 
     // High-fidelity page textures cached by page number
-    page_textures: HashMap<usize, TextureHandle>,
-    page_dimensions: HashMap<usize, Vec2>,
+    page_textures: HashMap<usize, CachedPageTexture>,
+
+    // Background raster worker communication
+    raster_tx: Sender<(PathBuf, usize, u32)>,
+    raster_rx: Receiver<PageRasterResult>,
+    requested_pages: HashSet<(usize, u32)>,
 }
 
 impl Default for PdfSchematicViewer {
     fn default() -> Self {
+        let (res_tx, res_rx) = channel();
+        let (req_tx, req_rx) = channel::<(PathBuf, usize, u32)>();
+
+        // Spawn dedicated background rasterization worker
+        thread::Builder::new()
+            .name("bvc-pdf-rasterizer".into())
+            .spawn(move || {
+                while let Ok((path, page, dpi)) = req_rx.recv() {
+                    if let Ok(dyn_img) = Self::rasterize_page_sync(&path, page, dpi) {
+                        let rgba = dyn_img.to_rgba8();
+                        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
+                        let color_image = ColorImage::from_rgba_unmultiplied([w, h], rgba.as_raw());
+                        let _ = res_tx.send(PageRasterResult {
+                            page,
+                            dpi,
+                            dimensions: Vec2::new(w as f32, h as f32),
+                            color_image,
+                        });
+                    }
+                }
+            })
+            .expect("Failed to spawn PDF raster thread");
+
         Self {
             path: None,
             filename: None,
             current_page: 1,
             total_pages: 1,
-            index: SchematicIndex::new(),
+            index: Arc::new(Mutex::new(SchematicIndex::new())),
+            is_indexing: Arc::new(Mutex::new(false)),
             active_search: String::new(),
             search_results: Vec::new(),
             selected_result_idx: 0,
@@ -108,14 +158,17 @@ impl Default for PdfSchematicViewer {
             pan_offset: Vec2::ZERO,
             is_open: false,
             page_textures: HashMap::new(),
-            page_dimensions: HashMap::new(),
+            raster_tx: req_tx,
+            raster_rx: res_rx,
+            requested_pages: HashSet::new(),
         }
     }
 }
 
 impl PdfSchematicViewer {
     pub fn open_file(&mut self, path: &Path) -> Result<(), String> {
-        self.path = Some(path.to_path_buf());
+        let path_buf = path.to_path_buf();
+        self.path = Some(path_buf.clone());
         self.filename = Some(
             path.file_name()
                 .and_then(|n| n.to_str())
@@ -123,19 +176,45 @@ impl PdfSchematicViewer {
                 .to_string(),
         );
 
-        // 1. Read document info and total pages
+        // 1. Read document info and total pages (nearly instantaneous)
         let total_pages = Self::query_page_count(path)?;
         self.total_pages = total_pages.max(1);
         self.current_page = 1;
-
-        // 2. Build cross-probing index with bounding box coordinates
-        self.index = Self::build_index(path, self.total_pages);
         self.page_textures.clear();
-        self.page_dimensions.clear();
+        self.requested_pages.clear();
         self.search_results.clear();
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
         self.is_open = true;
+
+        // 2. Launch background indexing so opening the document is immediate
+        let index_arc = Arc::clone(&self.index);
+        let indexing_flag = Arc::clone(&self.is_indexing);
+        if let Ok(mut flag) = indexing_flag.lock() {
+            *flag = true;
+        }
+
+        let total_pages_val = self.total_pages;
+        let bg_path = path_buf.clone();
+        thread::Builder::new()
+            .name("bvc-pdf-indexer".into())
+            .spawn(move || {
+                let idx = Self::build_index(&bg_path, total_pages_val);
+                if let Ok(mut locked_idx) = index_arc.lock() {
+                    *locked_idx = idx;
+                }
+                if let Ok(mut flag) = indexing_flag.lock() {
+                    *flag = false;
+                }
+            })
+            .expect("Failed to spawn PDF indexer thread");
+
+        // 3. Request immediate background rasterization of page 1 and prefetch page 2
+        self.request_page_raster(1, DPI_NORMAL);
+        if self.total_pages > 1 {
+            self.request_page_raster(2, DPI_NORMAL);
+        }
+
         Ok(())
     }
 
@@ -225,49 +304,90 @@ impl PdfSchematicViewer {
         index
     }
 
-    /// Ensure the current page texture is rasterized at high resolution and cached.
-    pub fn ensure_current_page_texture(&mut self, ctx: &egui::Context) -> Option<(TextureHandle, Vec2)> {
-        let page = self.current_page;
-        if let (Some(tex), Some(&dim)) = (self.page_textures.get(&page), self.page_dimensions.get(&page)) {
-            return Some((tex.clone(), dim));
-        }
-
-        let Some(path) = &self.path else { return None };
-
-        // Rasterize page to high-res PNG (150 DPI) in memory via pdftoppm stdout
-        let child = Command::new("pdftoppm")
+    fn rasterize_page_sync(path: &Path, page: usize, dpi: u32) -> Result<image::DynamicImage, String> {
+        let output = Command::new("pdftoppm")
             .arg("-png")
             .arg("-r")
-            .arg("150")
+            .arg(dpi.to_string())
             .arg("-f")
             .arg(page.to_string())
             .arg("-l")
             .arg(page.to_string())
             .arg(path)
-            .output();
+            .output()
+            .map_err(|e| format!("pdftoppm execution failed: {e}"))?;
 
-        if let Ok(output) = child {
-            if let Ok(dyn_img) = image::load_from_memory(&output.stdout) {
-                let rgba = dyn_img.to_rgba8();
-                let (width, height) = (rgba.width() as usize, rgba.height() as usize);
-                let color_img = ColorImage::from_rgba_unmultiplied([width, height], rgba.as_raw());
-                let handle = ctx.load_texture(
-                    format!("pdf_page_{page}"),
-                    color_img,
-                    TextureOptions::LINEAR,
-                );
-                let dim = Vec2::new(width as f32, height as f32);
-                self.page_textures.insert(page, handle.clone());
-                self.page_dimensions.insert(page, dim);
-                return Some((handle, dim));
-            }
+        if !output.status.success() {
+            return Err("pdftoppm returned non-zero exit code".into());
         }
+
+        image::load_from_memory(&output.stdout).map_err(|e| format!("Image decode failed: {e}"))
+    }
+
+    fn request_page_raster(&mut self, page: usize, dpi: u32) {
+        if self.requested_pages.contains(&(page, dpi)) {
+            return;
+        }
+        if let Some(path) = &self.path {
+            self.requested_pages.insert((page, dpi));
+            let _ = self.raster_tx.send((path.clone(), page, dpi));
+        }
+    }
+
+    /// Pumps asynchronous raster results and ensures the current page texture is loaded.
+    /// Automatically upgrades resolution to high-DPI (300 DPI) when zoomed in (> 1.8x).
+    pub fn ensure_current_page_texture(&mut self, ctx: &egui::Context) -> Option<(TextureHandle, Vec2)> {
+        // 1. Drain any completed raster textures from background worker
+        while let Ok(res) = self.raster_rx.try_recv() {
+            let handle = ctx.load_texture(
+                format!("pdf_p{}_d{}", res.page, res.dpi),
+                res.color_image,
+                TextureOptions::LINEAR,
+            );
+            self.page_textures.insert(
+                res.page,
+                CachedPageTexture {
+                    handle,
+                    dim: res.dimensions,
+                    dpi: res.dpi,
+                },
+            );
+            ctx.request_repaint();
+        }
+
+        let page = self.current_page;
+        let target_dpi = if self.zoom > 1.8 { DPI_HIGH } else { DPI_NORMAL };
+
+        // 2. Check if current page texture is already available
+        if let Some(cached) = self.page_textures.get(&page) {
+            let res = (cached.handle.clone(), cached.dim);
+            // If zoomed in and only low-DPI is cached, request high-DPI upgrade in background
+            if target_dpi == DPI_HIGH && cached.dpi < DPI_HIGH {
+                self.request_page_raster(page, DPI_HIGH);
+            }
+            return Some(res);
+        }
+
+        // 3. Texture not ready yet: request it immediately and prefetch adjacent pages
+        self.request_page_raster(page, target_dpi);
+        if page > 1 {
+            self.request_page_raster(page - 1, DPI_NORMAL);
+        }
+        if page < self.total_pages {
+            self.request_page_raster(page + 1, DPI_NORMAL);
+        }
+
         None
     }
 
     /// Cross-probing trigger: locate designator or net on the schematic.
     pub fn cross_probe(&mut self, query: &str) -> bool {
-        let hits = self.index.search(query);
+        let hits = if let Ok(index) = self.index.lock() {
+            index.search(query)
+        } else {
+            Vec::new()
+        };
+
         if hits.is_empty() {
             self.search_results.clear();
             self.selected_result_idx = 0;
