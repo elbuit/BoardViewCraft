@@ -763,6 +763,75 @@ impl eframe::App for BoardViewApp {
                                 );
                             }
                         }
+
+                        // Reverse Cross-probing: Click on PDF text token to select & center part/net in PCB layout
+                        if resp.clicked() {
+                            if let Some(click_pos) = resp.interact_pointer_pos() {
+                                if rect.contains(click_pos) {
+                                    // Inverse map: screen pos -> PDF point
+                                    let scale_x = orig_dim.x / page_size_pts.x.max(1.0);
+                                    let scale_y = orig_dim.y / page_size_pts.y.max(1.0);
+                                    let rel_screen = click_pos - render_pos;
+                                    let pdf_pt_x = rel_screen.x / (scale_x * effective_scale);
+                                    let pdf_pt_y = rel_screen.y / (scale_y * effective_scale);
+                                    let clicked_pdf_pt = Pos2::new(pdf_pt_x, pdf_pt_y);
+
+                                    let clicked_token = self.pdf_viewer.index.lock().ok().and_then(|idx| {
+                                        idx.find_token_at(self.pdf_viewer.current_page, clicked_pdf_pt)
+                                    });
+
+                                    if let Some(occ) = clicked_token {
+                                        let token_str = occ.text.trim();
+                                        if let Some(board) = &self.board {
+                                            // 1. Try matching component designator (e.g. C123, U5, R10)
+                                            if let Some(part) = board.find_part_by_name(token_str) {
+                                                self.selected_part_idx = Some(part.id);
+                                                self.selected_pin_idx = part.pin_indices.first().copied();
+                                                self.selected_via_idx = None;
+                                                self.selected_net = self.selected_pin_idx
+                                                    .and_then(|p_idx| board.pins.get(p_idx))
+                                                    .and_then(|pin| if pin.net_name.is_empty() { None } else { Some(pin.net_name.clone()) });
+
+                                                // Switch board view side if component is exclusively on the opposite side
+                                                if !part.side.visible_on(self.canvas_state.viewport.side) {
+                                                    self.canvas_state.viewport.side = match part.side {
+                                                        bvc_core::Side::Top => bvc_core::Side::Top,
+                                                        bvc_core::Side::Bottom => bvc_core::Side::Bottom,
+                                                        bvc_core::Side::Both => self.canvas_state.viewport.side,
+                                                    };
+                                                }
+
+                                                // Center canvas on component center
+                                                if let Some(bbox) = part.bounding_box {
+                                                    self.canvas_state.viewport.center = bbox.center();
+                                                } else if let Some(first_pin) = self.selected_pin_idx.and_then(|idx| board.pins.get(idx)) {
+                                                    self.canvas_state.viewport.center = first_pin.pos;
+                                                }
+
+                                                self.canvas_state.cached_view_key = None;
+                                                self.status_msg = format!("Selected part {} from schematic PDF", part.name);
+                                                ui.ctx().request_repaint();
+                                            }
+                                            // 2. Try matching net name (e.g. PP3V3_S5, GND, +12V)
+                                            else if let Some(net) = board.get_net(token_str) {
+                                                self.selected_net = Some(net.name.clone());
+                                                self.selected_pin_idx = net.pin_indices.first().copied();
+                                                self.selected_via_idx = None;
+                                                self.selected_part_idx = self.selected_pin_idx.and_then(|p_idx| board.pins.get(p_idx)).map(|p| p.part_id);
+
+                                                if let Some(first_pin) = self.selected_pin_idx.and_then(|idx| board.pins.get(idx)) {
+                                                    self.canvas_state.viewport.center = first_pin.pos;
+                                                }
+
+                                                self.canvas_state.cached_view_key = None;
+                                                self.status_msg = format!("Selected net {} ({} pins) from schematic PDF", net.name, net.pin_indices.len());
+                                                ui.ctx().request_repaint();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         let page_label = i18n::tr(lang, "pdf.loading_page")
                             .replace("{}", &self.pdf_viewer.current_page.to_string());
