@@ -45,6 +45,15 @@ rm -rf "$WORK"
 install -Dm755 "$BIN/boardviewcraft" "$STAGE/usr/bin/boardviewcraft"
 strip "$STAGE/usr/bin/boardviewcraft" 2>/dev/null || true
 install -Dm644 "$HERE/boardviewcraft.desktop" "$STAGE/usr/share/applications/boardviewcraft.desktop"
+install -Dm644 "$HERE/boardviewcraft.desktop" "$STAGE/usr/share/applications/io.github.elbuit.BoardViewCraft.desktop"
+
+# Metainfo
+if [[ -f "$HERE/io.github.elbuit.BoardViewCraft.metainfo.xml.in" ]]; then
+  DATE="$(date +%Y-%m-%d)"
+  sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$DATE/g" \
+    "$HERE/io.github.elbuit.BoardViewCraft.metainfo.xml.in" > "$WORK/io.github.elbuit.BoardViewCraft.metainfo.xml"
+  install -Dm644 "$WORK/io.github.elbuit.BoardViewCraft.metainfo.xml" "$STAGE/usr/share/metainfo/io.github.elbuit.BoardViewCraft.metainfo.xml"
+fi
 
 mkdir -p "$STAGE/usr/share/icons"
 if [[ -d "$ROOT/assets/app-icon/hicolor" ]]; then

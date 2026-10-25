@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.elbuit.BoardViewCraft</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>BoardViewCraft</name>
+  <summary>Pure Rust high-performance multi-format boardview CAD viewer</summary>
+  <developer id="io.github.elbuit">
+    <name>BoardViewCraft Developers</name>
+  </developer>
+  <description>
+    <p>
+      BoardViewCraft is an ultra-fast hardware repair and PCB inspection tool written in pure Rust.
+      It loads boardview files (FZ, BRD, BDV, CAD, etc.) instantaneously and provides smooth hardware-accelerated pan and zoom.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.elbuit.BoardViewCraft.desktop</launchable>
+  <icon type="stock">io.github.elbuit.BoardViewCraft</icon>
+  <url type="homepage">https://github.com/elbuit/BoardViewCraft</url>
+  <url type="bugtracker">https://github.com/elbuit/BoardViewCraft/issues</url>
+  <categories>
+    <category>Development</category>
+    <category>Engineering</category>
+    <category>Electronics</category>
+  </categories>
+  <keywords>
+    <keyword>boardview</keyword>
+    <keyword>cad</keyword>
+    <keyword>electronics</keyword>
+    <keyword>pcb</keyword>
+    <keyword>hardware</keyword>
+    <keyword>repair</keyword>
+  </keywords>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

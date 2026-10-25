@@ -31,15 +31,20 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev libwayland-dev libxkbcommon-dev
+          sudo apt-get install -y pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev libwayland-dev libxkbcommon-dev flatpak flatpak-builder
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Package Linux
+      - name: Package Linux (AppImage & tar.gz)
         run: |
           chmod +x packaging/linux/package.sh
           packaging/linux/package.sh
+
+      - name: Package Linux (Flatpak bundle)
+        run: |
+          chmod +x packaging/linux/flatpak-bundle.sh
+          packaging/linux/flatpak-bundle.sh --no-test
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

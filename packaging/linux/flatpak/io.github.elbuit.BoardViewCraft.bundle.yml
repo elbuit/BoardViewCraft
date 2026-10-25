@@ -1,0 +1,28 @@
+id: io.github.elbuit.BoardViewCraft
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: boardviewcraft
+finish-args:
+  # Display: Wayland first; X11 fallback
+  - --socket=wayland
+  - --socket=fallback-x11
+  # X11 shared memory (MIT-SHM)
+  - --share=ipc
+  # GPU access for wgpu
+  - --device=dri
+  # File access via portals or common dirs
+  - --filesystem=xdg-documents
+  - --filesystem=xdg-download
+  - --filesystem=xdg-pictures
+modules:
+  - name: boardviewcraft
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bin/boardviewcraft /app/bin/boardviewcraft
+      - install -Dm644 share/applications/io.github.elbuit.BoardViewCraft.desktop /app/share/applications/io.github.elbuit.BoardViewCraft.desktop
+      - install -Dm644 share/metainfo/io.github.elbuit.BoardViewCraft.metainfo.xml /app/share/metainfo/io.github.elbuit.BoardViewCraft.metainfo.xml
+      - mkdir -p /app/share/icons && cp -R share/icons/hicolor /app/share/icons/
+    sources:
+      - type: dir
+        path: stage
