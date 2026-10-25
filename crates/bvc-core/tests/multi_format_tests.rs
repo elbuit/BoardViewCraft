@@ -302,6 +302,190 @@ fn test_two_stage_sniffing_priority() {
 }
 
 #[test]
+fn test_kicad_parser_basic() {
+    let kicad_text = r#"(kicad_pcb (version 20221018) (generator pcbnew)
+  (general (thickness 1.6))
+  (layers
+    (0 "F.Cu" signal)
+    (31 "B.Cu" signal)
+    (44 "Edge.Cuts" user)
+  )
+  (net 0 "")
+  (net 1 "GND")
+  (net 2 "+3V3")
+  (gr_line (start 0 0) (end 100 0) (layer "Edge.Cuts"))
+  (gr_line (start 100 0) (end 100 50) (layer "Edge.Cuts"))
+  (gr_line (start 100 50) (end 0 50) (layer "Edge.Cuts"))
+  (gr_line (start 0 50) (end 0 0) (layer "Edge.Cuts"))
+  (footprint "Resistor_SMD:R_0805_2012Metric" (layer "F.Cu")
+    (at 10 20 90)
+    (property "Reference" "R1")
+    (attr smd)
+    (pad "1" smd roundrect (at -0.95 0 90) (size 1.0 1.3) (layers "F.Cu" "F.Paste" "F.Mask") (net 1 "GND"))
+    (pad "2" smd roundrect (at 0.95 0 90) (size 1.0 1.3) (layers "F.Cu" "F.Paste" "F.Mask") (net 2 "+3V3"))
+  )
+  (footprint "Capacitor_SMD:C_0603_1608Metric" (layer "B.Cu")
+    (at 30 40 0)
+    (fp_text reference "C1" (at 0 0) (layer "B.SilkS"))
+    (attr smd)
+    (pad "1" smd roundrect (at -0.75 0) (size 0.8 0.9) (layers "B.Cu" "B.Paste" "B.Mask") (net 1 "GND"))
+    (pad "2" thru_hole circle (at 0.75 0) (size 0.8 0.8) (layers "*.Cu" "*.Mask") (net 2 "+3V3"))
+  )
+  (via (at 50 25) (size 0.8) (drill 0.4) (layers "F.Cu" "B.Cu") (net 1))
+)
+"#;
+
+    let registry = ParserRegistry::default();
+    let board = registry.parse_file("sample.kicad_pcb", kicad_text.as_bytes()).expect("parse kicad pcb");
+
+    // Check outline
+    assert_eq!(board.outline_polygon.len(), 4);
+    // 0 mm = 0 mil, 100 mm = ~3937 mil, 50 mm = ~1968.5 mil
+    assert!((board.outline_polygon[0].x - 0.0).abs() < 1.0);
+    assert!((board.outline_polygon[1].x - (100.0 / 0.0254)).abs() < 1.0);
+
+    // Check parts
+    assert_eq!(board.parts.len(), 2);
+    assert_eq!(board.parts[0].name, "R1");
+    assert_eq!(board.parts[0].side, Side::Top);
+    assert_eq!(board.parts[1].name, "C1");
+    assert_eq!(board.parts[1].side, Side::Bottom);
+
+    // Check pins
+    assert_eq!(board.pins.len(), 4);
+
+    // R1 pin 1: FX=10, FY=20, FA=90deg. PX=-0.95, PY=0.
+    // AX = 10 + (-0.95)*cos(90) + 0*sin(90) = 10.0 mm
+    // AY = 20 - (-0.95)*sin(90) + 0*cos(90) = 20 - (-0.95) = 20.95 mm
+    let r1_p1 = &board.pins[0];
+    assert_eq!(r1_p1.name, "1");
+    assert_eq!(r1_p1.net_name, "GND");
+    assert_eq!(r1_p1.side, Side::Top);
+    let expected_x_mil = 10.0 / 0.0254;
+    let expected_y_mil = 20.95 / 0.0254;
+    assert!((r1_p1.pos.x - expected_x_mil).abs() < 1.0);
+    assert!((r1_p1.pos.y - expected_y_mil).abs() < 1.0);
+
+    // C1 pin 2 is thru_hole, so side should be Side::Both
+    let c1_p2 = &board.pins[3];
+    assert_eq!(c1_p2.name, "2");
+    assert_eq!(c1_p2.side, Side::Both);
+    assert_eq!(c1_p2.net_name, "+3V3");
+
+    // Check via
+    assert_eq!(board.vias.len(), 1);
+    let via = &board.vias[0];
+    assert_eq!(via.net_name, "GND");
+    assert_eq!(via.side, Side::Both);
+    assert!((via.pos.x - (50.0 / 0.0254)).abs() < 1.0);
+    assert!((via.pos.y - (25.0 / 0.0254)).abs() < 1.0);
+}
+
+#[test]
+fn test_kicad_fixture_real_file() {
+    let path = Path::new("/media/no_raid/devel/boarview/BoardViewCraft/tmp/wrench-board/board_assets/mnt-reform-motherboard.kicad_pcb");
+    if let Ok(data) = fs::read(&path) {
+        let registry = ParserRegistry::default();
+        let board = registry.parse_file("mnt-reform-motherboard.kicad_pcb", &data).expect("parse real kicad file");
+        assert_eq!(board.parts.len(), 505);
+        assert_eq!(board.pins.len(), 2109);
+        assert_eq!(board.vias.len(), 1081);
+        assert_eq!(board.outline_polygon.len(), 8);
+    }
+}
+
+#[test]
+fn test_bvr_t1_parsing() {
+    let t1_content = "\
+BVRAW_FORMAT_1
+<<Layout>>
+X\tY\tR\tGroup
+0\t0\t0\t1
+10\t0\t0\t1
+10\t5\t0\t1
+0\t5\t0\t1
+<<Pin>>
+Part\tTB\tPin\tName\tX\tY\tLayer\tNet
+R1\t(T)\t1\t1\t1.0\t2.0\t1\tGND
+R1\t(T)\t2\t2\t1.5\t2.0\t1\t+3V3
+<<Nail>>
+Nail\tX\tY\tType\tGrid\tTB\tNET\tNetName
+$0\t1.0\t2.0\t1\tA1\t(B)\t#1\tGND
+";
+
+    let registry = ParserRegistry::default();
+    let board = registry.parse_file("test.bvr", t1_content.as_bytes()).expect("parse bvr t1");
+
+    assert_eq!(board.outline_polygon.len(), 4);
+    assert_eq!(board.outline_polygon[0], bvc_core::model::Point::new(0.0, 0.0));
+    assert_eq!(board.outline_polygon[1], bvc_core::model::Point::new(10000.0, 0.0));
+
+    assert_eq!(board.parts.len(), 1);
+    assert_eq!(board.parts[0].name, "R1");
+    assert_eq!(board.parts[0].side, Side::Top);
+
+    assert_eq!(board.pins.len(), 2);
+    assert_eq!(board.pins[0].name, "1");
+    assert_eq!(board.pins[0].pos, bvc_core::model::Point::new(1000.0, 2000.0));
+    assert_eq!(board.pins[0].net_name, "GND");
+    assert_eq!(board.pins[1].name, "2");
+    assert_eq!(board.pins[1].pos, bvc_core::model::Point::new(1500.0, 2000.0));
+    assert_eq!(board.pins[1].net_name, "+3V3");
+
+    assert_eq!(board.vias.len(), 1);
+    assert_eq!(board.vias[0].pos, bvc_core::model::Point::new(1000.0, 2000.0));
+    assert_eq!(board.vias[0].side, Side::Bottom);
+    assert_eq!(board.vias[0].net_name, "GND");
+}
+
+#[test]
+fn test_bvr_t3_parsing() {
+    let t3_content = "\
+BVRAW_FORMAT_3
+OUTLINE_SEGMENTED 0 0 1000 0  1000 0 1000 500  0 500 0 0  1000 500 0 500
+PART_NAME R1
+PART_SIDE T
+PART_ORIGIN 100 150
+PART_MOUNT SMD
+PIN_NUMBER 1
+PIN_NAME 1
+PIN_SIDE T
+PIN_ORIGIN 0 -50
+PIN_RADIUS 10
+PIN_NET +3V3
+PIN_END
+PIN_NUMBER 2
+PIN_NAME 2
+PIN_SIDE T
+PIN_ORIGIN 0 50
+PIN_NET GND
+PIN_END
+PART_END
+";
+
+    let registry = ParserRegistry::default();
+    let board = registry.parse_file("test.bvr", t3_content.as_bytes()).expect("parse bvr t3");
+
+    assert_eq!(board.parts.len(), 1);
+    assert_eq!(board.parts[0].name, "R1");
+    assert_eq!(board.parts[0].side, Side::Top);
+
+    assert_eq!(board.pins.len(), 2);
+    // Pin 1 origin is (0, -50) relative to Part origin (100, 150) => (100, 100)
+    assert_eq!(board.pins[0].pos, bvc_core::model::Point::new(100.0, 100.0));
+    assert_eq!(board.pins[0].net_name, "+3V3");
+    assert_eq!(board.pins[0].radius, 10.0);
+
+    // Pin 2 origin is (0, 50) relative to Part origin (100, 150) => (100, 200)
+    assert_eq!(board.pins[1].pos, bvc_core::model::Point::new(100.0, 200.0));
+    assert_eq!(board.pins[1].net_name, "GND");
+
+    // Outline should have been chained from segments
+    assert!(!board.outline_polygon.is_empty());
+    assert_eq!(board.outline_polygon[0], bvc_core::model::Point::new(0.0, 0.0));
+}
+
+#[test]
 fn test_real_test1_tvw_production_binary() {
     let path = Path::new("/media/no_raid/devel/boarview/test1.tvw");
     if let Ok(data) = fs::read(&path) {

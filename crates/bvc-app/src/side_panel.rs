@@ -2,6 +2,7 @@
 
 use crate::i18n::{self, Language};
 use crate::overlay::OverlayManager;
+use crate::overlay_align::{AlignmentSession, MAX_PAIRS};
 use crate::theme::Tokens;
 use bvc_core::{Board, Side};
 use egui::{Button, Color32, DragValue, RichText, ScrollArea, Slider, TextEdit, Ui};
@@ -36,6 +37,7 @@ pub fn show_side_panel(
     board: Option<&Board>,
     state: &mut SidePanelState,
     overlay_manager: &mut OverlayManager,
+    alignment_session: &mut AlignmentSession,
     selected_pin_idx: &mut Option<usize>,
     selected_via_idx: &mut Option<usize>,
     selected_part_idx: &mut Option<usize>,
@@ -77,7 +79,18 @@ pub fn show_side_panel(
     ui.separator();
 
     if state.active_tab == Tab::Overlay {
-        show_overlay_panel(ui, tokens, overlay_manager, current_side, current_rotation_rad, current_sx, current_sy, lang, on_load_photo);
+        show_overlay_panel(
+            ui,
+            tokens,
+            overlay_manager,
+            alignment_session,
+            current_side,
+            current_rotation_rad,
+            current_sx,
+            current_sy,
+            lang,
+            on_load_photo,
+        );
         return;
     }
 
@@ -350,7 +363,18 @@ pub fn show_side_panel(
             });
         }
         Tab::Overlay => {
-            show_overlay_panel(ui, tokens, overlay_manager, current_side, current_rotation_rad, current_sx, current_sy, lang, on_load_photo);
+            show_overlay_panel(
+                ui,
+                tokens,
+                overlay_manager,
+                alignment_session,
+                current_side,
+                current_rotation_rad,
+                current_sx,
+                current_sy,
+                lang,
+                on_load_photo,
+            );
         }
     }
 }
@@ -359,6 +383,7 @@ pub fn show_overlay_panel(
     ui: &mut Ui,
     tokens: &Tokens,
     overlay_manager: &mut OverlayManager,
+    alignment_session: &mut AlignmentSession,
     current_side: Side,
     current_rotation_rad: f32,
     current_sx: f32,
@@ -390,6 +415,150 @@ pub fn show_overlay_panel(
         let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("photo");
         ui.label(RichText::new(format!("{}: {}", i18n::tr(lang, "overlay.file"), file_name)).color(tokens.text_dim()));
         ui.label(RichText::new(format!("{}x{} px", slot.orig_dimensions.0, slot.orig_dimensions.1)).color(tokens.text_dim()));
+    }
+
+    ui.add_space(8.0);
+
+    // Pin Alignment Calibration Section
+    if !alignment_session.is_active() {
+        if ui.button(format!("🎯 {}", i18n::tr(lang, "overlay.align_pins"))).clicked() {
+            let snap = slot.snapshot();
+            alignment_session.start(snap);
+        }
+    } else {
+        ui.group(|ui| {
+            let pairs_count = alignment_session.pairs.len();
+            ui.horizontal(|ui| {
+                ui.heading(
+                    RichText::new(format!(
+                        "🎯 {} ({}/{})",
+                        i18n::tr(lang, "overlay.align_active_title"),
+                        pairs_count,
+                        MAX_PAIRS
+                    ))
+                    .color(tokens.accent())
+                    .strong(),
+                );
+            });
+            ui.add_space(4.0);
+
+            // Table of pin pairs
+            let mut repick_idx = None;
+            let mut delete_idx = None;
+
+            ScrollArea::vertical()
+                .max_height(140.0)
+                .show(ui, |ui| {
+                    egui::Grid::new("pin_alignment_table")
+                        .striped(true)
+                        .spacing([6.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label(RichText::new(i18n::tr(lang, "overlay.align_col_num")).strong());
+                            ui.label(RichText::new(i18n::tr(lang, "overlay.align_col_pin")).strong());
+                            ui.label(RichText::new(i18n::tr(lang, "overlay.align_col_residual")).strong());
+                            ui.label("");
+                            ui.end_row();
+
+                            for (i, pair) in alignment_session.pairs.iter().enumerate() {
+                                ui.label(format!("{}", i + 1));
+                                ui.label(format!("{}.{}", pair.part_name, pair.pin_name));
+
+                                if let Some(Ok(ref res)) = alignment_session.live_result {
+                                    if let Some(res_val) = res.residuals_mils.get(i) {
+                                        let col = if *res_val < 2.0 {
+                                            Color32::from_rgb(0x4c, 0xaf, 0x50)
+                                        } else if *res_val <= 5.0 {
+                                            Color32::from_rgb(0xff, 0xeb, 0x3b)
+                                        } else {
+                                            Color32::from_rgb(0xf4, 0x43, 0x36)
+                                        };
+                                        ui.label(RichText::new(format!("{:.1} mil", res_val)).color(col));
+                                    } else {
+                                        ui.label("-");
+                                    }
+                                } else {
+                                    ui.label(if pair.photo_pos.is_some() { "OK" } else { "..." });
+                                }
+
+                                ui.horizontal(|ui| {
+                                    if ui.small_button(i18n::tr(lang, "overlay.align_repick")).clicked() {
+                                        repick_idx = Some(i);
+                                    }
+                                    if ui.small_button(RichText::new(i18n::tr(lang, "overlay.align_delete")).color(Color32::from_rgb(0xd0, 0x50, 0x50))).clicked() {
+                                        delete_idx = Some(i);
+                                    }
+                                });
+                                ui.end_row();
+                            }
+                        });
+                });
+
+            if let Some(idx) = repick_idx {
+                alignment_session.repick_pair(idx);
+            }
+            if let Some(idx) = delete_idx {
+                alignment_session.delete_pair(idx);
+            }
+
+            ui.add_space(4.0);
+
+            // RMSE metric badge
+            if let Some(Ok(ref res)) = alignment_session.live_result {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(i18n::tr(lang, "overlay.align_rmse")).strong());
+                    ui.label(RichText::new(format!("{:.2} mils", res.rmse_mils)).strong().color(tokens.accent()));
+                });
+            } else if pairs_count < 2 {
+                ui.label(RichText::new(i18n::tr(lang, "overlay.align_status_min_points")).color(tokens.text_dim()).small());
+            }
+
+            // Add pin pair button (if < 5)
+            if pairs_count < MAX_PAIRS {
+                if ui.button(format!("➕ {}", i18n::tr(lang, "overlay.align_add_pair"))).clicked() {
+                    alignment_session.add_pair();
+                }
+            }
+
+            // Auto-lock toggle
+            ui.checkbox(&mut alignment_session.auto_lock_on_apply, i18n::tr(lang, "overlay.align_auto_lock"));
+
+            ui.add_space(4.0);
+
+            // Action row: Apply | Reset | Cancel
+            ui.horizontal(|ui| {
+                let can_apply = alignment_session.live_result.as_ref().map(|r| r.is_ok()).unwrap_or(false);
+                let apply_btn = Button::new(RichText::new(i18n::tr(lang, "overlay.align_apply")).color(Color32::BLACK))
+                    .fill(Color32::from_rgb(0x4c, 0xaf, 0x50));
+
+                if ui.add_enabled(can_apply, apply_btn).clicked() {
+                    if let Some(Ok(ref res)) = alignment_session.live_result {
+                        slot.apply_alignment_result(
+                            res,
+                            alignment_session.auto_lock_on_apply,
+                            current_rotation_rad,
+                            current_sx,
+                            current_sy,
+                        );
+                        alignment_session.cancel(); // Clears session markers and resets to Idle
+                    }
+                }
+
+                if ui.button(i18n::tr(lang, "overlay.align_reset")).clicked() {
+                    if let Some(snap) = alignment_session.snapshot {
+                        slot.restore_snapshot(snap);
+                        alignment_session.pairs.clear();
+                        alignment_session.live_result = None;
+                        alignment_session.state = crate::overlay_align::AlignmentState::SelectingCadPin { pair_index: 0 };
+                    }
+                }
+
+                if ui.button(i18n::tr(lang, "overlay.align_cancel")).clicked() {
+                    if let Some(snap) = alignment_session.cancel() {
+                        slot.restore_snapshot(snap);
+                    }
+                }
+            });
+        });
     }
 
     ui.add_space(8.0);

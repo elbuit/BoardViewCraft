@@ -12,6 +12,7 @@ use crate::parser::dialects::{BvParser, BvrParser, CstParser, F2bParser, GrParse
 use crate::parser::fz::FzParser;
 use crate::parser::fz_zlib::FzZlibParser;
 use crate::parser::gencad::GenCadParser;
+use crate::parser::kicad::KicadParser;
 use crate::parser::tvw::TvwParser;
 use crate::parser::xzz::XzzParser;
 use crate::parser::{FormatParser, ParseError};
@@ -29,6 +30,7 @@ impl Default for ParserRegistry {
         reg.register(Arc::new(FzZlibParser::new()));
         reg.register(Arc::new(FzParser::new()));
         reg.register(Arc::new(XzzParser::new()));
+        reg.register(Arc::new(KicadParser::new()));
         reg.register(Arc::new(TvwParser::new()));
         reg.register(Arc::new(BdvParser::new()));
         reg.register(Arc::new(CpdParser::new()));

@@ -3,6 +3,7 @@
 mod canvas;
 mod i18n;
 mod overlay;
+pub mod overlay_align;
 mod preferences;
 mod render;
 mod side_panel;
@@ -11,6 +12,7 @@ mod theme;
 use bvc_core::{Board, ParserRegistry, Side};
 use canvas::{CanvasState, show_canvas};
 use overlay::OverlayManager;
+use overlay_align::AlignmentSession;
 use preferences::{Preferences, show_preferences_window};
 use render::Renderer;
 use side_panel::{SidePanelState, show_side_panel};
@@ -27,6 +29,7 @@ pub struct BoardViewApp {
     canvas_state: CanvasState,
     side_panel_state: SidePanelState,
     overlay_manager: OverlayManager,
+    alignment_session: AlignmentSession,
     preferences: Preferences,
     preferences_open: bool,
     pending_auto_fit: bool,
@@ -52,6 +55,7 @@ impl Default for BoardViewApp {
             canvas_state: CanvasState::default(),
             side_panel_state: SidePanelState::default(),
             overlay_manager: OverlayManager::default(),
+            alignment_session: AlignmentSession::default(),
             preferences: Preferences::default(),
             preferences_open: false,
             pending_auto_fit: false,
@@ -171,24 +175,52 @@ impl eframe::App for BoardViewApp {
         // Actions shortcuts: R (Rotate CW), Shift+R (Rotate CCW), Space (Flip Side), M (Mirror X), Shift+M (Mirror Y), F (Fit), Esc (Deselect)
         if !self.preferences_open {
             let wants_kb = ui.ctx().egui_wants_keyboard_input() || ui.memory(|m| m.focused().is_some());
-            let (r_pressed, shift_down, space_pressed, m_pressed, esc_pressed, f_pressed) = ui.input(|i| {
+            let (r_pressed, shift_down, space_pressed, m_pressed, esc_pressed, enter_pressed, f_pressed) = ui.input(|i| {
                 (
                     i.key_pressed(egui::Key::R),
                     i.modifiers.shift,
                     i.key_pressed(egui::Key::Space),
                     i.key_pressed(egui::Key::M),
                     i.key_pressed(egui::Key::Escape),
+                    i.key_pressed(egui::Key::Enter),
                     i.key_pressed(egui::Key::F),
                 )
             });
 
             if esc_pressed {
-                if self.selected_pin_idx.is_some() || self.selected_net.is_some() || self.selected_part_idx.is_some() {
+                if self.alignment_session.is_active() {
+                    let cur_side = self.canvas_state.viewport.side;
+                    let slot = self.overlay_manager.slot_for_side(cur_side);
+                    if let Some(snap) = self.alignment_session.cancel() {
+                        slot.restore_snapshot(snap);
+                    }
+                    self.status_msg = "Calibration cancelled and overlay restored.".to_string();
+                    ui.ctx().request_repaint();
+                } else if self.selected_pin_idx.is_some() || self.selected_net.is_some() || self.selected_part_idx.is_some() {
                     self.selected_pin_idx = None;
                     self.selected_part_idx = None;
                     self.selected_net = None;
                     self.status_msg = "Selection cleared.".to_string();
                     self.canvas_state.cached_view_key = None;
+                    ui.ctx().request_repaint();
+                }
+            }
+
+            if enter_pressed && self.alignment_session.is_active() {
+                if let Some(Ok(ref res)) = self.alignment_session.live_result {
+                    let cur_side = self.canvas_state.viewport.side;
+                    let slot = self.overlay_manager.slot_for_side(cur_side);
+                    let cur_rotation_rad = self.canvas_state.viewport.rotation.angle_rad();
+                    let (cur_sx, cur_sy) = self.canvas_state.viewport.effective_factors();
+                    slot.apply_alignment_result(
+                        res,
+                        self.alignment_session.auto_lock_on_apply,
+                        cur_rotation_rad,
+                        cur_sx,
+                        cur_sy,
+                    );
+                    self.alignment_session.cancel();
+                    self.status_msg = "Alignment applied to overlay.".to_string();
                     ui.ctx().request_repaint();
                 }
             }
@@ -410,6 +442,7 @@ impl eframe::App for BoardViewApp {
                     self.board.as_ref(),
                     &mut self.side_panel_state,
                     &mut self.overlay_manager,
+                    &mut self.alignment_session,
                     &mut self.selected_pin_idx,
                     &mut self.selected_via_idx,
                     &mut self.selected_part_idx,
@@ -438,6 +471,7 @@ impl eframe::App for BoardViewApp {
                     self.board.as_ref(),
                     &mut self.canvas_state,
                     &mut self.overlay_manager,
+                    &mut self.alignment_session,
                     overlay_mode_active,
                     &mut self.selected_pin_idx,
                     &mut self.selected_via_idx,

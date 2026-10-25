@@ -10,6 +10,7 @@ pub mod dialects;
 pub mod fz;
 pub mod fz_zlib;
 pub mod gencad;
+pub mod kicad;
 pub mod registry;
 pub mod test_link;
 pub mod tvw;

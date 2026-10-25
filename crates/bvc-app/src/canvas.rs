@@ -1,6 +1,7 @@
 //! Board canvas view transformation and interactive rendering.
 
 use crate::overlay::OverlayManager;
+use crate::overlay_align::{AlignmentSession, AlignmentState};
 use crate::preferences::{Preferences, ViaDisplayMode};
 use crate::render::Renderer;
 use crate::theme::Tokens;
@@ -273,6 +274,7 @@ pub fn show_canvas(
     board: Option<&Board>,
     canvas_state: &mut CanvasState,
     overlay_manager: &mut OverlayManager,
+    alignment_session: &mut AlignmentSession,
     overlay_mode_active: bool,
     selected_pin_idx: &mut Option<usize>,
     selected_via_idx: &mut Option<usize>,
@@ -290,10 +292,12 @@ pub fn show_canvas(
     let vp = &mut canvas_state.viewport;
 
     // Direct Overlay Manipulation:
-    // Active when either Alt is held, OR the right-panel Overlay tab is active (and overlay is loaded and unlocked).
+    // Active when either Alt is held, OR the right-panel Overlay tab is active (and overlay is loaded and unlocked),
+    // and calibration session is NOT actively capturing clicks.
     let is_alt_down = ui.input(|i| i.modifiers.alt);
     let active_slot = overlay_manager.slot_for_side(vp.side);
-    let is_overlay_interacting = (is_alt_down || overlay_mode_active) && active_slot.is_loaded() && !active_slot.locked;
+    let is_calibrating = alignment_session.is_active();
+    let is_overlay_interacting = !is_calibrating && (is_alt_down || overlay_mode_active) && active_slot.is_loaded() && !active_slot.locked;
 
     if is_overlay_interacting {
         if response.dragged_by(egui::PointerButton::Primary) || response.dragged_by(egui::PointerButton::Secondary) {
@@ -331,11 +335,12 @@ pub fn show_canvas(
             let fine_rad = active_slot.fine_rotation_deg.to_radians();
             let (sin_f, cos_f) = fine_rad.sin_cos();
 
+            // Corner 0: top-left (uv 0,0) in CAD space (+Y up, -Y down)
             let local_corners = [
-                (-half_w, -half_h),
-                (half_w, -half_h),
-                (half_w, half_h),
                 (-half_w, half_h),
+                (half_w, half_h),
+                (half_w, -half_h),
+                (-half_w, -half_h),
             ];
 
             let world_corners: Vec<Point> = local_corners
@@ -347,27 +352,7 @@ pub fn show_canvas(
                 })
                 .collect();
 
-            // Calculate effective reflection and rotation factors for the overlay:
-            // - If the overlay is locked: it stays exactly in the relative alignment it had at lock time,
-            //   rotating and mirroring by the *difference* in PCB orientation since lock time.
-            // - If the overlay is unlocked: it stays fixed to the screen without rotating when the PCB rotates.
-            // - Independent overlay mirror_x / mirror_y are also applied.
-            let (vp_sx, vp_sy) = vp.effective_factors();
-
-            let (final_sx, final_sy, final_rot_rad) = if active_slot.locked {
-                // Relative delta since lock time
-                let rel_sx = vp_sx / active_slot.locked_board_sx;
-                let rel_sy = vp_sy / active_slot.locked_board_sy;
-                let rel_rot = vp.rotation.angle_rad() - active_slot.locked_board_rotation_deg;
-
-                let sx = if active_slot.mirror_x { -rel_sx } else { rel_sx };
-                let sy = if active_slot.mirror_y { -rel_sy } else { rel_sy };
-                (sx, sy, rel_rot)
-            } else {
-                let sx = if active_slot.mirror_x { -1.0 } else { 1.0 };
-                let sy = if active_slot.mirror_y { -1.0 } else { 1.0 };
-                (sx, sy, 0.0)
-            };
+            let (final_sx, final_sy, final_rot_rad) = active_slot.overlay_factors(vp);
 
             let p0 = vp.world_to_screen_with_angle(world_corners[0], rect, final_sx, final_sy, final_rot_rad);
             let p1 = vp.world_to_screen_with_angle(world_corners[1], rect, final_sx, final_sy, final_rot_rad);
@@ -492,12 +477,44 @@ pub fn show_canvas(
     canvas_state.hovered_pin = current_hover_pin;
     canvas_state.hovered_via = current_hover_via;
 
-    // Selection and Context Menu on click
+    // Selection and Context Menu on click (or pin alignment calibration click interceptor)
     let is_ctrl_down = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
     let secondary_clicked = response.secondary_clicked();
     let is_context_trigger = secondary_clicked || (response.clicked() && is_ctrl_down);
 
-    if is_context_trigger {
+    if is_calibrating && response.clicked() {
+        if let Some(hover_pos) = response.hover_pos() {
+            match alignment_session.state.clone() {
+                AlignmentState::SelectingCadPin { .. } => {
+                    // Try to snap to hovered pin or find closest pin within 25px
+                    let snapped_pin = current_hover_pin.or_else(|| {
+                        board.and_then(|b| {
+                            let world_pos = vp.screen_to_world(hover_pos, rect);
+                            let snap_world_dist = (25.0 / vp.scale) as f64;
+                            b.find_pin_near(world_pos, vp.side, snap_world_dist)
+                        })
+                    });
+
+                    if let Some(pin_idx) = snapped_pin {
+                        if let Some(b) = board {
+                            if let Some(pin) = b.pins.get(pin_idx) {
+                                let part_name = b.parts.get(pin.part_id).map(|p| p.name.clone()).unwrap_or_else(|| "?".into());
+                                alignment_session.select_cad_pin(pin_idx, pin.name.clone(), part_name, pin.pos);
+                                ui.ctx().request_repaint();
+                            }
+                        }
+                    }
+                }
+                AlignmentState::SelectingPhotoPoint { .. } => {
+                    // Store clicked position in invariant photo local coordinates
+                    let local_pos = active_slot.screen_to_photo_local(hover_pos, rect, vp);
+                    alignment_session.select_photo_point(local_pos);
+                    ui.ctx().request_repaint();
+                }
+                _ => {}
+            }
+        }
+    } else if is_context_trigger {
         if let Some(pin_idx) = current_hover_pin {
             if let Some(b) = board {
                 if let Some(pin) = b.pins.get(pin_idx) {
@@ -876,7 +893,179 @@ pub fn show_canvas(
         }
     }
 
+    // Render Calibration Overlays (Markers, Snap Rings, Residuals, HUD Banner)
+    if is_calibrating {
+        render_calibration_overlays(
+            &painter,
+            rect,
+            vp,
+            active_slot,
+            alignment_session,
+            board,
+            response.hover_pos(),
+            prefs.language,
+        );
+    }
+
     response
+}
+
+/// Renders interactive calibration markers, snap rings, error residual vectors, and top HUD banner.
+pub fn render_calibration_overlays(
+    painter: &egui::Painter,
+    canvas_rect: EguiRect,
+    vp: &Viewport,
+    active_slot: &crate::overlay::OverlaySlot,
+    session: &AlignmentSession,
+    board: Option<&Board>,
+    hover_pos: Option<Pos2>,
+    lang: crate::i18n::Language,
+) {
+    let cyan = Color32::from_rgb(0x00, 0xe5, 0xff); // #00E5FF
+    let magenta = Color32::from_rgb(0xff, 0x40, 0x81); // #FF4081
+    let text_color = Color32::WHITE;
+
+    // 1. Live snap ring on hovered CAD pin during SelectingCadPin
+    if let AlignmentState::SelectingCadPin { .. } = session.state {
+        if let (Some(b), Some(h_pos)) = (board, hover_pos) {
+            let world_pos = vp.screen_to_world(h_pos, canvas_rect);
+            let snap_dist = (25.0 / vp.scale) as f64;
+            if let Some(pin_idx) = b.find_pin_near(world_pos, vp.side, snap_dist) {
+                if let Some(pin) = b.pins.get(pin_idx) {
+                    let pin_scr = vp.world_to_screen(pin.pos, canvas_rect);
+                    // Pulsing/animated ring or distinct highlight ring
+                    painter.circle_stroke(pin_scr, 14.0, Stroke::new(2.0, cyan));
+                    painter.circle_stroke(pin_scr, 20.0, Stroke::new(1.0, Color32::from_rgba_unmultiplied(0x00, 0xe5, 0xff, 120)));
+                }
+            }
+        }
+    }
+
+    // 2. Render correspondence markers (CAD crosshairs and Photo diamonds)
+    for (i, pair) in session.pairs.iter().enumerate() {
+        let num_str = format!("{}", i + 1);
+
+        // CAD pin marker: Cyan circle with center crosshairs and label
+        let cad_scr = vp.world_to_screen(pair.cad_pos, canvas_rect);
+        painter.circle_filled(cad_scr, 12.0, Color32::from_rgba_unmultiplied(0x00, 0x30, 0x40, 200));
+        painter.circle_stroke(cad_scr, 12.0, Stroke::new(2.0, cyan));
+        // Crosshair lines
+        painter.line_segment([Pos2::new(cad_scr.x - 16.0, cad_scr.y), Pos2::new(cad_scr.x + 16.0, cad_scr.y)], Stroke::new(1.5, cyan));
+        painter.line_segment([Pos2::new(cad_scr.x, cad_scr.y - 16.0), Pos2::new(cad_scr.x, cad_scr.y + 16.0)], Stroke::new(1.5, cyan));
+        // Text label
+        painter.text(
+            Pos2::new(cad_scr.x + 16.0, cad_scr.y - 10.0),
+            egui::Align2::LEFT_CENTER,
+            format!("{}: {}.{}", num_str, pair.part_name, pair.pin_name),
+            FontId::proportional(12.0),
+            cyan,
+        );
+
+        // Photo point marker: Magenta diamond with number
+        if let Some(photo_pos) = pair.photo_pos {
+            let photo_scr = active_slot.photo_local_to_screen(photo_pos, canvas_rect, vp);
+            let s = 10.0;
+            let diamond_pts = vec![
+                Pos2::new(photo_scr.x, photo_scr.y - s),
+                Pos2::new(photo_scr.x + s, photo_scr.y),
+                Pos2::new(photo_scr.x, photo_scr.y + s),
+                Pos2::new(photo_scr.x - s, photo_scr.y),
+            ];
+            painter.add(egui::Shape::convex_polygon(
+                diamond_pts.clone(),
+                Color32::from_rgba_unmultiplied(0x50, 0x00, 0x20, 200),
+                Stroke::new(2.0, magenta),
+            ));
+            painter.text(
+                Pos2::new(photo_scr.x + 14.0, photo_scr.y + 10.0),
+                egui::Align2::LEFT_CENTER,
+                format!("P{}", num_str),
+                FontId::proportional(11.0),
+                magenta,
+            );
+        }
+    }
+
+    // 3. Error residual vectors if alignment result is computed
+    if let Some(Ok(ref result)) = session.live_result {
+        for (i, pair) in session.pairs.iter().enumerate() {
+            if let Some(res_mils) = result.residuals_mils.get(i) {
+                if let Some(photo_pos) = pair.photo_pos {
+                    let cad_scr = vp.world_to_screen(pair.cad_pos, canvas_rect);
+                    // Color threshold:
+                    // < 2.0 mils -> Green
+                    // 2.0 ..= 5.0 mils -> Yellow
+                    // > 5.0 mils -> Red
+                    let vec_color = if *res_mils < 2.0 {
+                        Color32::from_rgb(0x4c, 0xaf, 0x50) // Green
+                    } else if *res_mils <= 5.0 {
+                        Color32::from_rgb(0xff, 0xeb, 0x3b) // Yellow
+                    } else {
+                        Color32::from_rgb(0xf4, 0x43, 0x36) // Red
+                    };
+
+                    // Photo screen pos
+                    let photo_scr = active_slot.photo_local_to_screen(photo_pos, canvas_rect, vp);
+                    painter.line_segment([cad_scr, photo_scr], Stroke::new(2.0, vec_color));
+                    let mid = Pos2::new((cad_scr.x + photo_scr.x) * 0.5, (cad_scr.y + photo_scr.y) * 0.5);
+                    painter.text(
+                        mid,
+                        egui::Align2::CENTER_CENTER,
+                        format!("{:.1} mil", res_mils),
+                        FontId::proportional(11.0),
+                        vec_color,
+                    );
+                }
+            }
+        }
+    }
+
+    // 4. Floating Guidance HUD Banner at top center of canvas
+    let banner_text = match &session.state {
+        AlignmentState::SelectingCadPin { pair_index } => {
+            let step = pair_index + 1;
+            crate::i18n::tr(lang, "overlay.align_banner_cad").replace("{}", &format!("{step}"))
+        }
+        AlignmentState::SelectingPhotoPoint { pair_index, pin_name, part_name, .. } => {
+            let step = pair_index + 1;
+            let base = crate::i18n::tr(lang, "overlay.align_banner_photo").replace("{}", &format!("{step}"));
+            format!("{base} ({part_name}.{pin_name})")
+        }
+        AlignmentState::ReadyToApply => {
+            let count = session.pairs.len();
+            let base = crate::i18n::tr(lang, "overlay.align_banner_ready").replace("{}", &format!("{count}"));
+            if let Some(Ok(ref res)) = session.live_result {
+                format!("{base} RMSE: {:.2} mils", res.rmse_mils)
+            } else {
+                base
+            }
+        }
+        AlignmentState::Idle => String::new(),
+    };
+
+    if !banner_text.is_empty() {
+        let banner_w = 460.0;
+        let banner_h = 32.0;
+        let banner_rect = EguiRect::from_center_size(
+            Pos2::new(canvas_rect.center().x, canvas_rect.min.y + 36.0),
+            egui::vec2(banner_w, banner_h),
+        );
+
+        painter.rect(
+            banner_rect,
+            6.0,
+            Color32::from_rgba_unmultiplied(0x1a, 0x22, 0x30, 230),
+            Stroke::new(1.5, cyan),
+            egui::StrokeKind::Outside,
+        );
+        painter.text(
+            banner_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            banner_text,
+            FontId::proportional(13.0),
+            text_color,
+        );
+    }
 }
 
 /// Generates render meshes for all visible board entities using spatial frustum queries,
