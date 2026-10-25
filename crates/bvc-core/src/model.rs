@@ -116,6 +116,11 @@ impl Rect {
             && self.min_y <= other.max_y
             && self.max_y >= other.min_y
     }
+
+    #[inline]
+    pub fn contains(&self, p: Point) -> bool {
+        p.x >= self.min_x && p.x <= self.max_x && p.y >= self.min_y && p.y <= self.max_y
+    }
 }
 
 /// Represents a component / part on the board (e.g., U1, R10, C45).

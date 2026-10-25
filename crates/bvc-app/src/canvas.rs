@@ -446,6 +446,57 @@ pub fn show_canvas(
         vp.center = vp.screen_to_world(center_screen - delta, rect);
     }
 
+    // Keyboard Pan (Arrow keys) and Zoom (+ / -) when not typing in text boxes
+    let wants_keyboard = ui.ctx().egui_wants_keyboard_input() || ui.memory(|m| m.focused().is_some());
+    if !wants_keyboard {
+        let (up, down, left, right, plus, minus) = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowUp),
+                i.key_pressed(egui::Key::ArrowDown),
+                i.key_pressed(egui::Key::ArrowLeft),
+                i.key_pressed(egui::Key::ArrowRight),
+                i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
+                i.key_pressed(egui::Key::Minus),
+            )
+        });
+
+        let pan_step = (50.0 / vp.scale) as f64;
+        let (sx, sy) = vp.effective_factors();
+        let rot_rad = vp.rotation.angle_rad();
+        let cos = rot_rad.cos() as f64;
+        let sin = rot_rad.sin() as f64;
+
+        let mut pan_delta = egui::Vec2::ZERO;
+        if up { pan_delta.y -= 1.0; }
+        if down { pan_delta.y += 1.0; }
+        if left { pan_delta.x -= 1.0; }
+        if right { pan_delta.x += 1.0; }
+
+        if pan_delta != egui::Vec2::ZERO {
+            let dx_screen = pan_delta.x as f64 * pan_step;
+            let dy_screen = pan_delta.y as f64 * pan_step;
+
+            // Invert rotation and mirroring to shift world center accurately
+            let dx_rot = dx_screen / (sx as f64);
+            let dy_rot = dy_screen / (sy as f64);
+            let dx_world = dx_rot * cos + dy_rot * sin;
+            let dy_world = -dx_rot * sin + dy_rot * cos;
+
+            vp.center.x += dx_world;
+            vp.center.y += dy_world;
+            ui.ctx().request_repaint();
+        }
+
+        if plus {
+            vp.scale = (vp.scale * 1.25).clamp(0.001, 100.0);
+            ui.ctx().request_repaint();
+        }
+        if minus {
+            vp.scale = (vp.scale / 1.25).clamp(0.001, 100.0);
+            ui.ctx().request_repaint();
+        }
+    }
+
     // Zoom on mouse wheel (only zooms PCB viewport when NOT scaling the overlay)
     let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
     if scroll_y != 0.0 && !is_overlay_interacting {
@@ -460,7 +511,7 @@ pub fn show_canvas(
         }
     }
 
-    // Hover detection
+    // Hover detection (only detect pins/vias if their display is enabled in preferences)
     let mut current_hover_pin: Option<usize> = None;
     let mut current_hover_via: Option<usize> = None;
 
@@ -468,8 +519,10 @@ pub fn show_canvas(
         if let Some(b) = board {
             let world_pos = vp.screen_to_world(hover_pos, rect);
             let hit_tolerance = (15.0 / vp.scale) as f64;
-            current_hover_pin = b.find_pin_near(world_pos, vp.side, hit_tolerance);
-            if current_hover_pin.is_none() {
+            if prefs.show_pins {
+                current_hover_pin = b.find_pin_near(world_pos, vp.side, hit_tolerance);
+            }
+            if current_hover_pin.is_none() && prefs.show_vias {
                 current_hover_via = b.find_via_near(world_pos, vp.side, hit_tolerance);
             }
         }
@@ -573,6 +626,29 @@ pub fn show_canvas(
                         };
                     }
                 }
+            }
+        } else if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
+            // Hit-test component body/bounding box if neither pin nor via was clicked
+            let world_pos = vp.screen_to_world(hover_pos, rect);
+            if let Some(part_idx) = b.find_part_near(world_pos, vp.side) {
+                if *selected_part_idx == Some(part_idx) && selected_pin_idx.is_none() {
+                    // Clicking selected part body deselects it
+                    *selected_pin_idx = None;
+                    *selected_via_idx = None;
+                    *selected_part_idx = None;
+                    *selected_net = None;
+                } else {
+                    *selected_pin_idx = None;
+                    *selected_via_idx = None;
+                    *selected_part_idx = Some(part_idx);
+                    *selected_net = None;
+                }
+            } else {
+                // Clicking empty canvas clears selection
+                *selected_pin_idx = None;
+                *selected_via_idx = None;
+                *selected_part_idx = None;
+                *selected_net = None;
             }
         }
     }

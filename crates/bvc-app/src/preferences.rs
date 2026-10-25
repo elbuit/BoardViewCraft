@@ -63,6 +63,8 @@ pub struct Preferences {
     pub show_unnamed_vias: bool,
     #[serde(default = "default_true")]
     pub show_pins: bool,
+    #[serde(default)]
+    pub recent_files: Vec<PathBuf>,
 }
 
 impl Default for Preferences {
@@ -82,6 +84,7 @@ impl Default for Preferences {
             show_vias: false,
             show_unnamed_vias: false,
             show_pins: true,
+            recent_files: Vec::new(),
         }
     }
 }
@@ -109,6 +112,14 @@ pub fn default_config_path() -> PathBuf {
 impl Preferences {
     pub fn load() -> Self {
         Self::load_from(&default_config_path())
+    }
+
+    pub fn add_recent_file(&mut self, path: PathBuf) {
+        self.recent_files.retain(|p| p != &path);
+        self.recent_files.insert(0, path);
+        if self.recent_files.len() > 10 {
+            self.recent_files.truncate(10);
+        }
     }
 
     pub fn load_from(path: &Path) -> Self {
@@ -547,6 +558,7 @@ mod tests {
             show_vias: true,
             show_unnamed_vias: false,
             show_pins: true,
+            recent_files: vec![PathBuf::from("/path/to/board.cad")],
         };
 
         let json = serde_json::to_string(&prefs).expect("Serialize to JSON");
@@ -637,5 +649,20 @@ mod tests {
         assert_eq!(fallback, Preferences::default());
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_add_recent_file_dedup_and_cap() {
+        let mut prefs = Preferences::default();
+        for i in 1..=15 {
+            prefs.add_recent_file(PathBuf::from(format!("/board_{i}.cad")));
+        }
+        assert_eq!(prefs.recent_files.len(), 10);
+        assert_eq!(prefs.recent_files[0], PathBuf::from("/board_15.cad"));
+
+        // Re-adding existing pushes to top
+        prefs.add_recent_file(PathBuf::from("/board_10.cad"));
+        assert_eq!(prefs.recent_files.len(), 10);
+        assert_eq!(prefs.recent_files[0], PathBuf::from("/board_10.cad"));
     }
 }

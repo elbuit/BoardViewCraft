@@ -184,6 +184,7 @@ dependencies = [
  "bvc-core",
  "eframe",
  "egui",
+ "flate2",
  "image",
  "lyon_tessellation",
  "rayon",

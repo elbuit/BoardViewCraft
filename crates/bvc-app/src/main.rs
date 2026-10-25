@@ -4,6 +4,7 @@ mod canvas;
 mod i18n;
 mod overlay;
 pub mod overlay_align;
+pub mod pdf;
 mod preferences;
 mod render;
 mod side_panel;
@@ -18,7 +19,7 @@ use render::Renderer;
 use side_panel::{SidePanelState, show_side_panel};
 use theme::{AppTheme, Tokens};
 
-use egui::{CentralPanel, Color32, Panel, RichText, Ui, Vec2};
+use egui::{CentralPanel, Color32, Panel, Pos2, Rect, RichText, Ui, Vec2};
 use std::sync::Arc;
 
 pub struct BoardViewApp {
@@ -43,6 +44,9 @@ pub struct BoardViewApp {
     // Status message
     status_msg: String,
     filename: Option<String>,
+
+    // PDF Schematic integration
+    pdf_viewer: pdf::PdfSchematicViewer,
 }
 
 impl Default for BoardViewApp {
@@ -65,6 +69,7 @@ impl Default for BoardViewApp {
             selected_net: None,
             status_msg: "Ready. Open a .cad file to inspect.".to_string(),
             filename: None,
+            pdf_viewer: pdf::PdfSchematicViewer::default(),
         }
     }
 }
@@ -118,6 +123,23 @@ impl BoardViewApp {
         }
     }
 
+    pub fn open_file_from_path(&mut self, path: &std::path::Path) {
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("board.cad");
+                self.load_file(name, &bytes);
+                self.preferences.add_recent_file(path.to_path_buf());
+                let _ = self.preferences.save_atomic();
+            }
+            Err(err) => {
+                self.status_msg = format!("Could not open {}: {err}", path.display());
+            }
+        }
+    }
+
     pub fn open_file_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter(
@@ -135,13 +157,7 @@ impl BoardViewApp {
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         {
-            if let Ok(bytes) = std::fs::read(&path) {
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("board.cad");
-                self.load_file(name, &bytes);
-            }
+            self.open_file_from_path(&path);
         }
     }
 
@@ -163,10 +179,66 @@ impl BoardViewApp {
             }
         }
     }
+
+    pub fn open_pdf_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("PDF Schematics (*.pdf)", &["pdf"])
+            .add_filter("All files (*.*)", &["*"])
+            .pick_file()
+        {
+            if let Err(err) = self.pdf_viewer.open_file(&path) {
+                self.status_msg = format!("Failed to open schematic PDF: {err}");
+            } else {
+                self.status_msg = format!("Opened schematic: {}", path.display());
+            }
+        }
+    }
 }
 
 impl eframe::App for BoardViewApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        // Handle Drag & Drop files
+        let dropped_files = ui.ctx().input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
+        if !dropped_files.is_empty() {
+            for file in dropped_files {
+                let path = file.path();
+                if !path.as_os_str().is_empty() {
+                    let ext = path
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
+                    match ext.as_str() {
+                        "png" | "jpg" | "jpeg" | "webp" | "bmp" => {
+                            if let Ok(bytes) = std::fs::read(path) {
+                                let cur_side = self.canvas_state.viewport.side;
+                                let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
+                                let slot = self.overlay_manager.slot_for_side(cur_side);
+                                if let Err(err) = slot.load_from_bytes(ui.ctx(), path, &bytes, bbox) {
+                                    self.status_msg = format!("Failed to load dropped photo: {err}");
+                                } else {
+                                    self.status_msg = format!("Loaded dropped overlay photo for {cur_side:?}: {}", path.display());
+                                    self.side_panel_state.active_tab = side_panel::Tab::Overlay;
+                                }
+                            }
+                        }
+                        "pdf" => {
+                            if let Err(err) = self.pdf_viewer.open_file(path) {
+                                self.status_msg = format!("Failed to load schematic PDF: {err}");
+                            } else {
+                                self.status_msg = format!("Loaded schematic PDF: {}", path.display());
+                            }
+                        }
+                        _ => {
+                            self.open_file_from_path(path);
+                        }
+                    }
+                } else if let Ok(bytes) = file.bytes() {
+                    self.load_file("dropped_board", &bytes);
+                }
+            }
+        }
+
         // Handle global hotkeys
         if ui.input(|i| (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::Comma)) {
             self.preferences_open = !self.preferences_open;
@@ -277,11 +349,39 @@ impl eframe::App for BoardViewApp {
                     self.open_file_dialog();
                 }
 
+                // Recent files dropdown
+                let mut file_to_open = None;
+                ui.menu_button(i18n::tr(lang, "toolbar.open_recent"), |ui| {
+                    if self.preferences.recent_files.is_empty() {
+                        ui.label(RichText::new(i18n::tr(lang, "toolbar.no_recent_files")).color(self.tokens.text_dim()));
+                    } else {
+                        for path in &self.preferences.recent_files {
+                            let label = path.file_name().and_then(|n| n.to_str()).unwrap_or("board");
+                            if ui.button(label).on_hover_text(path.display().to_string()).clicked() {
+                                file_to_open = Some(path.clone());
+                                ui.close();
+                            }
+                        }
+                    }
+                });
+
+                if let Some(path) = file_to_open {
+                    self.open_file_from_path(&path);
+                }
+
                 // Actions Menu dropdown
                 ui.menu_button(i18n::tr(lang, "toolbar.actions"), |ui| {
                     if ui.button(i18n::tr(lang, "toolbar.load_photo")).clicked() {
                         let cur_side = self.canvas_state.viewport.side;
                         self.open_photo_dialog(ui.ctx(), cur_side);
+                        ui.close();
+                    }
+                    if ui.button(if self.pdf_viewer.is_open { "Hide Schematic PDF" } else { "Open Schematic PDF..." }).clicked() {
+                        if !self.pdf_viewer.is_open && self.pdf_viewer.path.is_none() {
+                            self.open_pdf_dialog();
+                        } else {
+                            self.pdf_viewer.is_open = !self.pdf_viewer.is_open;
+                        }
                         ui.close();
                     }
                     ui.separator();
@@ -458,6 +558,176 @@ impl eframe::App for BoardViewApp {
 
         if let Some(side) = on_load_photo {
             self.open_photo_dialog(ui.ctx(), side);
+        }
+
+        // Automatic cross-probing: sync with PDF schematic ONLY when a component is explicitly selected
+        if self.pdf_viewer.is_open && self.selected_pin_idx.is_none() {
+            if let Some(part_idx) = self.selected_part_idx {
+                if let Some(board) = &self.board {
+                    if let Some(part) = board.parts.get(part_idx) {
+                        if self.pdf_viewer.active_search != part.name {
+                            self.pdf_viewer.cross_probe(&part.name);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Schematic PDF split panel (if open)
+        if self.pdf_viewer.is_open {
+            Panel::left("pdf_schematic_panel")
+                .resizable(true)
+                .default_size(ui.available_width() * 0.45)
+                .size_range(280.0..=ui.available_width() * 0.75)
+                .show(ui, |ui: &mut Ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading(RichText::new("Schematic PDF").strong().color(self.tokens.accent()));
+                        if let Some(fn_str) = &self.pdf_viewer.filename {
+                            ui.label(RichText::new(fn_str).small().color(self.tokens.text_dim()));
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("✖").on_hover_text("Close Schematic PDF").clicked() {
+                                self.pdf_viewer.is_open = false;
+                            }
+                        });
+                    });
+                    ui.separator();
+
+                    // Navigation bar
+                    ui.horizontal(|ui| {
+                        if ui.button("⏴").on_hover_text("Previous page").clicked() && self.pdf_viewer.current_page > 1 {
+                            self.pdf_viewer.current_page -= 1;
+                        }
+                        ui.label(format!("Page {} of {}", self.pdf_viewer.current_page, self.pdf_viewer.total_pages));
+                        if ui.button("⏵").on_hover_text("Next page").clicked() && self.pdf_viewer.current_page < self.pdf_viewer.total_pages {
+                            self.pdf_viewer.current_page += 1;
+                        }
+
+                        if !self.pdf_viewer.search_results.is_empty() {
+                            ui.separator();
+                            let count = self.pdf_viewer.search_results.len();
+                            let current = self.pdf_viewer.selected_result_idx + 1;
+                            ui.label(RichText::new(format!("{current}/{count} hits")).color(self.tokens.accent()));
+                            if ui.button("Prev").clicked() {
+                                self.pdf_viewer.prev_match();
+                            }
+                            if ui.button("Next").clicked() {
+                                self.pdf_viewer.next_match();
+                            }
+                        }
+                    });
+                    ui.separator();
+
+                    // PDF Page viewer canvas area with interactive pan and zoom
+                    let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
+                    ui.painter().rect_filled(rect, 4.0, Color32::from_rgb(255, 255, 255));
+
+                    if resp.dragged() {
+                        self.pdf_viewer.pan_offset += resp.drag_delta();
+                    }
+
+                    // Mouse wheel zoom when hovering over the PDF schematic canvas
+                    if resp.hovered() {
+                        let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
+                        if scroll_y != 0.0 {
+                            let zoom_factor = if scroll_y > 0.0 { 1.15 } else { 1.0 / 1.15 };
+                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom * zoom_factor).clamp(0.2, 20.0);
+                            ui.ctx().request_repaint();
+                        }
+
+                        // Keyboard navigation inside PDF panel when hovered or focused
+                        let (page_up, page_down, arrow_left, arrow_right, plus_key, minus_key) = ui.input(|i| {
+                            (
+                                i.key_pressed(egui::Key::PageUp),
+                                i.key_pressed(egui::Key::PageDown),
+                                i.key_pressed(egui::Key::ArrowLeft),
+                                i.key_pressed(egui::Key::ArrowRight),
+                                i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
+                                i.key_pressed(egui::Key::Minus),
+                            )
+                        });
+
+                        if (page_up || arrow_left) && self.pdf_viewer.current_page > 1 {
+                            self.pdf_viewer.current_page -= 1;
+                            ui.ctx().request_repaint();
+                        } else if (page_down || arrow_right) && self.pdf_viewer.current_page < self.pdf_viewer.total_pages {
+                            self.pdf_viewer.current_page += 1;
+                            ui.ctx().request_repaint();
+                        }
+
+                        if plus_key {
+                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom * 1.25).clamp(0.2, 20.0);
+                            ui.ctx().request_repaint();
+                        } else if minus_key {
+                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom / 1.25).clamp(0.2, 20.0);
+                            ui.ctx().request_repaint();
+                        }
+                    }
+
+                    // Render crisp rasterized PDF page texture from engine
+                    if let Some((texture, orig_dim)) = self.pdf_viewer.ensure_current_page_texture(ui.ctx()) {
+                        let scale_x = (rect.width() * 0.95) / orig_dim.x.max(1.0);
+                        let scale_y = (rect.height() * 0.95) / orig_dim.y.max(1.0);
+                        let auto_scale = scale_x.min(scale_y);
+                        let effective_scale = auto_scale * self.pdf_viewer.zoom;
+                        let render_size = orig_dim * effective_scale;
+
+                        let render_pos = rect.min
+                            + (rect.size() - render_size) * 0.5
+                            + self.pdf_viewer.pan_offset;
+
+                        let img_rect = Rect::from_min_size(render_pos, render_size);
+                        ui.painter().image(
+                            texture.id(),
+                            img_rect,
+                            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            Color32::WHITE,
+                        );
+
+                        // PDF coordinate mapping function (PDF points -> screen points on raster)
+                        let page_size_pts = self.pdf_viewer.index.page_sizes.get(&self.pdf_viewer.current_page).copied().unwrap_or(egui::vec2(1224.0, 792.0));
+                        let to_screen = |pdf_pt: Pos2| -> Pos2 {
+                            let scale_x = orig_dim.x / page_size_pts.x.max(1.0);
+                            let scale_y = orig_dim.y / page_size_pts.y.max(1.0);
+                            let rx = pdf_pt.x * scale_x * effective_scale;
+                            let ry = pdf_pt.y * scale_y * effective_scale;
+                            render_pos + Vec2::new(rx, ry)
+                        };
+
+                        // Cross-probing highlights
+                        for (i, hit) in self.pdf_viewer.search_results.iter().enumerate() {
+                            if hit.page_number == self.pdf_viewer.current_page {
+                                let top_left = to_screen(hit.bbox.min);
+                                let btm_right = to_screen(hit.bbox.max);
+                                let marker_rect = Rect::from_min_max(top_left, btm_right);
+
+                                let is_selected = i == self.pdf_viewer.selected_result_idx;
+                                let bg_color = if is_selected {
+                                    Color32::from_rgba_unmultiplied(255, 230, 0, 160)
+                                } else {
+                                    Color32::from_rgba_unmultiplied(100, 180, 255, 120)
+                                };
+
+                                ui.painter().rect_filled(marker_rect, 2.0, bg_color);
+                                ui.painter().rect_stroke(
+                                    marker_rect,
+                                    2.0,
+                                    egui::Stroke::new(2.0, Color32::from_rgb(220, 20, 40)),
+                                    egui::StrokeKind::Middle,
+                                );
+                            }
+                        }
+                    } else {
+                        let page_label = format!("Loading Schematic Page {}...", self.pdf_viewer.current_page);
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            page_label,
+                            egui::FontId::proportional(16.0),
+                            Color32::from_rgb(100, 100, 110),
+                        );
+                    }
+                });
         }
 
         // Central Canvas Panel
