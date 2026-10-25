@@ -86,6 +86,22 @@ impl SchematicIndex {
         }
         results
     }
+
+    /// Finds the token occurrence whose bounding box contains `point_pt` on the given `page`.
+    pub fn find_token_at(&self, page: usize, point_pt: Pos2) -> Option<SchematicOccurrence> {
+        let margin = 4.0; // Margin in PDF points for comfortable click hit-testing
+        for list in self.tokens.values() {
+            for occ in list {
+                if occ.page_number == page {
+                    let expanded_bbox = occ.bbox.expand(margin);
+                    if expanded_bbox.contains(point_pt) {
+                        return Some(occ.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 /// Cached texture entry with its rendered DPI level
