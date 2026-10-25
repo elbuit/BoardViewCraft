@@ -626,12 +626,24 @@ impl eframe::App for BoardViewApp {
                         self.pdf_viewer.pan_offset += resp.drag_delta();
                     }
 
-                    // Mouse wheel zoom when hovering over the PDF schematic canvas
+                    // Mouse wheel zoom centered under cursor with gentle sensitivity
                     if resp.hovered() {
                         let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
                         if scroll_y != 0.0 {
-                            let zoom_factor = if scroll_y > 0.0 { 1.15 } else { 1.0 / 1.15 };
-                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom * zoom_factor).clamp(0.2, 20.0);
+                            let old_zoom = self.pdf_viewer.zoom;
+                            // Gentle 1.07 factor per tick instead of aggressive 1.15
+                            let zoom_factor = if scroll_y > 0.0 { 1.07 } else { 1.0 / 1.07 };
+                            let new_zoom = (old_zoom * zoom_factor).clamp(0.2, 30.0);
+
+                            if let Some(hover_pos) = resp.hover_pos() {
+                                // Keep the document point under the mouse invariant:
+                                // hover_pos = rect.center() + pan_offset_new + (hover_pos - rect.center() - pan_offset_old) * (new_zoom / old_zoom)
+                                let cursor_rel = hover_pos - rect.center() - self.pdf_viewer.pan_offset;
+                                let scale_ratio = new_zoom / old_zoom;
+                                self.pdf_viewer.pan_offset = hover_pos - rect.center() - cursor_rel * scale_ratio;
+                            }
+
+                            self.pdf_viewer.zoom = new_zoom;
                             ui.ctx().request_repaint();
                         }
 
@@ -656,10 +668,10 @@ impl eframe::App for BoardViewApp {
                         }
 
                         if plus_key {
-                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom * 1.25).clamp(0.2, 20.0);
+                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom * 1.15).clamp(0.2, 30.0);
                             ui.ctx().request_repaint();
                         } else if minus_key {
-                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom / 1.25).clamp(0.2, 20.0);
+                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom / 1.15).clamp(0.2, 30.0);
                             ui.ctx().request_repaint();
                         }
                     }
@@ -685,7 +697,9 @@ impl eframe::App for BoardViewApp {
                         );
 
                         // PDF coordinate mapping function (PDF points -> screen points on raster)
-                        let page_size_pts = self.pdf_viewer.index.page_sizes.get(&self.pdf_viewer.current_page).copied().unwrap_or(egui::vec2(1224.0, 792.0));
+                        let page_size_pts = self.pdf_viewer.index.lock().ok().and_then(|idx| {
+                            idx.page_sizes.get(&self.pdf_viewer.current_page).copied()
+                        }).unwrap_or(egui::vec2(1224.0, 792.0));
                         let to_screen = |pdf_pt: Pos2| -> Pos2 {
                             let scale_x = orig_dim.x / page_size_pts.x.max(1.0);
                             let scale_y = orig_dim.y / page_size_pts.y.max(1.0);
