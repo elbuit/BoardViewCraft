@@ -416,6 +416,11 @@ impl PdfSchematicViewer {
         self.search_results = hits;
         self.selected_result_idx = 0;
 
+        // Adaptive zoom: enforce 200% (2.0x) minimum if unzoomed (<= 1.0), otherwise keep active zoom
+        if self.zoom <= 1.0 {
+            self.zoom = 2.0;
+        }
+
         if let Some(first) = self.search_results.first() {
             self.current_page = first.page_number;
             self.pending_center_on_match = true;
@@ -441,5 +446,46 @@ impl PdfSchematicViewer {
             self.current_page = self.search_results[self.selected_result_idx].page_number;
             self.pending_center_on_match = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cross_probe_adaptive_zoom_elevation() {
+        let mut viewer = PdfSchematicViewer::default();
+
+        // Populate index with a synthetic occurrence for C35
+        {
+            let mut idx = viewer.index.lock().unwrap();
+            idx.add_token("C35", 1, Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(150.0, 120.0)));
+        }
+
+        // 1. Initial zoom 1.0 (default) should escalate to 2.0 (200%)
+        viewer.zoom = 1.0;
+        let matched = viewer.cross_probe("C35");
+        assert!(matched);
+        assert_eq!(viewer.zoom, 2.0);
+        assert!(viewer.pending_center_on_match);
+
+        // 2. Initial zoom 0.75 (zoomed out) should escalate to 2.0
+        viewer.zoom = 0.75;
+        let matched = viewer.cross_probe("C35");
+        assert!(matched);
+        assert_eq!(viewer.zoom, 2.0);
+
+        // 3. Initial zoom 2.5 (already magnified) should be preserved
+        viewer.zoom = 2.5;
+        let matched = viewer.cross_probe("C35");
+        assert!(matched);
+        assert_eq!(viewer.zoom, 2.5);
+
+        // 4. Initial zoom 1.5 (magnified) should be preserved
+        viewer.zoom = 1.5;
+        let matched = viewer.cross_probe("C35");
+        assert!(matched);
+        assert_eq!(viewer.zoom, 1.5);
     }
 }
