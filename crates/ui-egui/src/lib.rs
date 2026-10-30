@@ -666,6 +666,18 @@ impl eframe::App for BoardViewApp {
                             self.pdf_viewer.current_page += 1;
                         }
 
+                        ui.separator();
+                        let zoom_pct = (self.pdf_viewer.zoom * 100.0).round() as i32;
+                        let zoom_label = format!("🔍 {zoom_pct}%");
+                        if ui.button(RichText::new(zoom_label).color(self.tokens.accent()).monospace())
+                            .on_hover_text("Click to reset zoom to 100%")
+                            .clicked()
+                        {
+                            self.pdf_viewer.zoom = 1.0;
+                            self.pdf_viewer.pan_offset = egui::Vec2::ZERO;
+                            ui.ctx().request_repaint();
+                        }
+
                         if !self.pdf_viewer.search_results.is_empty() {
                             ui.separator();
                             let count = self.pdf_viewer.search_results.len();
