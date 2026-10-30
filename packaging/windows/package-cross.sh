@@ -13,11 +13,11 @@ TARGET="x86_64-pc-windows-msvc"
 echo "==> Cross-compiling BoardViewCraft $VERSION for Windows x64 ($TARGET)..."
 
 if command -v cargo-xwin >/dev/null 2>&1; then
-    cargo xwin build --manifest-path "$ROOT/Cargo.toml" --package bvc-app --release --target "$TARGET" --ignore-rust-version
+    cargo xwin build --manifest-path "$ROOT/Cargo.toml" --package boardviewcraft --release --target "$TARGET" --ignore-rust-version
     EXE_SRC="$CARGO_TARGET_DIR/$TARGET/release/boardviewcraft.exe"
 elif command -v x86_64-w64-mingw32-gcc >/dev/null 2>&1; then
     TARGET="x86_64-pc-windows-gnu"
-    cargo build --manifest-path "$ROOT/Cargo.toml" --package bvc-app --release --target "$TARGET" --ignore-rust-version
+    cargo build --manifest-path "$ROOT/Cargo.toml" --package boardviewcraft --release --target "$TARGET" --ignore-rust-version
     EXE_SRC="$CARGO_TARGET_DIR/$TARGET/release/boardviewcraft.exe"
 else
     echo "error: Neither 'cargo-xwin' nor 'x86_64-w64-mingw32-gcc' was found." >&2

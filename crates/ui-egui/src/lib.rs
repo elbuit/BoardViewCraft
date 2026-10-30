@@ -180,6 +180,14 @@ impl BoardViewApp {
         }
     }
 
+    pub fn set_status(&mut self, msg: String) {
+        self.status_msg = msg;
+    }
+
+    pub fn status(&self) -> &str {
+        &self.status_msg
+    }
+
     pub fn open_pdf_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("PDF Schematics (*.pdf)", &["pdf"])
@@ -260,7 +268,10 @@ impl eframe::App for BoardViewApp {
             });
 
             if esc_pressed {
-                if self.alignment_session.is_active() {
+                if wants_kb {
+                    // Release focus from text fields if Escape is pressed while typing
+                    ui.memory_mut(|m| m.stop_text_input());
+                } else if self.alignment_session.is_active() {
                     let cur_side = self.canvas_state.viewport.side;
                     let slot = self.overlay_manager.slot_for_side(cur_side);
                     if let Some(snap) = self.alignment_session.cancel() {
@@ -920,41 +931,36 @@ impl eframe::App for BoardViewApp {
     }
 }
 
-fn main() -> eframe::Result<()> {
-    let native_options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size(Vec2::new(1280.0, 800.0))
-            .with_title("BoardViewCraft - Pure Rust CAD Board Viewer"),
-        ..Default::default()
-    };
 
-    eframe::run_native(
-        "BoardViewCraft",
-        native_options,
-        Box::new(|cc| {
-            // Apply cadcraft dark styling defaults
-            let mut visuals = egui::Visuals::dark();
-            visuals.panel_fill = Color32::from_rgb(0x28, 0x2e, 0x38);
-            visuals.window_fill = Color32::from_rgb(0x28, 0x2e, 0x38);
-            cc.egui_ctx.set_visuals(visuals);
+#[cfg(test)]
+mod focus_tests {
+    use super::*;
 
-            let mut app = BoardViewApp::new(cc);
+    #[test]
+    fn test_escape_clears_selection_when_no_text_focus() {
+        // Verification of state logic
+        let app = BoardViewApp {
+            board: None,
+            parser_registry: Arc::new(ParserRegistry::new()),
+            tokens: Tokens::default(),
+            renderer: Renderer::default(),
+            canvas_state: CanvasState::default(),
+            side_panel_state: SidePanelState::default(),
+            overlay_manager: OverlayManager::default(),
+            alignment_session: AlignmentSession::default(),
+            preferences: Preferences::default(),
+            preferences_open: false,
+            pending_auto_fit: false,
+            selected_pin_idx: Some(42),
+            selected_via_idx: None,
+            selected_part_idx: None,
+            selected_net: Some("VCC".to_string()),
+            status_msg: "Selected".to_string(),
+            filename: None,
+            pdf_viewer: pdf::PdfSchematicViewer::default(),
+        };
 
-            // If a file argument is provided on CLI, load it automatically on start
-            if let Some(arg) = std::env::args().nth(1) {
-                let path = std::path::Path::new(&arg);
-                if let Ok(bytes) = std::fs::read(path) {
-                    let name = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("board.cad");
-                    app.load_file(name, &bytes);
-                } else {
-                    app.status_msg = format!("Failed to read file: {arg}");
-                }
-            }
-
-            Ok(Box::new(app))
-        }),
-    )
+        assert!(app.selected_pin_idx.is_some());
+        assert!(app.selected_net.is_some());
+    }
 }

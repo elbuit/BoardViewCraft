@@ -33,7 +33,7 @@ BASENAME="boardviewcraft-$VERSION-linux-$ARCH"
 echo "==> BoardViewCraft $VERSION for Linux $ARCH ($FORMATS)"
 
 if [[ "$SKIP_BUILD" = 0 ]]; then
-  (cd "$ROOT" && cargo build --release --package bvc-app --ignore-rust-version)
+  (cd "$ROOT" && cargo build --release --package boardviewcraft --ignore-rust-version)
 fi
 
 BIN="$CARGO_TARGET_DIR/release"

@@ -39,7 +39,7 @@ echo "==> Building BoardViewCraft $VERSION for macOS ($ARCH)..."
 if [[ "$SKIP_BUILD" = 0 ]]; then
   for t in "${TARGETS[@]}"; do
     echo "==> Compiling for target $t..."
-    cargo build --manifest-path "$ROOT/Cargo.toml" --package bvc-app --release --target "$t" --ignore-rust-version
+    cargo build --manifest-path "$ROOT/Cargo.toml" --package boardviewcraft --release --target "$t" --ignore-rust-version
   done
 fi
 

@@ -1,3 +1,6 @@
+# Flatpak manifest for the single-file bundle attached to every GitHub release
+# (boardviewcraft-<version>-linux-<arch>.flatpak). Build it with packaging/linux/flatpak-bundle.sh.
+
 id: io.github.elbuit.BoardViewCraft
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
@@ -16,6 +19,23 @@ finish-args:
   - --filesystem=xdg-download
   - --filesystem=xdg-pictures
 modules:
+  - name: poppler-tools
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DENABLE_UNSTABLE_API_ABI_HEADERS=OFF
+      - -DBUILD_CPP_TESTS=OFF
+      - -DENABLE_GLIB=OFF
+      - -DENABLE_QT5=OFF
+      - -DENABLE_QT6=OFF
+      - -DENABLE_LIBOPENJPEG=none
+      - -DENABLE_CMS=none
+      - -DENABLE_BOOST=OFF
+      - -DENABLE_UTILS=ON
+    sources:
+      - type: archive
+        url: https://poppler.freedesktop.org/poppler-24.08.0.tar.xz
+        sha256: e4e2944b204646736274e1d09e51cce677ec21ab17019abf5589c3bc8880a424
+
   - name: boardviewcraft
     buildsystem: simple
     build-commands:

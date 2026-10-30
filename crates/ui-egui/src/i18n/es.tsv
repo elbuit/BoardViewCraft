@@ -1,0 +1,77 @@
+# BoardViewCraft Spanish catalog
+	app.title	BoardViewCraft - Visor de Placas en Rust
+	toolbar.open_board	Abrir Board...
+	toolbar.open_recent	Archivos Recientes
+	toolbar.no_recent_files	Sin archivos recientes
+	toolbar.actions	Acciones
+	toolbar.preferences	Preferencias...
+	toolbar.zoom	Zoom
+	toolbar.zoom_fit_window	Ajustar a ventana (F)
+	toolbar.zoom_preset_25	25%
+	toolbar.zoom_preset_50	50%
+	toolbar.zoom_preset_100	100%
+	toolbar.zoom_preset_150	150%
+	toolbar.zoom_preset_200	200%
+	toolbar.view_top	Capa: SUPERIOR
+	toolbar.view_bottom	Capa: INFERIOR
+	toolbar.rotate	Rotar
+	toolbar.pins	Pines
+	toolbar.vias	Vías
+	toolbar.load_photo	Cargar Foto Superpuesta...
+	status.ready	Listo. Abre un archivo de placa para inspeccionar.
+	actions.rotate_cw	Rotar 90° horario (R)
+	actions.rotate_ccw	Rotar 90° antihorario (Shift+R)
+	actions.rotate_180	Rotar 180°
+	actions.flip_bottom	Voltear a INFERIOR (Espacio)
+	actions.flip_top	Voltear a SUPERIOR (Espacio)
+	actions.mirror_x	Espejar X [Horizontal] (M)
+	actions.mirror_y	Espejar Y [Vertical] (Shift+M)
+	actions.reset	Restablecer orientación
+	side_panel.net_details	Detalles de Red
+	side_panel.part_details	Detalles de Componente
+	side_panel.search	Buscar
+	side_panel.pins_on_net	Pines en la Red:
+	side_panel.vias_on_net	Vías en la Red:
+	side_panel.search_parts	Buscar Componentes:
+	side_panel.search_nets	Buscar Redes:
+	side_panel.side	Capa
+	side_panel.pins	Pines
+	side_panel.overlay	Foto Superpuesta
+	overlay.title	Foto de Fondo
+	overlay.side_top	SUPERIOR
+	overlay.side_bottom	INFERIOR
+	overlay.side_both	AMBAS
+	overlay.no_photo_loaded	No hay foto cargada para esta cara.
+	overlay.load_photo	Cargar Foto...
+	overlay.file	Archivo
+	overlay.locked	Bloqueado
+	overlay.unlocked	Desbloqueado
+	overlay.visible	Visible
+	overlay.opacity	Opacidad:
+	overlay.position	Posición
+	overlay.size	Dimensiones
+	overlay.zoom	Zoom / Escala
+	overlay.aspect_locked	Bloquear Relación de Aspecto
+	overlay.mirror_title	Espejar
+	overlay.mirror_x	Espejar X
+	overlay.mirror_y	Espejar Y
+	overlay.fine_rotation	Rotación Fina
+	overlay.reset_rot	Restablecer
+	overlay.replace	Cambiar Foto
+	overlay.remove	Eliminar Foto
+	overlay.hint_drag	Consejo: Mantén Alt + Arrastre Izquierdo para mover. Alt + Rueda para escalar.
+	overlay.align_pins	Alinear con Pines...
+	overlay.align_active_title	Calibración por Pines
+	overlay.align_add_pair	Añadir Par de Pines
+	overlay.align_auto_lock	Bloquear superposición tras aplicar
+	overlay.align_apply	Aplicar Alineación
+	overlay.align_cancel	Cancelar
+	overlay.align_reset	Restablecer
+	overlay.align_repick	Volver a elegir
+	overlay.align_delete	Eliminar
+	overlay.align_col_num	#
+	overlay.align_col_pin	Pin CAD
+	overlay.align_col_cad_pos	Pos CAD (mils)
+	overlay.align_col_photo_pos	Pos Foto (mils)
+	overlay.align_col_residual	Residual
+	overlay.align_rmse	RMSE:

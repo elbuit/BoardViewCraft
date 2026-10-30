@@ -1,0 +1,77 @@
+# BoardViewCraft Catalan catalog
+	app.title	BoardViewCraft - Visor de Plaques en Rust
+	toolbar.open_board	Obrir Board...
+	toolbar.open_recent	Fitxers Recents
+	toolbar.no_recent_files	Sense fitxers recents
+	toolbar.actions	Accions
+	toolbar.preferences	Preferències...
+	toolbar.zoom	Zoom
+	toolbar.zoom_fit_window	Ajustar a finestra (F)
+	toolbar.zoom_preset_25	25%
+	toolbar.zoom_preset_50	50%
+	toolbar.zoom_preset_100	100%
+	toolbar.zoom_preset_150	150%
+	toolbar.zoom_preset_200	200%
+	toolbar.view_top	Capa: SUPERIOR
+	toolbar.view_bottom	Capa: INFERIOR
+	toolbar.rotate	Girar
+	toolbar.pins	Pins
+	toolbar.vias	Vies
+	toolbar.load_photo	Carregar Foto Superposada...
+	status.ready	A punt. Obre un fitxer de placa per a inspeccionar.
+	actions.rotate_cw	Girar 90° horari (R)
+	actions.rotate_ccw	Girar 90° antihorari (Shift+R)
+	actions.rotate_180	Girar 180°
+	actions.flip_bottom	Girar a INFERIOR (Espai)
+	actions.flip_top	Girar a SUPERIOR (Espai)
+	actions.mirror_x	Espillar X [Horitzontal] (M)
+	actions.mirror_y	Espillar Y [Vertical] (Shift+M)
+	actions.reset	Restablir orientació
+	side_panel.net_details	Detalls de Xarxa
+	side_panel.part_details	Detalls de Component
+	side_panel.search	Cercar
+	side_panel.pins_on_net	Pins a la Xarxa:
+	side_panel.vias_on_net	Vies a la Xarxa:
+	side_panel.search_parts	Cercar Components:
+	side_panel.search_nets	Cercar Xarxes:
+	side_panel.side	Capa
+	side_panel.pins	Pins
+	side_panel.overlay	Foto Superposada
+	overlay.title	Foto de Fons
+	overlay.side_top	SUPERIOR
+	overlay.side_bottom	INFERIOR
+	overlay.side_both	AMBDUES
+	overlay.no_photo_loaded	No hi ha cap foto carregada per a aquesta cara.
+	overlay.load_photo	Carregar Foto...
+	overlay.file	Fitxer
+	overlay.locked	Bloquejat
+	overlay.unlocked	Desbloquejat
+	overlay.visible	Visible
+	overlay.opacity	Opacitat:
+	overlay.position	Posició
+	overlay.size	Dimensions
+	overlay.zoom	Zoom / Escala
+	overlay.aspect_locked	Bloquejar Relació d'Aspecte
+	overlay.mirror_title	Espillar
+	overlay.mirror_x	Espillar X
+	overlay.mirror_y	Espillar Y
+	overlay.fine_rotation	Rotació Fina
+	overlay.reset_rot	Restablir
+	overlay.replace	Canviar Foto
+	overlay.remove	Eliminar Foto
+	overlay.hint_drag	Consell: Mantén Alt + Arrossegament Esquerre per moure. Alt + Roda per escalar.
+	overlay.align_pins	Alinear amb Pins...
+	overlay.align_active_title	Calibratge per Pins
+	overlay.align_add_pair	Afegir Parell de Pins
+	overlay.align_auto_lock	Bloquejar superposició després d'aplicar
+	overlay.align_apply	Aplicar Alineació
+	overlay.align_cancel	Cancel·lar
+	overlay.align_reset	Restablir
+	overlay.align_repick	Tornar a triar
+	overlay.align_delete	Eliminar
+	overlay.align_col_num	#
+	overlay.align_col_pin	Pin CAD
+	overlay.align_col_cad_pos	Pos CAD (mils)
+	overlay.align_col_photo_pos	Pos Foto (mils)
+	overlay.align_col_residual	Residual
+	overlay.align_rmse	RMSE:

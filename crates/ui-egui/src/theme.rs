@@ -347,6 +347,12 @@ pub struct Tokens {
     pub net_web: Color32,
 }
 
+impl Default for Tokens {
+    fn default() -> Self {
+        Self::new(AppTheme::Dark, PcbTheme::Cadcraft)
+    }
+}
+
 impl Tokens {
     #[allow(dead_code)]
     pub fn new(app_theme: AppTheme, pcb_theme: PcbTheme) -> Self {

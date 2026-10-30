@@ -1,0 +1,77 @@
+# BoardViewCraft English catalog
+	app.title	BoardViewCraft - Pure Rust Board Viewer
+	toolbar.open_board	Open Board...
+	toolbar.open_recent	Open Recent
+	toolbar.no_recent_files	No recent files
+	toolbar.actions	Actions
+	toolbar.preferences	Preferences...
+	toolbar.zoom	Zoom
+	toolbar.zoom_fit_window	Fit to Window (F)
+	toolbar.zoom_preset_25	25%
+	toolbar.zoom_preset_50	50%
+	toolbar.zoom_preset_100	100%
+	toolbar.zoom_preset_150	150%
+	toolbar.zoom_preset_200	200%
+	toolbar.view_top	View: TOP
+	toolbar.view_bottom	View: BOTTOM
+	toolbar.rotate	Rotate
+	toolbar.pins	Pins
+	toolbar.vias	Vias
+	toolbar.load_photo	Load Overlay Photo...
+	status.ready	Ready. Open a board file to inspect.
+	actions.rotate_cw	Rotate 90° CW (R)
+	actions.rotate_ccw	Rotate 90° CCW (Shift+R)
+	actions.rotate_180	Rotate 180°
+	actions.flip_bottom	Flip to BOTTOM (Space)
+	actions.flip_top	Flip to TOP (Space)
+	actions.mirror_x	Mirror X [Horizontal] (M)
+	actions.mirror_y	Mirror Y [Vertical] (Shift+M)
+	actions.reset	Reset Orientation
+	side_panel.net_details	Net Details
+	side_panel.part_details	Part Details
+	side_panel.search	Search
+	side_panel.pins_on_net	Pins on Net:
+	side_panel.vias_on_net	Vias on Net:
+	side_panel.search_parts	Search Parts:
+	side_panel.search_nets	Search Nets:
+	side_panel.side	Side
+	side_panel.pins	Pins
+	side_panel.overlay	Overlay Photo
+	overlay.title	Overlay Photo
+	overlay.side_top	TOP
+	overlay.side_bottom	BOTTOM
+	overlay.side_both	BOTH
+	overlay.no_photo_loaded	No photo loaded for this side.
+	overlay.load_photo	Load Photo...
+	overlay.file	File
+	overlay.locked	Locked
+	overlay.unlocked	Unlocked
+	overlay.visible	Visible
+	overlay.opacity	Opacity:
+	overlay.position	Position
+	overlay.size	Dimensions
+	overlay.zoom	Zoom / Scale
+	overlay.aspect_locked	Lock Aspect Ratio
+	overlay.mirror_title	Mirror
+	overlay.mirror_x	Mirror X
+	overlay.mirror_y	Mirror Y
+	overlay.fine_rotation	Fine Rotation
+	overlay.reset_rot	Reset
+	overlay.replace	Replace Photo
+	overlay.remove	Remove Photo
+	overlay.hint_drag	Tip: Hold Alt + Left Drag on canvas to move. Hold Alt + Scroll to scale.
+	overlay.align_pins	Align with Pins...
+	overlay.align_active_title	Pin Calibration
+	overlay.align_add_pair	Add Pin Pair
+	overlay.align_auto_lock	Auto-lock overlay after applying
+	overlay.align_apply	Apply Alignment
+	overlay.align_cancel	Cancel
+	overlay.align_reset	Reset
+	overlay.align_repick	Re-pick
+	overlay.align_delete	Delete
+	overlay.align_col_num	#
+	overlay.align_col_pin	CAD Pin
+	overlay.align_col_cad_pos	CAD Pos (mils)
+	overlay.align_col_photo_pos	Photo Pos (mils)
+	overlay.align_col_residual	Residual
+	overlay.align_rmse	RMSE:
