@@ -218,7 +218,7 @@ dependencies = [
 
 [[package]]
 name = "boardviewcraft"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bvc-core",
  "bvc-ui-egui",
@@ -256,7 +256,7 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
 name = "bvc-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "flate2",
  "serde",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "bvc-ui-egui"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bvc-core",
  "eframe",
