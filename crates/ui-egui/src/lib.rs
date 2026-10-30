@@ -683,7 +683,24 @@ impl eframe::App for BoardViewApp {
                             let count = self.pdf_viewer.search_results.len();
                             let current = self.pdf_viewer.selected_result_idx + 1;
                             let hits_label = format!("{current}/{count} {}", i18n::tr(lang, "pdf.hits"));
-                            ui.label(RichText::new(hits_label).color(self.tokens.accent()));
+
+                            let mut match_to_select = None;
+                            egui::ComboBox::from_id_salt("pdf_match_list")
+                                .selected_text(RichText::new(hits_label).color(self.tokens.accent()))
+                                .show_ui(ui, |ui| {
+                                    for (i, hit) in self.pdf_viewer.search_results.iter().enumerate() {
+                                        let item_label = format!("#{}: {} (p. {})", i + 1, hit.text, hit.page_number);
+                                        let is_selected = i == self.pdf_viewer.selected_result_idx;
+                                        if ui.selectable_label(is_selected, item_label).clicked() {
+                                            match_to_select = Some(i);
+                                        }
+                                    }
+                                });
+
+                            if let Some(idx) = match_to_select {
+                                self.pdf_viewer.select_match(idx);
+                            }
+
                             if ui.button(i18n::tr(lang, "pdf.hit_prev")).clicked() {
                                 self.pdf_viewer.prev_match();
                             }
