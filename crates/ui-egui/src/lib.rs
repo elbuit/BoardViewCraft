@@ -19,7 +19,7 @@ use render::Renderer;
 use side_panel::{SidePanelState, show_side_panel};
 use theme::{AppTheme, Tokens};
 
-use egui::{CentralPanel, Color32, Panel, Pos2, Rect, RichText, Ui, Vec2};
+use egui::{CentralPanel, Color32, Panel, Pos2, Rect, RichText, Ui};
 use std::sync::Arc;
 
 
