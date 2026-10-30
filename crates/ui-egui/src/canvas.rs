@@ -884,7 +884,7 @@ pub fn show_canvas(
                 let lang = prefs.language;
 
                 let mut close_menu = false;
-                let menu_id = egui::Id::new("pin_context_menu_area");
+                let menu_id = egui::Id::unique("pin_context_menu_area");
 
                 egui::Area::new(menu_id)
                     .fixed_pos(menu_pos)

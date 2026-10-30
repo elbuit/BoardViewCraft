@@ -9,13 +9,13 @@ members = [
 version = "0.1.4"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-rust-version = "1.90"
+rust-version = "1.95"
 
 [workspace.dependencies]
 bvc-core = { path = "crates/bvc-core" }
 bvc-ui-egui = { path = "crates/ui-egui" }
-egui = { version = "0.36", features = ["serde"] }
-eframe = { version = "0.36", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
+egui = { version = "0.37", features = ["serde"] }
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "wgpu", "wayland", "x11"] }
 lyon_tessellation = "1.0.22"
 thiserror = "2"
 rayon = "1"
