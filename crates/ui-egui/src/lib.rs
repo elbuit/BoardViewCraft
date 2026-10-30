@@ -934,12 +934,21 @@ impl eframe::App for BoardViewApp {
                         ui.add_space(12.0);
 
                         ui.horizontal(|ui| {
-                            let open_btn = egui::Button::new(RichText::new(i18n::tr(lang, "pdf.prompt_open")).strong());
+                            let avail = ui.available_width();
+                            let cancel_text = RichText::new(i18n::tr(lang, "pdf.prompt_cancel"));
+                            let open_text = RichText::new(i18n::tr(lang, "pdf.prompt_open")).strong();
+                            // Button size approximation
+                            let total_btn_w = 260.0;
+                            let pad = ((avail - total_btn_w) * 0.5).max(0.0);
+                            ui.add_space(pad);
+
+                            if ui.button(cancel_text).clicked() {
+                                close_dialog = true;
+                            }
+                            ui.add_space(16.0);
+                            let open_btn = egui::Button::new(open_text);
                             if ui.add(open_btn).clicked() {
                                 accept_dialog = true;
-                            }
-                            if ui.button(i18n::tr(lang, "pdf.prompt_cancel")).clicked() {
-                                close_dialog = true;
                             }
                         });
                         ui.add_space(4.0);

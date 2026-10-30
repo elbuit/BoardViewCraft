@@ -418,7 +418,7 @@ impl PdfSchematicViewer {
 
         // Adaptive zoom: enforce 200% (2.0x) minimum if unzoomed (<= 1.0), otherwise keep active zoom
         if self.zoom <= 1.0 {
-            self.zoom = 2.0;
+            self.zoom = 3.0;
         }
 
         if let Some(first) = self.search_results.first() {
@@ -467,20 +467,20 @@ mod tests {
         viewer.zoom = 1.0;
         let matched = viewer.cross_probe("C35");
         assert!(matched);
-        assert_eq!(viewer.zoom, 2.0);
+        assert_eq!(viewer.zoom, 3.0);
         assert!(viewer.pending_center_on_match);
 
         // 2. Initial zoom 0.75 (zoomed out) should escalate to 2.0
         viewer.zoom = 0.75;
         let matched = viewer.cross_probe("C35");
         assert!(matched);
-        assert_eq!(viewer.zoom, 2.0);
+        assert_eq!(viewer.zoom, 3.0);
 
         // 3. Initial zoom 2.5 (already magnified) should be preserved
-        viewer.zoom = 2.5;
+        viewer.zoom = 3.5;
         let matched = viewer.cross_probe("C35");
         assert!(matched);
-        assert_eq!(viewer.zoom, 2.5);
+        assert_eq!(viewer.zoom, 3.5);
 
         // 4. Initial zoom 1.5 (magnified) should be preserved
         viewer.zoom = 1.5;
