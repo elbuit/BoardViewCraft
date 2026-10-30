@@ -127,3 +127,7 @@
 	pdf.hit_prev	Prev
 	pdf.hit_next	Next
 	pdf.loading_page	Loading Schematic Page {}...
+	pdf.prompt_found_title	Matching Schematic Found
+	pdf.prompt_found_msg	A matching schematic PDF was found in the same folder. Would you like to open it?
+	pdf.prompt_open	Open Schematic (Enter)
+	pdf.prompt_cancel	Cancel (Esc)

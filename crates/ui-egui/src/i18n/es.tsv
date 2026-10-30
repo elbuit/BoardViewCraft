@@ -127,3 +127,7 @@
 	pdf.hit_prev	Anterior
 	pdf.hit_next	Siguiente
 	pdf.loading_page	Cargando página de esquemático {}...
+	pdf.prompt_found_title	Esquemático Coincidente Encontrado
+	pdf.prompt_found_msg	Se ha encontrado un esquemático PDF coincidente en la misma carpeta. ¿Deseas abrirlo?
+	pdf.prompt_open	Abrir Esquemático (Enter)
+	pdf.prompt_cancel	Cancelar (Esc)
