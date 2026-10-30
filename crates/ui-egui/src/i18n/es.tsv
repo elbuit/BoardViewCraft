@@ -75,3 +75,55 @@
 	overlay.align_col_photo_pos	Pos Foto (mils)
 	overlay.align_col_residual	Residual
 	overlay.align_rmse	RMSE:
+	overlay.align_banner_cad	Paso {}: Haz clic en el pin de referencia en el diseño CAD
+	overlay.align_banner_photo	Paso {}: Haz clic en el pad correspondiente en la foto
+	overlay.align_banner_ready	Calibrado con {} puntos. Pulsa Aplicar o Añade Más (Enter aplicar, Esc cancelar).
+	overlay.align_status_min_points	Selecciona al menos 2 pares de pines para calcular la alineación.
+	prefs.title	Preferencias
+	prefs.language	Idioma:
+	prefs.appearance	Apariencia y Temas
+	prefs.app_theme	Tema de la Aplicación:
+	prefs.pcb_theme	Tema del PCB:
+	prefs.custom_colors	Personalizar Colores del PCB:
+	prefs.custom_theme_name	Nombre del tema personalizado:
+	prefs.color_canvas	Fondo del lienzo:
+	prefs.color_board_outline	Contorno de la placa:
+	prefs.color_board_fill	Relleno de la placa:
+	prefs.color_part_body	Cuerpo del componente:
+	prefs.color_part_text	Etiquetas de componentes:
+	prefs.color_pin_default	Pin estándar:
+	prefs.color_pin_unconnected	Pin no conectado:
+	prefs.color_pin_cur_side	Resaltado pin (Cara actual):
+	prefs.color_pin_opp_side	Resaltado pin (Cara opuesta):
+	prefs.color_via_cur_side	Vía estándar:
+	prefs.color_via_highlight	Resaltado vía:
+	prefs.color_net_web	Líneas de red (telaraña):
+	prefs.visualization	Visualización
+	prefs.show_net_web	Mostrar Líneas de Red (Telaraña)
+	prefs.via_display_mode	Modo de líneas de red:
+	prefs.via_mode_radial	Radial (Líneas desde el punto seleccionado)
+	prefs.via_mode_web	Telaraña (Camino uniendo todos los puntos)
+	prefs.show_part_labels	Mostrar Nombres de Componente
+	prefs.show_pin_annotations	Mostrar Números y Anotaciones de Pines
+	prefs.adaptive_lod	Optimización LOD Adaptativa
+	prefs.show_opposite	Mostrar Elementos de la Cara Opuesta (Rayos X)
+	prefs.show_pins	Mostrar Pines y Pads de Componentes
+	prefs.show_vias	Mostrar Vías y Clavos de Prueba
+	prefs.show_unnamed_vias	Mostrar Vías y Pads sin nombre
+	prefs.close	Cerrar
+	context_menu.pin_title	Información del Pin
+	context_menu.net	Red:
+	context_menu.side	Capa:
+	context_menu.copy_net	Copiar nombre de red
+	context_menu.copy_pin_info	Copiar detalles del pin
+	pdf.title	Esquemático PDF
+	pdf.open	Abrir Esquemático PDF...
+	pdf.hide	Ocultar Esquemático PDF
+	pdf.close	Cerrar Esquemático PDF
+	pdf.page_prev	Página anterior
+	pdf.page_next	Página siguiente
+	pdf.page_counter	Página {} de {}
+	pdf.hits	coincidencias
+	pdf.hit_prev	Anterior
+	pdf.hit_next	Siguiente
+	pdf.loading_page	Cargando página de esquemático {}...

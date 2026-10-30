@@ -75,3 +75,55 @@
 	overlay.align_col_photo_pos	Photo Pos (mils)
 	overlay.align_col_residual	Residual
 	overlay.align_rmse	RMSE:
+	overlay.align_banner_cad	Step {}: Click reference pin on CAD layout
+	overlay.align_banner_photo	Step {}: Click corresponding pad on photo overlay
+	overlay.align_banner_ready	Calibrated with {} points. Press Apply or Add More (Enter to apply, Esc to cancel).
+	overlay.align_status_min_points	Pick at least 2 pin pairs to calculate alignment.
+	prefs.title	Preferences
+	prefs.language	Language:
+	prefs.appearance	Appearance & Themes
+	prefs.app_theme	Application Theme:
+	prefs.pcb_theme	PCB Theme:
+	prefs.custom_colors	Customize PCB Colors:
+	prefs.custom_theme_name	Custom Theme Name:
+	prefs.color_canvas	Canvas Background:
+	prefs.color_board_outline	Board Outline:
+	prefs.color_board_fill	Board Fill:
+	prefs.color_part_body	Component Body:
+	prefs.color_part_text	Component Labels:
+	prefs.color_pin_default	Pin Default:
+	prefs.color_pin_unconnected	Pin Unconnected:
+	prefs.color_pin_cur_side	Pin Highlight (Current Side):
+	prefs.color_pin_opp_side	Pin Highlight (Opposite Side):
+	prefs.color_via_cur_side	Via Default:
+	prefs.color_via_highlight	Via Highlight:
+	prefs.color_net_web	Net Flight Lines:
+	prefs.visualization	Visualization
+	prefs.show_net_web	Show Net Web (Ratline connection lines)
+	prefs.via_display_mode	Net Line Mode:
+	prefs.via_mode_radial	Radial (Lines from selected point)
+	prefs.via_mode_web	Web (Spiderweb connecting all points)
+	prefs.show_part_labels	Show Part Designators
+	prefs.show_pin_annotations	Show Pin Annotations & Numbers
+	prefs.adaptive_lod	Adaptive LOD Decimation
+	prefs.show_opposite	Show Opposite Side Elements (X-Ray)
+	prefs.show_pins	Show Component Pins & Pads
+	prefs.show_vias	Show Vias & Nails
+	prefs.show_unnamed_vias	Show Unnamed Vias & Pads
+	prefs.close	Close
+	context_menu.pin_title	Pin Information
+	context_menu.net	Net:
+	context_menu.side	Side:
+	context_menu.copy_net	Copy Net Name
+	context_menu.copy_pin_info	Copy Pin Details
+	pdf.title	Schematic PDF
+	pdf.open	Open Schematic PDF...
+	pdf.hide	Hide Schematic PDF
+	pdf.close	Close Schematic PDF
+	pdf.page_prev	Previous page
+	pdf.page_next	Next page
+	pdf.page_counter	Page {} of {}
+	pdf.hits	hits
+	pdf.hit_prev	Prev
+	pdf.hit_next	Next
+	pdf.loading_page	Loading Schematic Page {}...
