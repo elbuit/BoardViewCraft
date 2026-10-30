@@ -54,7 +54,7 @@ Write-Output "BoardViewCraft $Version for Windows $Arch ($Target)"
 
 if (-not $SkipBuild) {
   Invoke-Native "Compiling BoardViewCraft release binary" {
-    cargo build --manifest-path (Join-Path $Root 'Cargo.toml') --package bvc-app --release --target $Target --ignore-rust-version
+    cargo build --manifest-path (Join-Path $Root 'Cargo.toml') --package boardviewcraft --release --target $Target --ignore-rust-version
   }
 }
 

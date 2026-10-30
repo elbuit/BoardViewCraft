@@ -172,13 +172,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "boardviewcraft"
+version = "0.1.4"
+dependencies = [
+ "bvc-core",
+ "bvc-ui-egui",
+ "eframe",
+ "egui",
+ "serde_json",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.20.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 
 [[package]]
-name = "bvc-app"
+name = "bvc-core"
+version = "0.1.4"
+dependencies = [
+ "flate2",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "bvc-ui-egui"
 version = "0.1.4"
 dependencies = [
  "bvc-core",
@@ -191,15 +211,6 @@ dependencies = [
  "rfd",
  "serde",
  "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "bvc-core"
-version = "0.1.4"
-dependencies = [
- "flate2",
- "serde",
  "thiserror 2.0.21",
 ]
 
