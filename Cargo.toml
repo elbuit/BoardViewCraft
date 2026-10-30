@@ -25,3 +25,15 @@ serde_json = "1"
 rfd = "0.17"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
+pdfcraft-render = { path = "../pdfcraft/crates/render", version = "0.15.0" }
+
+[patch.crates-io]
+hayro-interpret = { path = "../pdfcraft/vendor/hayro-interpret" }
+hayro = { path = "../pdfcraft/vendor/hayro" }
+hayro-syntax = { path = "../pdfcraft/vendor/hayro-syntax" }
+hayro-cmap = { path = "../pdfcraft/vendor/hayro-cmap" }
+hayro-postscript = { path = "../pdfcraft/vendor/hayro-postscript" }
+hayro-jbig2 = { path = "../pdfcraft/vendor/hayro-jbig2" }
+lopdf = { path = "../pdfcraft/vendor/lopdf" }
+vello_common = { path = "../pdfcraft/vendor/vello_common" }
+vello_cpu = { path = "../pdfcraft/vendor/vello_cpu" }

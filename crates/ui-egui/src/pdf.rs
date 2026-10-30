@@ -1,14 +1,15 @@
-//! High-fidelity PDF schematic renderer and cross-probing indexer.
+//! High-fidelity PDF schematic renderer and cross-probing indexer using native pdfcraft-render.
 //!
 //! Features:
-//! - High-fidelity vector rasterization of schematic pages into pixel-crisp textures.
+//! - High-fidelity in-process vector rasterization of schematic pages into pixel-crisp textures.
 //! - Bounding-box text token extraction for instant, exact cross-probing of component designators and nets.
 //! - Multi-page navigation, pan & zoom, and highlight overlays.
+//! - Pure Rust in-process implementation (zero dependency on poppler-tools / CLI binaries).
 
 use egui::{ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
+use pdfcraft_render::{PageRenderer, RenderConfig, RenderRequest, RequestKind, text::TextFilter};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -48,21 +49,21 @@ impl SchematicIndex {
     pub fn normalize_key(raw: &str) -> String {
         raw.trim()
             .to_ascii_uppercase()
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '/' || *c == '#' || *c == '-')
-            .collect()
+            .replace(['.', ',', ';', ':', '-', '_'], "")
     }
 
     pub fn add_token(&mut self, text: &str, page_number: usize, bbox: Rect) {
         let key = Self::normalize_key(text);
-        if key.len() < 2 {
+        if key.is_empty() {
             return;
         }
+
         let occ = SchematicOccurrence {
             page_number,
             bbox,
             text: text.to_string(),
         };
+
         self.tokens.entry(key).or_default().push(occ);
     }
 
@@ -72,16 +73,14 @@ impl SchematicIndex {
             return Vec::new();
         }
 
-        // 1. Exact match
-        if let Some(matches) = self.tokens.get(&key) {
-            return matches.clone();
+        if let Some(exact) = self.tokens.get(&key) {
+            return exact.clone();
         }
 
-        // 2. Substring match fallback
         let mut results = Vec::new();
-        for (k, list) in &self.tokens {
-            if k == &key || (key.len() >= 3 && k.contains(&key)) {
-                results.extend(list.iter().cloned());
+        for (token_key, occs) in &self.tokens {
+            if token_key.contains(&key) {
+                results.extend(occs.clone());
             }
         }
         results
@@ -130,8 +129,11 @@ pub struct PdfSchematicViewer {
     // High-fidelity page textures cached by page number
     page_textures: HashMap<usize, CachedPageTexture>,
 
+    // PDF raw bytes shared with workers
+    doc_bytes: Option<Arc<Vec<u8>>>,
+
     // Background raster worker communication
-    raster_tx: Sender<(PathBuf, usize, u32)>,
+    raster_tx: Sender<(Arc<Vec<u8>>, usize, u32)>,
     raster_rx: Receiver<PageRasterResult>,
     requested_pages: HashSet<(usize, u32)>,
 }
@@ -139,17 +141,25 @@ pub struct PdfSchematicViewer {
 impl Default for PdfSchematicViewer {
     fn default() -> Self {
         let (res_tx, res_rx) = channel();
-        let (req_tx, req_rx) = channel::<(PathBuf, usize, u32)>();
+        let (req_tx, req_rx) = channel::<(Arc<Vec<u8>>, usize, u32)>();
 
-        // Spawn dedicated background rasterization worker
+        // Spawn dedicated background rasterization worker using native pdfcraft-render
         thread::Builder::new()
             .name("bvc-pdf-rasterizer".into())
             .spawn(move || {
-                while let Ok((path, page, dpi)) = req_rx.recv() {
-                    if let Ok(dyn_img) = Self::rasterize_page_sync(&path, page, dpi) {
-                        let rgba = dyn_img.to_rgba8();
-                        let (w, h) = (rgba.width() as usize, rgba.height() as usize);
-                        let color_image = ColorImage::from_rgba_unmultiplied([w, h], rgba.as_raw());
+                while let Ok((bytes, page, dpi)) = req_rx.recv() {
+                    let mut renderer = PageRenderer::new(bytes, RenderConfig::default());
+                    let scale = dpi as f32 / 72.0;
+                    let req = RenderRequest {
+                        page: page.saturating_sub(1),
+                        scale,
+                        kind: RequestKind::Pixels,
+                        ..Default::default()
+                    };
+                    let rendered = renderer.render(req);
+                    if rendered.error.is_none() && rendered.width > 0 && rendered.height > 0 && !rendered.rgba.is_empty() {
+                        let (w, h) = (rendered.width as usize, rendered.height as usize);
+                        let color_image = ColorImage::from_rgba_unmultiplied([w, h], &rendered.rgba);
                         let _ = res_tx.send(PageRasterResult {
                             page,
                             dpi,
@@ -176,6 +186,7 @@ impl Default for PdfSchematicViewer {
             is_open: false,
             pending_center_on_match: false,
             page_textures: HashMap::new(),
+            doc_bytes: None,
             raster_tx: req_tx,
             raster_rx: res_rx,
             requested_pages: HashSet::new(),
@@ -185,18 +196,23 @@ impl Default for PdfSchematicViewer {
 
 impl PdfSchematicViewer {
     pub fn open_file(&mut self, path: &Path) -> Result<(), String> {
+        let bytes = std::fs::read(path).map_err(|e| format!("Failed to read PDF file: {e}"))?;
+        let bytes_arc = Arc::new(bytes);
+
+        // 1. Inspect PDF metadata using pdfcraft-render
+        let info = pdfcraft_render::inspect(Arc::clone(&bytes_arc), None)
+            .map_err(|e| format!("Failed to inspect PDF: {e}"))?;
+        let total_pages = info.pages.len().max(1);
+
         let path_buf = path.to_path_buf();
-        self.path = Some(path_buf.clone());
+        self.path = Some(path_buf);
         self.filename = Some(
             path.file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("schematic.pdf")
                 .to_string(),
         );
-
-        // 1. Read document info and total pages (nearly instantaneous)
-        let total_pages = Self::query_page_count(path)?;
-        self.total_pages = total_pages.max(1);
+        self.total_pages = total_pages;
         self.current_page = 1;
         self.page_textures.clear();
         self.requested_pages.clear();
@@ -204,23 +220,31 @@ impl PdfSchematicViewer {
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
         self.is_open = true;
+        self.doc_bytes = Some(Arc::clone(&bytes_arc));
 
-        // 2. Launch background indexing so opening the document is immediate
+        // Seed page dimensions immediately from inspect results
+        {
+            if let Ok(mut idx) = self.index.lock() {
+                idx.page_count = total_pages;
+                idx.page_sizes.clear();
+                for (i, p) in info.pages.iter().enumerate() {
+                    idx.page_sizes.insert(i + 1, Vec2::new(p.width, p.height));
+                }
+            }
+        }
+
+        // 2. Launch background indexing with PageText
         let index_arc = Arc::clone(&self.index);
         let indexing_flag = Arc::clone(&self.is_indexing);
         if let Ok(mut flag) = indexing_flag.lock() {
             *flag = true;
         }
 
-        let total_pages_val = self.total_pages;
-        let bg_path = path_buf.clone();
+        let bg_bytes = Arc::clone(&bytes_arc);
         thread::Builder::new()
             .name("bvc-pdf-indexer".into())
             .spawn(move || {
-                let idx = Self::build_index(&bg_path, total_pages_val);
-                if let Ok(mut locked_idx) = index_arc.lock() {
-                    *locked_idx = idx;
-                }
+                Self::build_index_in_background(&bg_bytes, total_pages, &index_arc);
                 if let Ok(mut flag) = indexing_flag.lock() {
                     *flag = false;
                 }
@@ -236,119 +260,73 @@ impl PdfSchematicViewer {
         Ok(())
     }
 
-    fn query_page_count(path: &Path) -> Result<usize, String> {
-        if let Ok(out) = Command::new("pdfinfo").arg(path).output() {
-            let text = String::from_utf8_lossy(&out.stdout);
-            for line in text.lines() {
-                if line.starts_with("Pages:") {
-                    if let Some(num_str) = line.split_whitespace().nth(1) {
-                        if let Ok(n) = num_str.parse::<usize>() {
-                            return Ok(n);
-                        }
-                    }
-                }
-            }
-        }
-        // Fallback: check file bytes
-        if let Ok(bytes) = std::fs::read(path) {
-            let str_data = String::from_utf8_lossy(&bytes);
-            let count = str_data.matches("/Type /Page").count();
-            if count > 0 {
-                return Ok(count);
-            }
-        }
-        Ok(1)
-    }
+    /// Extract text tokens and bounding boxes using pdfcraft-render in the background.
+    fn build_index_in_background(
+        bytes: &Arc<Vec<u8>>,
+        pages: usize,
+        index_arc: &Arc<Mutex<SchematicIndex>>,
+    ) {
+        let mut renderer = PageRenderer::new(Arc::clone(bytes), RenderConfig::default());
 
-    /// Extract XML word bounding boxes using pdftotext for instant, pixel-accurate cross-probing.
-    fn build_index(path: &Path, pages: usize) -> SchematicIndex {
-        let mut index = SchematicIndex::new();
-        index.page_count = pages;
-
-        let output = Command::new("pdftotext")
-            .arg("-bbox")
-            .arg(path)
-            .arg("-")
-            .output();
-
-        if let Ok(out) = output {
-            let text = String::from_utf8_lossy(&out.stdout);
-            let mut current_page = 0;
-            let mut page_width = 1224.0f32;
-            let mut page_height = 792.0f32;
-
-            for line in text.lines() {
-                if let Some(p_idx) = line.find("<page ") {
-                    let page_str = &line[p_idx..];
-                    current_page += 1;
-                    if let Some(w_s) = page_str.split("width=\"").nth(1).and_then(|s| s.split('\"').next()) {
-                        if let Ok(w) = w_s.parse::<f32>() {
-                            page_width = w;
-                        }
-                    }
-                    if let Some(h_s) = page_str.split("height=\"").nth(1).and_then(|s| s.split('\"').next()) {
-                        if let Ok(h) = h_s.parse::<f32>() {
-                            page_height = h;
-                        }
-                    }
-                    index.page_sizes.insert(current_page, egui::vec2(page_width, page_height));
+        for page_idx in 0..pages {
+            let page_num = page_idx + 1;
+            if let Ok(page_text) = renderer.filtered_text(page_idx, TextFilter::default()) {
+                if page_text.glyphs.is_empty() {
+                    continue;
                 }
 
-                if line.contains("<word ") && current_page >= 1 {
-                    if let (Some(x1_s), Some(y1_s), Some(x2_s), Some(y2_s), Some(token)) = (
-                        line.split("xMin=\"").nth(1).and_then(|s| s.split('\"').next()),
-                        line.split("yMin=\"").nth(1).and_then(|s| s.split('\"').next()),
-                        line.split("xMax=\"").nth(1).and_then(|s| s.split('\"').next()),
-                        line.split("yMax=\"").nth(1).and_then(|s| s.split('\"').next()),
-                        line.split('>').nth(1).and_then(|s| s.split('<').next()),
-                    ) {
-                        let trimmed = token.trim();
+                // Group consecutive glyphs into words using word_at boundaries
+                let mut visited_glyphs = HashSet::new();
+                let num_glyphs = page_text.glyphs.len();
+
+                let mut page_tokens = Vec::new();
+
+                for g_idx in 0..num_glyphs {
+                    if visited_glyphs.contains(&g_idx) {
+                        continue;
+                    }
+                    if let Some((first, last)) = page_text.word_at(g_idx) {
+                        for k in first..=last {
+                            visited_glyphs.insert(k);
+                        }
+                        let word_text = page_text.text_of(first..last + 1);
+                        let trimmed = word_text.trim();
                         if !trimmed.is_empty() {
-                            if let (Ok(x1), Ok(y1), Ok(x2), Ok(y2)) = (
-                                x1_s.parse::<f32>(),
-                                y1_s.parse::<f32>(),
-                                x2_s.parse::<f32>(),
-                                y2_s.parse::<f32>(),
-                            ) {
-                                let bbox = Rect::from_min_max(Pos2::new(x1, y1), Pos2::new(x2, y2));
-                                index.add_token(trimmed, current_page, bbox);
+                            let rects = page_text.glyph_rects(&(first..=last).collect::<Vec<_>>());
+                            if let Some(first_rect) = rects.first() {
+                                let mut min_x = first_rect[0];
+                                let mut min_y = first_rect[1];
+                                let mut max_x = first_rect[2];
+                                let mut max_y = first_rect[3];
+                                for r in &rects[1..] {
+                                    min_x = min_x.min(r[0]);
+                                    min_y = min_y.min(r[1]);
+                                    max_x = max_x.max(r[2]);
+                                    max_y = max_y.max(r[3]);
+                                }
+                                let bbox = Rect::from_min_max(Pos2::new(min_x, min_y), Pos2::new(max_x, max_y));
+                                page_tokens.push((trimmed.to_string(), bbox));
                             }
                         }
                     }
                 }
+
+                if let Ok(mut idx) = index_arc.lock() {
+                    for (token, bbox) in page_tokens {
+                        idx.add_token(&token, page_num, bbox);
+                    }
+                }
             }
         }
-
-        index
-    }
-
-    fn rasterize_page_sync(path: &Path, page: usize, dpi: u32) -> Result<image::DynamicImage, String> {
-        let output = Command::new("pdftoppm")
-            .arg("-png")
-            .arg("-r")
-            .arg(dpi.to_string())
-            .arg("-f")
-            .arg(page.to_string())
-            .arg("-l")
-            .arg(page.to_string())
-            .arg(path)
-            .output()
-            .map_err(|e| format!("pdftoppm execution failed: {e}"))?;
-
-        if !output.status.success() {
-            return Err("pdftoppm returned non-zero exit code".into());
-        }
-
-        image::load_from_memory(&output.stdout).map_err(|e| format!("Image decode failed: {e}"))
     }
 
     fn request_page_raster(&mut self, page: usize, dpi: u32) {
         if self.requested_pages.contains(&(page, dpi)) {
             return;
         }
-        if let Some(path) = &self.path {
+        if let Some(bytes) = &self.doc_bytes {
             self.requested_pages.insert((page, dpi));
-            let _ = self.raster_tx.send((path.clone(), page, dpi));
+            let _ = self.raster_tx.send((Arc::clone(bytes), page, dpi));
         }
     }
 
@@ -373,59 +351,53 @@ impl PdfSchematicViewer {
             ctx.request_repaint();
         }
 
-        let page = self.current_page;
+        // 2. Select appropriate DPI for current zoom level
         let target_dpi = if self.zoom > 1.8 { DPI_HIGH } else { DPI_NORMAL };
 
-        // 2. Check if current page texture is already available
-        if let Some(cached) = self.page_textures.get(&page) {
-            let res = (cached.handle.clone(), cached.dim);
-            // If zoomed in and only low-DPI is cached, request high-DPI upgrade in background
-            if target_dpi == DPI_HIGH && cached.dpi < DPI_HIGH {
-                self.request_page_raster(page, DPI_HIGH);
-            }
-            return Some(res);
+        // Check if we need to request the page or upgrade its resolution
+        let need_request = match self.page_textures.get(&self.current_page) {
+            Some(cached) => cached.dpi < target_dpi,
+            None => true,
+        };
+
+        if need_request {
+            self.request_page_raster(self.current_page, target_dpi);
         }
 
-        // 3. Texture not ready yet: request it immediately and prefetch adjacent pages
-        self.request_page_raster(page, target_dpi);
-        if page > 1 {
-            self.request_page_raster(page - 1, DPI_NORMAL);
-        }
-        if page < self.total_pages {
-            self.request_page_raster(page + 1, DPI_NORMAL);
-        }
-
-        None
+        // 3. Return the best available texture for the current page
+        self.page_textures
+            .get(&self.current_page)
+            .map(|t| (t.handle.clone(), t.dim))
     }
 
-    /// Cross-probing trigger: locate designator or net on the schematic.
+    /// Triggers search and cross-probing navigation to a specific component or net.
+    /// Automatically centers the matched component and scales zoom:
+    /// - If zoom <= 1.0, increases zoom to 3.0 (300%).
+    /// - If zoom > 1.0, preserves the user's active zoom level.
     pub fn cross_probe(&mut self, query: &str) -> bool {
-        let hits = if let Ok(index) = self.index.lock() {
-            index.search(query)
+        let results = if let Ok(idx) = self.index.lock() {
+            idx.search(query)
         } else {
             Vec::new()
         };
 
-        if hits.is_empty() {
-            self.search_results.clear();
+        if !results.is_empty() {
+            self.active_search = query.to_string();
+            self.search_results = results;
             self.selected_result_idx = 0;
-            return false;
-        }
+            self.current_page = self.search_results[0].page_number;
+            self.is_open = true;
 
-        self.active_search = query.to_string();
-        self.search_results = hits;
-        self.selected_result_idx = 0;
+            // Adaptive zoom elevation: if unzoomed (<= 1.0), elevate to 3.0 (300%).
+            if self.zoom <= 1.0 {
+                self.zoom = 3.0;
+            }
 
-        // Adaptive zoom: enforce 200% (2.0x) minimum if unzoomed (<= 1.0), otherwise keep active zoom
-        if self.zoom <= 1.0 {
-            self.zoom = 3.0;
-        }
-
-        if let Some(first) = self.search_results.first() {
-            self.current_page = first.page_number;
             self.pending_center_on_match = true;
+            true
+        } else {
+            false
         }
-        true
     }
 
     pub fn next_match(&mut self) {
@@ -463,29 +435,50 @@ mod tests {
             idx.add_token("C35", 1, Rect::from_min_max(Pos2::new(100.0, 100.0), Pos2::new(150.0, 120.0)));
         }
 
-        // 1. Initial zoom 1.0 (default) should escalate to 2.0 (200%)
+        // 1. Initial zoom 1.0 (default) should escalate to 3.0 (300%)
         viewer.zoom = 1.0;
         let matched = viewer.cross_probe("C35");
         assert!(matched);
         assert_eq!(viewer.zoom, 3.0);
         assert!(viewer.pending_center_on_match);
 
-        // 2. Initial zoom 0.75 (zoomed out) should escalate to 2.0
+        // 2. Initial zoom 0.75 (zoomed out) should escalate to 3.0
         viewer.zoom = 0.75;
         let matched = viewer.cross_probe("C35");
         assert!(matched);
         assert_eq!(viewer.zoom, 3.0);
 
-        // 3. Initial zoom 2.5 (already magnified) should be preserved
+        // 3. Initial zoom 3.5 (already magnified) should be preserved
         viewer.zoom = 3.5;
         let matched = viewer.cross_probe("C35");
         assert!(matched);
         assert_eq!(viewer.zoom, 3.5);
+    }
 
-        // 4. Initial zoom 1.5 (magnified) should be preserved
-        viewer.zoom = 1.5;
-        let matched = viewer.cross_probe("C35");
-        assert!(matched);
-        assert_eq!(viewer.zoom, 1.5);
+    #[test]
+    fn test_native_pdfcraft_render_loading_and_indexing() {
+        let pdf_path = Path::new("tmp/MS-V372 REV 1.0.pdf");
+        if !pdf_path.exists() {
+            return;
+        }
+
+        let mut viewer = PdfSchematicViewer::default();
+        let res = viewer.open_file(pdf_path);
+        assert!(res.is_ok(), "Failed to open PDF with pdfcraft-render: {:?}", res);
+        assert!(viewer.total_pages > 0);
+
+        // Wait a short moment for background indexing to populate
+        for _ in 0..50 {
+            if let Ok(flag) = viewer.is_indexing.lock() {
+                if !*flag {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        let idx = viewer.index.lock().unwrap();
+        assert!(idx.page_count > 0);
+        assert!(!idx.page_sizes.is_empty());
     }
 }
