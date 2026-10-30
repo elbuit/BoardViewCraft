@@ -127,3 +127,7 @@
 	pdf.hit_prev	Precedente
 	pdf.hit_next	Successivo
 	pdf.loading_page	Caricamento pagina schema {}...
+	pdf.prompt_found_title	Schema corrispondente trovato
+	pdf.prompt_found_msg	È stato trovato uno schema PDF corrispondente nella stessa cartella. Vuoi aprirlo?
+	pdf.prompt_open	Apri schema (Invio)
+	pdf.prompt_cancel	Annulla (Esc)

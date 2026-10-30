@@ -127,3 +127,7 @@
 	pdf.hit_prev	Précédent
 	pdf.hit_next	Suivant
 	pdf.loading_page	Chargement de la page de schéma {}...
+	pdf.prompt_found_title	Schéma correspondant trouvé
+	pdf.prompt_found_msg	Un schéma PDF correspondant a été trouvé dans le même dossier. Souhaitez-vous l'ouvrir ?
+	pdf.prompt_open	Ouvrir le schéma (Entrée)
+	pdf.prompt_cancel	Annuler (Échap)

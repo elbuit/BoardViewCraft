@@ -127,3 +127,7 @@
 	pdf.hit_prev	Vorheriger
 	pdf.hit_next	Nächster
 	pdf.loading_page	Lade Schaltplan-Seite {}...
+	pdf.prompt_found_title	Passenden Schaltplan gefunden
+	pdf.prompt_found_msg	Ein passender Schaltplan (PDF) wurde im selben Ordner gefunden. Möchten Sie ihn öffnen?
+	pdf.prompt_open	Schaltplan öffnen (Enter)
+	pdf.prompt_cancel	Abbrechen (Esc)

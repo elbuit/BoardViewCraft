@@ -22,6 +22,40 @@ use theme::{AppTheme, Tokens};
 use egui::{CentralPanel, Color32, Panel, Pos2, Rect, RichText, Ui, Vec2};
 use std::sync::Arc;
 
+
+/// Searches for a co-located PDF schematic file matching the given boardview file path.
+/// Checks `<stem>.pdf`, `<stem>.PDF`, and falls back to a case-insensitive directory scan.
+pub fn find_matching_schematic_pdf(board_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let parent = board_path.parent()?;
+    let stem = board_path.file_stem()?.to_str()?;
+
+    // 1. Direct candidate checks
+    for ext in &["pdf", "PDF"] {
+        let candidate = parent.join(format!("{stem}.{ext}"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    // 2. Directory scan fallback (case-insensitive for mixed extensions on Linux)
+    if let Ok(entries) = std::fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let (Some(entry_stem), Some(entry_ext)) = (path.file_stem(), path.extension()) {
+                    if entry_stem.to_string_lossy().eq_ignore_ascii_case(stem)
+                        && entry_ext.to_string_lossy().eq_ignore_ascii_case("pdf")
+                    {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 pub struct BoardViewApp {
     board: Option<Board>,
     parser_registry: Arc<ParserRegistry>,
@@ -47,6 +81,7 @@ pub struct BoardViewApp {
 
     // PDF Schematic integration
     pdf_viewer: pdf::PdfSchematicViewer,
+    pending_schematic_prompt: Option<std::path::PathBuf>,
 }
 
 impl Default for BoardViewApp {
@@ -70,6 +105,7 @@ impl Default for BoardViewApp {
             status_msg: "Ready. Open a .cad file to inspect.".to_string(),
             filename: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
+            pending_schematic_prompt: None,
         }
     }
 }
@@ -133,6 +169,14 @@ impl BoardViewApp {
                 self.load_file(name, &bytes);
                 self.preferences.add_recent_file(path.to_path_buf());
                 let _ = self.preferences.save_atomic();
+
+                // If a matching schematic PDF exists in the same folder and isn't already open, prompt user
+                if let Some(pdf_candidate) = find_matching_schematic_pdf(path) {
+                    let already_open = self.pdf_viewer.path.as_ref().is_some_and(|p| p == &pdf_candidate);
+                    if !already_open {
+                        self.pending_schematic_prompt = Some(pdf_candidate);
+                    }
+                }
             }
             Err(err) => {
                 self.status_msg = format!("Could not open {}: {err}", path.display());
@@ -862,6 +906,60 @@ impl eframe::App for BoardViewApp {
                 });
         }
 
+        // Modal dialog asking to open co-located matching schematic PDF
+        if let Some(ref pdf_path) = self.pending_schematic_prompt.clone() {
+            let mut close_dialog = false;
+            let mut accept_dialog = false;
+
+            // Keyboard triggers: Enter accepts, Escape dismisses
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                accept_dialog = true;
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                close_dialog = true;
+            }
+
+            let file_name = pdf_path.file_name().and_then(|n| n.to_str()).unwrap_or("schematic.pdf");
+            egui::Window::new(format!("📄 {}", i18n::tr(lang, "pdf.prompt_found_title")))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ui.ctx(), |ui| {
+                    ui.set_max_width(450.0);
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(8.0);
+                        ui.label(RichText::new(i18n::tr(lang, "pdf.prompt_found_msg")).strong());
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(file_name).italics().color(self.tokens.accent()));
+                        ui.add_space(12.0);
+
+                        ui.horizontal(|ui| {
+                            let open_btn = egui::Button::new(RichText::new(i18n::tr(lang, "pdf.prompt_open")).strong());
+                            if ui.add(open_btn).clicked() {
+                                accept_dialog = true;
+                            }
+                            if ui.button(i18n::tr(lang, "pdf.prompt_cancel")).clicked() {
+                                close_dialog = true;
+                            }
+                        });
+                        ui.add_space(4.0);
+                    });
+                });
+
+            if accept_dialog {
+                if let Err(err) = self.pdf_viewer.open_file(pdf_path) {
+                    self.status_msg = format!("Failed to open schematic PDF: {err}");
+                } else {
+                    self.status_msg = format!("Opened schematic: {}", pdf_path.display());
+                }
+                self.pending_schematic_prompt = None;
+                ui.ctx().request_repaint();
+            } else if close_dialog {
+                self.pending_schematic_prompt = None;
+                ui.ctx().request_repaint();
+            }
+        }
+
         // Central Canvas Panel
         CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
@@ -958,9 +1056,43 @@ mod focus_tests {
             status_msg: "Selected".to_string(),
             filename: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
+            pending_schematic_prompt: None,
         };
 
         assert!(app.selected_pin_idx.is_some());
         assert!(app.selected_net.is_some());
+    }
+
+    #[test]
+    fn test_find_matching_schematic_pdf() {
+        let temp_dir = std::env::temp_dir().join(format!("bvc_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let board_path = temp_dir.join("MS-V373.cad");
+        let pdf_path = temp_dir.join("MS-V373.pdf");
+        let pdf_upper = temp_dir.join("BOARD2.PDF");
+        let board2_path = temp_dir.join("BOARD2.brd");
+        let board3_path = temp_dir.join("BOARD3.fz");
+
+        std::fs::write(&board_path, b"test").unwrap();
+        std::fs::write(&pdf_path, b"%PDF-1.4").unwrap();
+        std::fs::write(&board2_path, b"test2").unwrap();
+        std::fs::write(&pdf_upper, b"%PDF-1.4").unwrap();
+        std::fs::write(&board3_path, b"test3").unwrap();
+
+        // 1. Lowercase .pdf match
+        let found = find_matching_schematic_pdf(&board_path);
+        assert_eq!(found, Some(pdf_path));
+
+        // 2. Uppercase .PDF match
+        let found2 = find_matching_schematic_pdf(&board2_path);
+        assert_eq!(found2, Some(pdf_upper));
+
+        // 3. No match
+        let found3 = find_matching_schematic_pdf(&board3_path);
+        assert_eq!(found3, None);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }
