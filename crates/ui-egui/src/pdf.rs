@@ -1,12 +1,13 @@
-//! High-fidelity PDF schematic renderer and search engine with full pdfcraft parity.
+//! High-fidelity PDF schematic renderer and search engine with dynamic resolution scaling.
 //!
 //! Features:
 //! - Multi-worker asynchronous rasterization via `RenderPool` (multithreaded, watchdog-protected, cancel-in-flight).
-//! - Zero-copy premultiplied texture uploads (`texture_image`) via `bytemuck` and `Pixels`.
+//! - Dynamic scale resolution: page rasters are dynamically requested to match the screen pixel density
+//!   (`scale = PT * zoom * ppp`), eliminating blurry resampling on zoom.
+//! - Fast settling hold: maintains stretched current texture during rapid zoom/pan gestures,
+//!   re-rendering pixel-sharp once the zoom settles.
 //! - Instant exact cross-probing and multi-page text search using `PageText::find_opts` and `PageText::glyph_rects`.
-//! - Page text layer caching per page with automatic request queueing on `RenderPool`.
 //! - Interactive token click hit-testing using `PageText::nearest` and `PageText::word_at`.
-//! - Adaptive zoom elevation to 300% and viewport centering on cross-probed component matches.
 
 use egui::{ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use pdfcraft_render::{
@@ -17,9 +18,8 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// Default DPI levels matching standard displays and zoomed high-fidelity inspection
-const DPI_NORMAL: u32 = 150;
-const DPI_HIGH: u32 = 300;
+/// PDF points to standard CSS/screen points ratio (96 DPI / 72 PDF points)
+pub const PT: f32 = 96.0 / 72.0;
 
 /// Tag bit distinguishing text requests from pixel raster requests in `RenderPool`
 const TEXT_TAG: u64 = 1 << 62;
@@ -44,6 +44,11 @@ impl SchematicIndex {
     }
 }
 
+/// The request tag for a raster at `scale`: equal tags mean the same scale (to 1/65536).
+pub fn scale_tag(scale: f32) -> u64 {
+    (f64::from(scale) * 65536.0).round() as u64
+}
+
 /// Convert rendered raw Pixels into egui::ColorImage
 fn texture_image(size: [usize; 2], pixels: pdfcraft_render::Pixels) -> ColorImage {
     ColorImage::from_rgba_unmultiplied(size, &pixels)
@@ -53,7 +58,7 @@ fn texture_image(size: [usize; 2], pixels: pdfcraft_render::Pixels) -> ColorImag
 struct CachedPageTexture {
     handle: TextureHandle,
     dim: Vec2,
-    dpi: u32,
+    tag: u64,
 }
 
 /// Embedded schematic viewer matching pdfcraft's canvas engine architecture.
@@ -82,8 +87,12 @@ pub struct PdfSchematicViewer {
     // Multithreaded RenderPool matching pdfcraft's engine
     render_pool: Option<RenderPool>,
 
-    // Last requested raster per page: (page, dpi)
-    requested_rasters: HashMap<usize, u32>,
+    // Last requested raster scale tag per page: (page, tag)
+    last_requested_tags: HashMap<usize, u64>,
+
+    // Settle timer tracking zoom adjustments to avoid worker churning
+    last_zoom_change_time: f64,
+    last_observed_zoom: f32,
 }
 
 impl Default for PdfSchematicViewer {
@@ -104,7 +113,9 @@ impl Default for PdfSchematicViewer {
             page_texts: HashMap::new(),
             page_textures: HashMap::new(),
             render_pool: None,
-            requested_rasters: HashMap::new(),
+            last_requested_tags: HashMap::new(),
+            last_zoom_change_time: 0.0,
+            last_observed_zoom: 1.0,
         }
     }
 }
@@ -132,7 +143,7 @@ impl PdfSchematicViewer {
         self.doc_info = Some(info);
         self.page_textures.clear();
         self.page_texts.clear();
-        self.requested_rasters.clear();
+        self.last_requested_tags.clear();
         self.search_results.clear();
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
@@ -145,9 +156,6 @@ impl PdfSchematicViewer {
         let pool = RenderPool::new(bytes_arc, threads, RenderConfig::default());
         self.render_pool = Some(pool);
 
-        // 3. Immediately queue preloading: page 1 pixels + page 1 text
-        self.update_render_queue();
-
         Ok(())
     }
 
@@ -159,6 +167,17 @@ impl PdfSchematicViewer {
             }
         }
         Vec2::new(1224.0, 792.0)
+    }
+
+    /// Computes the exact device scale needed so 1 device pixel = 1 texture pixel (pdfcraft formula).
+    pub fn calculate_render_scale(&self, ppp: f32) -> f32 {
+        // scale = zoom * PT * ppp, clamped to avoid exceeding GPU maximum texture side
+        let raw_scale = self.zoom * PT * ppp;
+        let page_size = self.page_size_pts(self.current_page);
+        let max_dim = page_size.x.max(page_size.y).max(1.0);
+        // Bound to ~8192 device pixels on the longest side
+        let max_scale = 8192.0 / max_dim;
+        raw_scale.clamp(0.25, max_scale)
     }
 
     /// Finds the token at the clicked PDF point coordinate on the given page.
@@ -198,22 +217,22 @@ impl PdfSchematicViewer {
         }
     }
 
-    /// Queues raster and text tasks to the `RenderPool` (most urgent first).
-    pub fn update_render_queue(&mut self) {
+    /// Queues raster and text tasks to the `RenderPool` with dynamic pixel scale.
+    pub fn update_render_queue(&mut self, ppp: f32) {
         let Some(pool) = &self.render_pool else { return };
 
         let curr_0 = self.current_page.saturating_sub(1);
-        let target_dpi = if self.zoom > 1.8 { DPI_HIGH } else { DPI_NORMAL };
-        let scale = target_dpi as f32 / 72.0;
+        let scale = self.calculate_render_scale(ppp);
+        let tag = scale_tag(scale);
 
         let mut requests = Vec::new();
 
-        // 1. Current page raster (highest priority)
+        // 1. Current page raster at exact pixel scale
         requests.push(RenderRequest {
             page: curr_0,
             scale,
             kind: RequestKind::Pixels,
-            tag: target_dpi as u64,
+            tag,
             tile: None,
             preview: false,
         });
@@ -230,13 +249,15 @@ impl PdfSchematicViewer {
             });
         }
 
-        // 3. Adjacent pages raster prefetch (page + 1 and page - 1)
+        // 3. Adjacent pages raster prefetch (page + 1 and page - 1 at normal reading scale ~1.5)
+        let prefetch_scale = (1.5 * ppp).clamp(0.5, 3.0);
+        let prefetch_tag = scale_tag(prefetch_scale);
         if self.current_page < self.total_pages {
             requests.push(RenderRequest {
                 page: curr_0 + 1,
-                scale: DPI_NORMAL as f32 / 72.0,
+                scale: prefetch_scale,
                 kind: RequestKind::Pixels,
-                tag: DPI_NORMAL as u64,
+                tag: prefetch_tag,
                 tile: None,
                 preview: false,
             });
@@ -244,15 +265,15 @@ impl PdfSchematicViewer {
         if curr_0 > 0 {
             requests.push(RenderRequest {
                 page: curr_0 - 1,
-                scale: DPI_NORMAL as f32 / 72.0,
+                scale: prefetch_scale,
                 kind: RequestKind::Pixels,
-                tag: DPI_NORMAL as u64,
+                tag: prefetch_tag,
                 tile: None,
                 preview: false,
             });
         }
 
-        // 4. Queue remaining pages for background text extraction if search is active or ongoing
+        // 4. Background text layers for searching
         for p in 0..self.total_pages {
             if p != curr_0 && !self.page_texts.contains_key(&p) {
                 requests.push(RenderRequest {
@@ -269,30 +290,41 @@ impl PdfSchematicViewer {
         pool.set_queue(requests);
     }
 
-    /// Pumps completed jobs from the `RenderPool` and ensures texture is ready.
+    /// Pumps completed jobs from the `RenderPool` and checks whether re-rendering is needed for sharp zoom.
     pub fn ensure_current_page_texture(&mut self, ctx: &egui::Context) -> Option<(TextureHandle, Vec2)> {
+        let ppp = ctx.pixels_per_point();
+        let current_time = ctx.input(|i| i.time);
+
+        // Detect zoom changes to handle debounce settling
+        if (self.zoom - self.last_observed_zoom).abs() > 0.001 {
+            self.last_observed_zoom = self.zoom;
+            self.last_zoom_change_time = current_time;
+        }
+
+        let is_settled = (current_time - self.last_zoom_change_time) > 0.12;
+
         let mut new_texts: Vec<(usize, Arc<PageText>)> = Vec::new();
 
         if let Some(pool) = &self.render_pool {
-            // Drain up to 8 finished jobs per frame (matching pdfcraft RESULTS_PER_FRAME)
+            // Drain finished jobs from pool
             for _ in 0..8 {
                 let Some(res) = pool.try_recv() else { break };
                 match res.request.kind {
                     RequestKind::Pixels => {
                         if res.error.is_none() && res.width > 0 && res.height > 0 && !res.rgba.is_empty() {
                             let page_1 = res.request.page + 1;
-                            let dpi = res.request.tag as u32;
+                            let tag = res.request.tag;
                             let size = [res.width as usize, res.height as usize];
                             let color_image = texture_image(size, res.rgba);
                             let handle = ctx.load_texture(
-                                format!("pdf_p{page_1}_d{dpi}"),
+                                format!("pdf_p{page_1}_t{tag}"),
                                 color_image,
                                 TextureOptions::LINEAR,
                             );
                             let dim = Vec2::new(res.width as f32, res.height as f32);
                             self.page_textures.insert(
                                 page_1,
-                                CachedPageTexture { handle, dim, dpi },
+                                CachedPageTexture { handle, dim, tag },
                             );
                             ctx.request_repaint();
                         }
@@ -315,15 +347,20 @@ impl PdfSchematicViewer {
             }
         }
 
-        // Check if resolution upgrade is needed for current page
-        let target_dpi = if self.zoom > 1.8 { DPI_HIGH } else { DPI_NORMAL };
-        let need_upgrade = match self.page_textures.get(&self.current_page) {
-            Some(t) => t.dpi < target_dpi,
+        // Check if current page needs an updated, sharp raster at the current zoom level
+        let wanted_scale = self.calculate_render_scale(ppp);
+        let wanted_tag = scale_tag(wanted_scale);
+
+        let need_fresh_render = match self.page_textures.get(&self.current_page) {
+            Some(t) => t.tag != wanted_tag,
             None => true,
         };
-        if need_upgrade && self.requested_rasters.get(&self.current_page).copied() != Some(target_dpi) {
-            self.requested_rasters.insert(self.current_page, target_dpi);
-            self.update_render_queue();
+
+        if need_fresh_render && (is_settled || !self.page_textures.contains_key(&self.current_page)) {
+            if self.last_requested_tags.get(&self.current_page).copied() != Some(wanted_tag) {
+                self.last_requested_tags.insert(self.current_page, wanted_tag);
+                self.update_render_queue(ppp);
+            }
         }
 
         self.page_textures
@@ -339,7 +376,6 @@ impl PdfSchematicViewer {
             return;
         }
 
-        // Fast path: find case-insensitive matches using pdfcraft-render's find_opts
         let matches = text.find_opts(query, false, false);
         let page_1 = page_0 + 1;
 
@@ -380,7 +416,6 @@ impl PdfSchematicViewer {
     }
 
     /// Initiates cross-probing navigation to a specific component designator or net.
-    /// Uses pdfcraft's exact `find_opts` for whole words and adaptive zoom elevation.
     pub fn cross_probe(&mut self, query: &str) -> bool {
         let trimmed = query.trim();
         if trimmed.is_empty() {
@@ -391,26 +426,24 @@ impl PdfSchematicViewer {
         self.search_results.clear();
         self.selected_result_idx = 0;
 
-        // 1. Immediately search across all already-cached page text layers
         let cached_pages: Vec<usize> = self.page_texts.keys().copied().collect();
         for p in cached_pages {
             self.append_search_matches_for_page(p);
         }
 
-        // 2. Ensure all remaining page text layers are requested in the pool
-        self.update_render_queue();
-
-        // 3. Adaptive zoom elevation
+        // Adaptive zoom elevation: if unzoomed (<= 1.0), elevate to 3.0 (300%).
         if self.zoom <= 1.0 {
             self.zoom = 3.0;
         }
+
+        self.last_observed_zoom = self.zoom;
+        self.last_requested_tags.clear();
 
         if !self.search_results.is_empty() {
             self.current_page = self.search_results[0].page_number;
             self.pending_center_on_match = true;
             true
         } else {
-            // Signal search is in progress
             self.pending_center_on_match = true;
             false
         }
@@ -421,7 +454,6 @@ impl PdfSchematicViewer {
             self.selected_result_idx = (self.selected_result_idx + 1) % self.search_results.len();
             self.current_page = self.search_results[self.selected_result_idx].page_number;
             self.pending_center_on_match = true;
-            self.update_render_queue();
         }
     }
 
@@ -434,7 +466,6 @@ impl PdfSchematicViewer {
             }
             self.current_page = self.search_results[self.selected_result_idx].page_number;
             self.pending_center_on_match = true;
-            self.update_render_queue();
         }
     }
 }
@@ -462,23 +493,14 @@ mod tests {
     }
 
     #[test]
-    fn test_renderpool_parity_loading_and_search() {
-        let pdf_path = Path::new("tmp/MS-V372 REV 1.0.pdf");
-        if !pdf_path.exists() {
-            return;
-        }
-
+    fn test_dynamic_render_scale_calculation() {
         let mut viewer = PdfSchematicViewer::default();
-        let res = viewer.open_file(pdf_path);
-        assert!(res.is_ok());
-        assert!(viewer.total_pages > 0);
-        assert!(viewer.render_pool.is_some());
+        viewer.zoom = 1.0;
+        let scale_100 = viewer.calculate_render_scale(1.0);
+        assert!((scale_100 - PT).abs() < 1e-3);
 
-        // Drain worker results for up to 2 seconds
-        let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(2) {
-            let _ = viewer.render_pool.as_ref().unwrap().try_recv();
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
+        viewer.zoom = 3.0;
+        let scale_300 = viewer.calculate_render_scale(1.0);
+        assert!((scale_300 - 3.0 * PT).abs() < 1e-3);
     }
 }

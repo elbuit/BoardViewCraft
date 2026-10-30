@@ -754,27 +754,25 @@ impl eframe::App for BoardViewApp {
                     }
 
                     // Render crisp rasterized PDF page texture from engine
-                    if let Some((texture, orig_dim)) = self.pdf_viewer.ensure_current_page_texture(ui.ctx()) {
-                        let scale_x = (rect.width() * 0.95) / orig_dim.x.max(1.0);
-                        let scale_y = (rect.height() * 0.95) / orig_dim.y.max(1.0);
-                        let auto_scale = scale_x.min(scale_y);
-                        let effective_scale = auto_scale * self.pdf_viewer.zoom;
-                        let render_size = orig_dim * effective_scale;
+                    if let Some((texture, _orig_dim)) = self.pdf_viewer.ensure_current_page_texture(ui.ctx()) {
+                        let page_size_pts = self.pdf_viewer.page_size_pts(self.pdf_viewer.current_page);
+                        // Natural unzoomed size of the page in UI points
+                        let base_page_size = page_size_pts * crate::pdf::PT;
+                        let fit_scale = ((rect.width() * 0.95) / base_page_size.x.max(1.0))
+                            .min((rect.height() * 0.95) / base_page_size.y.max(1.0));
+                        let display_scale = fit_scale * self.pdf_viewer.zoom;
+                        let render_size = base_page_size * display_scale;
 
                         // Center viewport on selected match if requested (e.g. cross-probing or next/prev match)
                         if self.pdf_viewer.pending_center_on_match {
                             if let Some(hit) = self.pdf_viewer.search_results.get(self.pdf_viewer.selected_result_idx) {
                                 if hit.page_number == self.pdf_viewer.current_page {
-                                    let page_size_pts = self.pdf_viewer.page_size_pts(self.pdf_viewer.current_page);
-
                                     let center_pt = hit.bbox.center();
-                                    let comp_raster_x = center_pt.x * (orig_dim.x / page_size_pts.x.max(1.0)) * effective_scale;
-                                    let comp_raster_y = center_pt.y * (orig_dim.y / page_size_pts.y.max(1.0)) * effective_scale;
+                                    let comp_pos = center_pt * crate::pdf::PT * display_scale;
 
-                                    // pan_offset required so comp_screen == rect.center():
                                     self.pdf_viewer.pan_offset = egui::vec2(
-                                        render_size.x * 0.5 - comp_raster_x,
-                                        render_size.y * 0.5 - comp_raster_y,
+                                        render_size.x * 0.5 - comp_pos.x,
+                                        render_size.y * 0.5 - comp_pos.y,
                                     );
                                     self.pdf_viewer.pending_center_on_match = false;
                                 }
@@ -793,14 +791,10 @@ impl eframe::App for BoardViewApp {
                             Color32::WHITE,
                         );
 
-                        // PDF coordinate mapping function (PDF points -> screen points on raster)
-                        let page_size_pts = self.pdf_viewer.page_size_pts(self.pdf_viewer.current_page);
+                        // PDF coordinate mapping function (PDF points -> screen points)
                         let to_screen = |pdf_pt: Pos2| -> Pos2 {
-                            let scale_x = orig_dim.x / page_size_pts.x.max(1.0);
-                            let scale_y = orig_dim.y / page_size_pts.y.max(1.0);
-                            let rx = pdf_pt.x * scale_x * effective_scale;
-                            let ry = pdf_pt.y * scale_y * effective_scale;
-                            render_pos + Vec2::new(rx, ry)
+                            let p = pdf_pt.to_vec2() * crate::pdf::PT * display_scale;
+                            render_pos + p
                         };
 
                         // Cross-probing highlights
@@ -833,11 +827,9 @@ impl eframe::App for BoardViewApp {
                             if let Some(click_pos) = click_opt {
                                 if rect.contains(click_pos) {
                                     // Inverse map: screen pos -> PDF point
-                                    let scale_x = orig_dim.x / page_size_pts.x.max(1.0);
-                                    let scale_y = orig_dim.y / page_size_pts.y.max(1.0);
                                     let rel_screen = click_pos - render_pos;
-                                    let pdf_pt_x = rel_screen.x / (scale_x * effective_scale);
-                                    let pdf_pt_y = rel_screen.y / (scale_y * effective_scale);
+                                    let pdf_pt_x = rel_screen.x / (crate::pdf::PT * display_scale);
+                                    let pdf_pt_y = rel_screen.y / (crate::pdf::PT * display_scale);
                                     let clicked_pdf_pt = Pos2::new(pdf_pt_x, pdf_pt_y);
 
                                     let clicked_token = self.pdf_viewer.find_token_at(self.pdf_viewer.current_page, clicked_pdf_pt);
