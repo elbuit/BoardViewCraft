@@ -75,3 +75,55 @@
 	overlay.align_col_photo_pos	Pos Foto (mils)
 	overlay.align_col_residual	Residual
 	overlay.align_rmse	RMSE:
+	overlay.align_banner_cad	Pas {}: Fes clic al pin de referència al disseny CAD
+	overlay.align_banner_photo	Pas {}: Fes clic al pad corresponent a la foto
+	overlay.align_banner_ready	Calibrat amb {} punts. Prem Aplicar o Afegeix-ne Més (Enter aplicar, Esc cancel·lar).
+	overlay.align_status_min_points	Selecciona com a mínim 2 parells de pins per calcular l'alineació.
+	prefs.title	Preferències
+	prefs.language	Idioma:
+	prefs.appearance	Aparença i Temes
+	prefs.app_theme	Tema de l'Aplicació:
+	prefs.pcb_theme	Tema del PCB:
+	prefs.custom_colors	Personalitzar Colors del PCB:
+	prefs.custom_theme_name	Nom del tema personalitzat:
+	prefs.color_canvas	Fons del llenç:
+	prefs.color_board_outline	Contorn de la placa:
+	prefs.color_board_fill	Farciment de la placa:
+	prefs.color_part_body	Cos del component:
+	prefs.color_part_text	Etiquetes de components:
+	prefs.color_pin_default	Pin estàndard:
+	prefs.color_pin_unconnected	Pin no connectat:
+	prefs.color_pin_cur_side	Ressaltat pin (Cara actual):
+	prefs.color_pin_opp_side	Ressaltat pin (Cara oposada):
+	prefs.color_via_cur_side	Via estàndard:
+	prefs.color_via_highlight	Ressaltat via:
+	prefs.color_net_web	Línies de xarxa (telaranya):
+	prefs.visualization	Visualització
+	prefs.show_net_web	Mostrar Línies de Xarxa (Telaranya)
+	prefs.via_display_mode	Mode de línies de xarxa:
+	prefs.via_mode_radial	Radial (Línies des del punt seleccionat)
+	prefs.via_mode_web	Telaranya (Camí unint tots els punts)
+	prefs.show_part_labels	Mostrar Noms de Component
+	prefs.show_pin_annotations	Mostrar Nombres i Anotacions de Pins
+	prefs.adaptive_lod	Optimització LOD Adaptativa
+	prefs.show_opposite	Mostrar Elements de la Cara Oposada (Raigs X)
+	prefs.show_pins	Mostrar Pins i Pads de Components
+	prefs.show_vias	Mostrar Vies i Claus de Prova
+	prefs.show_unnamed_vias	Mostrar Vies i Pads sense nom
+	prefs.close	Tancar
+	context_menu.pin_title	Informació del Pin
+	context_menu.net	Xarxa:
+	context_menu.side	Capa:
+	context_menu.copy_net	Copiar nom de xarxa
+	context_menu.copy_pin_info	Copiar detalls del pin
+	pdf.title	Esquemàtic PDF
+	pdf.open	Obrir Esquemàtic PDF...
+	pdf.hide	Amagar Esquemàtic PDF
+	pdf.close	Tancar Esquemàtic PDF
+	pdf.page_prev	Pàgina anterior
+	pdf.page_next	Pàgina següent
+	pdf.page_counter	Pàgina {} de {}
+	pdf.hits	coincidències
+	pdf.hit_prev	Anterior
+	pdf.hit_next	Següent
+	pdf.loading_page	Carregant pàgina d'esquemàtic {}...

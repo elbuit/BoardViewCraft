@@ -1,0 +1,129 @@
+# BoardViewCraft French catalog
+	app.title	BoardViewCraft - Visionneuse de circuits imprimés en Rust
+	toolbar.open_board	Ouvrir le circuit...
+	toolbar.open_recent	Fichiers récents
+	toolbar.no_recent_files	Aucun fichier récent
+	toolbar.actions	Actions
+	toolbar.preferences	Préférences...
+	toolbar.zoom	Zoom
+	toolbar.zoom_fit_window	Ajuster à la fenêtre (F)
+	toolbar.zoom_preset_25	25%
+	toolbar.zoom_preset_50	50%
+	toolbar.zoom_preset_100	100%
+	toolbar.zoom_preset_150	150%
+	toolbar.zoom_preset_200	200%
+	toolbar.view_top	Vue : DESSUS
+	toolbar.view_bottom	Vue : DESSOUS
+	toolbar.rotate	Faire pivoter
+	toolbar.pins	Broches
+	toolbar.vias	Vias
+	toolbar.load_photo	Charger une photo superposée...
+	status.ready	Prêt. Ouvrez un fichier de circuit pour l'inspecter.
+	actions.rotate_cw	Pivoter de 90° horaire (R)
+	actions.rotate_ccw	Pivoter de 90° antihoraire (Shift+R)
+	actions.rotate_180	Pivoter de 180°
+	actions.flip_bottom	Passer au DESSOUS (Espace)
+	actions.flip_top	Passer au DESSUS (Espace)
+	actions.mirror_x	Miroir X [Horizontal] (M)
+	actions.mirror_y	Miroir Y [Vertical] (Shift+M)
+	actions.reset	Réinitialiser l'orientation
+	side_panel.net_details	Détails du réseau
+	side_panel.part_details	Détails du composant
+	side_panel.search	Recherche
+	side_panel.pins_on_net	Broches sur le réseau :
+	side_panel.vias_on_net	Vias sur le réseau :
+	side_panel.search_parts	Rechercher des composants :
+	side_panel.search_nets	Rechercher des réseaux :
+	side_panel.side	Côté
+	side_panel.pins	Broches
+	side_panel.overlay	Photo superposée
+	overlay.title	Photo superposée
+	overlay.side_top	DESSUS
+	overlay.side_bottom	DESSOUS
+	overlay.side_both	LES DEUX
+	overlay.no_photo_loaded	Aucune photo chargée pour ce côté.
+	overlay.load_photo	Charger une photo...
+	overlay.file	Fichier
+	overlay.locked	Verrouillé
+	overlay.unlocked	Déverrouillé
+	overlay.visible	Visible
+	overlay.opacity	Opacité :
+	overlay.position	Position
+	overlay.size	Dimensions
+	overlay.zoom	Zoom / Échelle
+	overlay.aspect_locked	Verrouiller les proportions
+	overlay.mirror_title	Miroir
+	overlay.mirror_x	Miroir X
+	overlay.mirror_y	Miroir Y
+	overlay.fine_rotation	Rotation précise
+	overlay.reset_rot	Réinitialiser
+	overlay.replace	Remplacer la photo
+	overlay.remove	Supprimer la photo
+	overlay.hint_drag	Astuce : Maintenez Alt + Glisser-gauche pour déplacer. Alt + Molette pour redimensionner.
+	overlay.align_pins	Aligner avec les broches...
+	overlay.align_active_title	Calibrage par broches
+	overlay.align_add_pair	Ajouter une paire de broches
+	overlay.align_auto_lock	Verrouiller automatiquement après application
+	overlay.align_apply	Appliquer l'alignement
+	overlay.align_cancel	Annuler
+	overlay.align_reset	Réinitialiser
+	overlay.align_repick	Rechoisir
+	overlay.align_delete	Supprimer
+	overlay.align_col_num	#
+	overlay.align_col_pin	Broche CAD
+	overlay.align_col_cad_pos	Pos CAD (mils)
+	overlay.align_col_photo_pos	Pos Photo (mils)
+	overlay.align_col_residual	Résidu
+	overlay.align_rmse	RMSE :
+	overlay.align_banner_cad	Étape {} : Cliquez sur la broche de référence sur le plan CAD
+	overlay.align_banner_photo	Étape {} : Cliquez sur la pastille correspondante sur la photo
+	overlay.align_banner_ready	Calibré avec {} points. Cliquez sur Appliquer ou ajoutez-en d'autres (Entrée pour appliquer, Échap pour annuler).
+	overlay.align_status_min_points	Sélectionnez au moins 2 paires de broches pour calculer l'alignement.
+	prefs.title	Préférences
+	prefs.language	Langue :
+	prefs.appearance	Apparence et thèmes
+	prefs.app_theme	Thème de l'application :
+	prefs.pcb_theme	Thème du circuit :
+	prefs.custom_colors	Personnaliser les couleurs du circuit :
+	prefs.custom_theme_name	Nom du thème personnalisé :
+	prefs.color_canvas	Arrière-plan du canevas :
+	prefs.color_board_outline	Contour du circuit :
+	prefs.color_board_fill	Remplissage du circuit :
+	prefs.color_part_body	Corps du composant :
+	prefs.color_part_text	Étiquettes des composants :
+	prefs.color_pin_default	Broche par défaut :
+	prefs.color_pin_unconnected	Broche non connectée :
+	prefs.color_pin_cur_side	Surbrillance broche (côté actuel) :
+	prefs.color_pin_opp_side	Surbrillance broche (côté opposé) :
+	prefs.color_via_cur_side	Via par défaut :
+	prefs.color_via_highlight	Surbrillance via :
+	prefs.color_net_web	Lignes de réseau :
+	prefs.visualization	Visualisation
+	prefs.show_net_web	Afficher les lignes de réseau (chevelu)
+	prefs.via_display_mode	Mode des lignes de réseau :
+	prefs.via_mode_radial	Radial (lignes depuis le point sélectionné)
+	prefs.via_mode_web	Toile (reliant tous les points)
+	prefs.show_part_labels	Afficher les désignateurs de composants
+	prefs.show_pin_annotations	Afficher les numéros et annotations de broches
+	prefs.adaptive_lod	Décimation adaptative LOD
+	prefs.show_opposite	Afficher les éléments du côté opposé (Rayons X)
+	prefs.show_pins	Afficher les broches et pastilles
+	prefs.show_vias	Afficher les vias et points de test
+	prefs.show_unnamed_vias	Afficher les vias et pastilles sans nom
+	prefs.close	Fermer
+	context_menu.pin_title	Informations sur la broche
+	context_menu.net	Réseau :
+	context_menu.side	Côté :
+	context_menu.copy_net	Copier le nom du réseau
+	context_menu.copy_pin_info	Copier les détails de la broche
+	pdf.title	Schéma PDF
+	pdf.open	Ouvrir le schéma PDF...
+	pdf.hide	Masquer le schéma PDF
+	pdf.close	Fermer le schéma PDF
+	pdf.page_prev	Page précédente
+	pdf.page_next	Page suivante
+	pdf.page_counter	Page {} sur {}
+	pdf.hits	résultats
+	pdf.hit_prev	Précédent
+	pdf.hit_next	Suivant
+	pdf.loading_page	Chargement de la page de schéma {}...

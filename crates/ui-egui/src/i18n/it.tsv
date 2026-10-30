@@ -1,0 +1,129 @@
+# BoardViewCraft Italian catalog
+	app.title	BoardViewCraft - Visualizzatore di circuiti stampati in Rust
+	toolbar.open_board	Apri scheda...
+	toolbar.open_recent	File recenti
+	toolbar.no_recent_files	Nessun file recente
+	toolbar.actions	Azioni
+	toolbar.preferences	Preferenze...
+	toolbar.zoom	Zoom
+	toolbar.zoom_fit_window	Adatta alla finestra (F)
+	toolbar.zoom_preset_25	25%
+	toolbar.zoom_preset_50	50%
+	toolbar.zoom_preset_100	100%
+	toolbar.zoom_preset_150	150%
+	toolbar.zoom_preset_200	200%
+	toolbar.view_top	Vista: SUPERIORE
+	toolbar.view_bottom	Vista: INFERIORE
+	toolbar.rotate	Ruota
+	toolbar.pins	Pin
+	toolbar.vias	Via
+	toolbar.load_photo	Carica foto sovrapposta...
+	status.ready	Pronto. Apri un file di circuito da ispezionare.
+	actions.rotate_cw	Ruota 90° in senso orario (R)
+	actions.rotate_ccw	Ruota 90° in senso antiorario (Shift+R)
+	actions.rotate_180	Ruota di 180°
+	actions.flip_bottom	Passa a INFERIORE (Spazio)
+	actions.flip_top	Passa a SUPERIORE (Spazio)
+	actions.mirror_x	Specchia X [Orizzontale] (M)
+	actions.mirror_y	Specchia Y [Verticale] (Shift+M)
+	actions.reset	Ripristina orientamento
+	side_panel.net_details	Dettagli rete
+	side_panel.part_details	Dettagli componente
+	side_panel.search	Cerca
+	side_panel.pins_on_net	Pin sulla rete:
+	side_panel.vias_on_net	Via sulla rete:
+	side_panel.search_parts	Cerca componenti:
+	side_panel.search_nets	Cerca reti:
+	side_panel.side	Lato
+	side_panel.pins	Pin
+	side_panel.overlay	Foto sovrapposta
+	overlay.title	Foto sovrapposta
+	overlay.side_top	SUPERIORE
+	overlay.side_bottom	INFERIORE
+	overlay.side_both	ENTRAMBI
+	overlay.no_photo_loaded	Nessuna foto caricata per questo lato.
+	overlay.load_photo	Carica foto...
+	overlay.file	File
+	overlay.locked	Bloccato
+	overlay.unlocked	Sbloccato
+	overlay.visible	Visibile
+	overlay.opacity	Opacità:
+	overlay.position	Posizione
+	overlay.size	Dimensioni
+	overlay.zoom	Zoom / Scala
+	overlay.aspect_locked	Blocca proporzioni
+	overlay.mirror_title	Specchia
+	overlay.mirror_x	Specchia X
+	overlay.mirror_y	Specchia Y
+	overlay.fine_rotation	Rotazione fine
+	overlay.reset_rot	Ripristina
+	overlay.replace	Sostituisci foto
+	overlay.remove	Rimuovi foto
+	overlay.hint_drag	Suggerimento: Tieni premuto Alt + Trascina con sinistro per spostare. Alt + Rotellina per scalare.
+	overlay.align_pins	Allinea con i pin...
+	overlay.align_active_title	Calibrazione pin
+	overlay.align_add_pair	Aggiungi coppia di pin
+	overlay.align_auto_lock	Blocca automaticamente dopo l'applicazione
+	overlay.align_apply	Applica allineamento
+	overlay.align_cancel	Annulla
+	overlay.align_reset	Ripristina
+	overlay.align_repick	Riseleziona
+	overlay.align_delete	Elimina
+	overlay.align_col_num	#
+	overlay.align_col_pin	Pin CAD
+	overlay.align_col_cad_pos	Pos CAD (mils)
+	overlay.align_col_photo_pos	Pos Foto (mils)
+	overlay.align_col_residual	Residuo
+	overlay.align_rmse	RMSE:
+	overlay.align_banner_cad	Passo {}: Fai clic sul pin di riferimento nel layout CAD
+	overlay.align_banner_photo	Passo {}: Fai clic sul pad corrispondente nella foto
+	overlay.align_banner_ready	Calibrato con {} punti. Premi Applica o aggiungine altri (Invio applica, Esc annulla).
+	overlay.align_status_min_points	Seleziona almeno 2 coppie di pin per calcolare l'allineamento.
+	prefs.title	Preferenze
+	prefs.language	Lingua:
+	prefs.appearance	Aspetto e temi
+	prefs.app_theme	Tema dell'applicazione:
+	prefs.pcb_theme	Tema del PCB:
+	prefs.custom_colors	Personalizza colori PCB:
+	prefs.custom_theme_name	Nome tema personalizzato:
+	prefs.color_canvas	Sfondo della tela:
+	prefs.color_board_outline	Bordo della scheda:
+	prefs.color_board_fill	Riempimento della scheda:
+	prefs.color_part_body	Corpo del componente:
+	prefs.color_part_text	Etichette dei componenti:
+	prefs.color_pin_default	Pin predefinito:
+	prefs.color_pin_unconnected	Pin non connesso:
+	prefs.color_pin_cur_side	Evidenziazione pin (Lato corrente):
+	prefs.color_pin_opp_side	Evidenziazione pin (Lato opposto):
+	prefs.color_via_cur_side	Via predefinito:
+	prefs.color_via_highlight	Evidenziazione via:
+	prefs.color_net_web	Linee di connessione rete:
+	prefs.visualization	Visualizzazione
+	prefs.show_net_web	Mostra linee di rete (ragnatela)
+	prefs.via_display_mode	Modalità linee di rete:
+	prefs.via_mode_radial	Radiale (linee dal punto selezionato)
+	prefs.via_mode_web	Ragnatela (collega tutti i punti)
+	prefs.show_part_labels	Mostra designatori componenti
+	prefs.show_pin_annotations	Mostra numeri e annotazioni dei pin
+	prefs.adaptive_lod	Decimazione adattiva LOD
+	prefs.show_opposite	Mostra elementi del lato opposto (Raggi X)
+	prefs.show_pins	Mostra pin e pad dei componenti
+	prefs.show_vias	Mostra via e punti di test
+	prefs.show_unnamed_vias	Mostra via e pad senza nome
+	prefs.close	Chiudi
+	context_menu.pin_title	Informazioni sul pin
+	context_menu.net	Rete:
+	context_menu.side	Lato:
+	context_menu.copy_net	Copia nome rete
+	context_menu.copy_pin_info	Copia dettagli pin
+	pdf.title	Schema PDF
+	pdf.open	Apri schema PDF...
+	pdf.hide	Nascondi schema PDF
+	pdf.close	Chiudi schema PDF
+	pdf.page_prev	Pagina precedente
+	pdf.page_next	Pagina successiva
+	pdf.page_counter	Pagina {} di {}
+	pdf.hits	risultati
+	pdf.hit_prev	Precedente
+	pdf.hit_next	Successivo
+	pdf.loading_page	Caricamento pagina schema {}...

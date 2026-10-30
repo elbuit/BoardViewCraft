@@ -1,0 +1,129 @@
+# BoardViewCraft German catalog
+	app.title	BoardViewCraft - Board-Viewer in reinem Rust
+	toolbar.open_board	Platine öffnen...
+	toolbar.open_recent	Zuletzt geöffnete Dateien
+	toolbar.no_recent_files	Keine aktuellen Dateien
+	toolbar.actions	Aktionen
+	toolbar.preferences	Einstellungen...
+	toolbar.zoom	Zoom
+	toolbar.zoom_fit_window	An Fenster anpassen (F)
+	toolbar.zoom_preset_25	25%
+	toolbar.zoom_preset_50	50%
+	toolbar.zoom_preset_100	100%
+	toolbar.zoom_preset_150	150%
+	toolbar.zoom_preset_200	200%
+	toolbar.view_top	Ansicht: OBEN
+	toolbar.view_bottom	Ansicht: UNTEN
+	toolbar.rotate	Drehen
+	toolbar.pins	Pins
+	toolbar.vias	Vias
+	toolbar.load_photo	Overlay-Foto laden...
+	status.ready	Bereit. Öffnen Sie eine Platinendatei zur Prüfung.
+	actions.rotate_cw	90° im Uhrzeigersinn drehen (R)
+	actions.rotate_ccw	90° gegen den Uhrzeigersinn drehen (Shift+R)
+	actions.rotate_180	180° drehen
+	actions.flip_bottom	Zu UNTEN wechseln (Leertaste)
+	actions.flip_top	Zu OBEN wechseln (Leertaste)
+	actions.mirror_x	Spiegeln X [Horizontal] (M)
+	actions.mirror_y	Spiegeln Y [Vertikal] (Shift+M)
+	actions.reset	Ausrichtung zurücksetzen
+	side_panel.net_details	Netz-Details
+	side_panel.part_details	Bauteil-Details
+	side_panel.search	Suche
+	side_panel.pins_on_net	Pins im Netz:
+	side_panel.vias_on_net	Vias im Netz:
+	side_panel.search_parts	Bauteile suchen:
+	side_panel.search_nets	Netze suchen:
+	side_panel.side	Seite
+	side_panel.pins	Pins
+	side_panel.overlay	Overlay-Foto
+	overlay.title	Overlay-Foto
+	overlay.side_top	OBEN
+	overlay.side_bottom	UNTEN
+	overlay.side_both	BEIDE
+	overlay.no_photo_loaded	Kein Foto für diese Seite geladen.
+	overlay.load_photo	Foto laden...
+	overlay.file	Datei
+	overlay.locked	Gesperrt
+	overlay.unlocked	Entsperrt
+	overlay.visible	Sichtbar
+	overlay.opacity	Deckkraft:
+	overlay.position	Position
+	overlay.size	Abmessungen
+	overlay.zoom	Zoom / Skalierung
+	overlay.aspect_locked	Seitenverhältnis sperren
+	overlay.mirror_title	Spiegeln
+	overlay.mirror_x	Spiegeln X
+	overlay.mirror_y	Spiegeln Y
+	overlay.fine_rotation	Feindrehung
+	overlay.reset_rot	Zurücksetzen
+	overlay.replace	Foto ersetzen
+	overlay.remove	Foto entfernen
+	overlay.hint_drag	Tipp: Alt + Linksklick zum Bewegen halten. Alt + Mausrad zum Skalieren.
+	overlay.align_pins	An Pins ausrichten...
+	overlay.align_active_title	Pin-Kalibrierung
+	overlay.align_add_pair	Pin-Paar hinzufügen
+	overlay.align_auto_lock	Overlay nach Anwenden automatisch sperren
+	overlay.align_apply	Ausrichtung anwenden
+	overlay.align_cancel	Abbrechen
+	overlay.align_reset	Zurücksetzen
+	overlay.align_repick	Neu wählen
+	overlay.align_delete	Löschen
+	overlay.align_col_num	#
+	overlay.align_col_pin	CAD-Pin
+	overlay.align_col_cad_pos	CAD-Pos (mils)
+	overlay.align_col_photo_pos	Foto-Pos (mils)
+	overlay.align_col_residual	Residuum
+	overlay.align_rmse	RMSE:
+	overlay.align_banner_cad	Schritt {}: Klicken Sie auf den Referenz-Pin im CAD-Layout
+	overlay.align_banner_photo	Schritt {}: Klicken Sie auf das entsprechende Pad im Foto
+	overlay.align_banner_ready	Mit {} Punkten kalibriert. Drücken Sie Anwenden oder fügen Sie mehr hinzu (Enter anwenden, Esc abbrechen).
+	overlay.align_status_min_points	Wählen Sie mindestens 2 Pin-Paare, um die Ausrichtung zu berechnen.
+	prefs.title	Einstellungen
+	prefs.language	Sprache:
+	prefs.appearance	Erscheinungsbild & Designs
+	prefs.app_theme	Anwendungs-Design:
+	prefs.pcb_theme	PCB-Design:
+	prefs.custom_colors	PCB-Farben anpassen:
+	prefs.custom_theme_name	Eigener Design-Name:
+	prefs.color_canvas	Leinwand-Hintergrund:
+	prefs.color_board_outline	Platinenumriss:
+	prefs.color_board_fill	Platinenfüllung:
+	prefs.color_part_body	Bauteilkörper:
+	prefs.color_part_text	Bauteilbeschriftungen:
+	prefs.color_pin_default	Standard-Pin:
+	prefs.color_pin_unconnected	Unverbundener Pin:
+	prefs.color_pin_cur_side	Pin-Hervorhebung (Aktuelle Seite):
+	prefs.color_pin_opp_side	Pin-Hervorhebung (Gegenüberliegende Seite):
+	prefs.color_via_cur_side	Standard-Via:
+	prefs.color_via_highlight	Via-Hervorhebung:
+	prefs.color_net_web	Netz-Verbindungslinien:
+	prefs.visualization	Visualisierung
+	prefs.show_net_web	Netz-Spinnennetz anzeigen (Gummibänder)
+	prefs.via_display_mode	Netzlinien-Modus:
+	prefs.via_mode_radial	Radial (Linien vom ausgewählten Punkt)
+	prefs.via_mode_web	Netz (Verbindung aller Punkte)
+	prefs.show_part_labels	Bauteilbezeichnungen anzeigen
+	prefs.show_pin_annotations	Pin-Nummern und Annotationen anzeigen
+	prefs.adaptive_lod	Adaptive LOD-Dezimierung
+	prefs.show_opposite	Elemente der gegenüberliegenden Seite anzeigen (Röntgen)
+	prefs.show_pins	Bauteil-Pins und Pads anzeigen
+	prefs.show_vias	Vias und Testpunkte anzeigen
+	prefs.show_unnamed_vias	Unbenannte Vias und Pads anzeigen
+	prefs.close	Schließen
+	context_menu.pin_title	Pin-Information
+	context_menu.net	Netz:
+	context_menu.side	Seite:
+	context_menu.copy_net	Netznamen kopieren
+	context_menu.copy_pin_info	Pin-Details kopieren
+	pdf.title	Schaltplan-PDF
+	pdf.open	Schaltplan-PDF öffnen...
+	pdf.hide	Schaltplan-PDF ausblenden
+	pdf.close	Schaltplan-PDF schließen
+	pdf.page_prev	Vorherige Seite
+	pdf.page_next	Nächste Seite
+	pdf.page_counter	Seite {} von {}
+	pdf.hits	Treffer
+	pdf.hit_prev	Vorheriger
+	pdf.hit_next	Nächster
+	pdf.loading_page	Lade Schaltplan-Seite {}...
