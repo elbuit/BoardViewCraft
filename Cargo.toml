@@ -4,6 +4,7 @@ members = [
     "crates/*",
     "apps/*",
 ]
+default-members = ["apps/boardviewcraft"]
 
 [workspace.package]
 version = "0.1.4"
