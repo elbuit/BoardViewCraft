@@ -1261,6 +1261,7 @@ dependencies = [
 [[package]]
 name = "hayro"
 version = "0.7.1"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "bytemuck",
  "hayro-interpret",
@@ -1286,6 +1287,7 @@ checksum = "2866f0d976e76497480b853d5e258dab6e4b89ecfe991124e08f15dfa8fd03ad"
 [[package]]
 name = "hayro-cmap"
 version = "0.1.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "brotli",
  "hayro-postscript",
@@ -1294,6 +1296,7 @@ dependencies = [
 [[package]]
 name = "hayro-interpret"
 version = "0.7.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "bitflags 2.13.2",
  "hayro-cmap",
@@ -1330,10 +1333,12 @@ dependencies = [
 [[package]]
 name = "hayro-postscript"
 version = "0.1.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 
 [[package]]
 name = "hayro-syntax"
 version = "0.7.2"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "flate2",
  "hayro-ccitt 0.3.0",
@@ -1631,6 +1636,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "lopdf"
 version = "0.45.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "aes",
  "bitflags 2.13.2",
@@ -2235,6 +2241,7 @@ dependencies = [
 [[package]]
 name = "pdfcraft-cos"
 version = "0.15.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "chrono",
  "pdfcraft-crypt",
@@ -2245,6 +2252,7 @@ dependencies = [
 [[package]]
 name = "pdfcraft-crypt"
 version = "0.15.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "aes",
  "md-5",
@@ -2256,6 +2264,7 @@ dependencies = [
 [[package]]
 name = "pdfcraft-filters"
 version = "0.15.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "fax",
  "flate2",
@@ -2266,6 +2275,7 @@ dependencies = [
 [[package]]
 name = "pdfcraft-fonts"
 version = "0.15.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "harfrust",
  "pdfcraft-cos",
@@ -2276,6 +2286,7 @@ dependencies = [
 [[package]]
 name = "pdfcraft-render"
 version = "0.15.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "bytemuck",
  "getrandom 0.4.3",
@@ -3244,6 +3255,7 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.8"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "bytemuck",
  "fearless_simd 0.4.1",
@@ -3291,6 +3303,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.8"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
 dependencies = [
  "bytemuck",
  "glifo 0.1.1",
@@ -4167,3 +4180,4 @@ dependencies = [
 [[patch.unused]]
 name = "hayro-jbig2"
 version = "0.3.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
