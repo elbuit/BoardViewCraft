@@ -765,9 +765,7 @@ impl eframe::App for BoardViewApp {
                         if self.pdf_viewer.pending_center_on_match {
                             if let Some(hit) = self.pdf_viewer.search_results.get(self.pdf_viewer.selected_result_idx) {
                                 if hit.page_number == self.pdf_viewer.current_page {
-                                    let page_size_pts = self.pdf_viewer.index.lock().ok().and_then(|idx| {
-                                        idx.page_sizes.get(&self.pdf_viewer.current_page).copied()
-                                    }).unwrap_or(egui::vec2(1224.0, 792.0));
+                                    let page_size_pts = self.pdf_viewer.page_size_pts(self.pdf_viewer.current_page);
 
                                     let center_pt = hit.bbox.center();
                                     let comp_raster_x = center_pt.x * (orig_dim.x / page_size_pts.x.max(1.0)) * effective_scale;
@@ -796,9 +794,7 @@ impl eframe::App for BoardViewApp {
                         );
 
                         // PDF coordinate mapping function (PDF points -> screen points on raster)
-                        let page_size_pts = self.pdf_viewer.index.lock().ok().and_then(|idx| {
-                            idx.page_sizes.get(&self.pdf_viewer.current_page).copied()
-                        }).unwrap_or(egui::vec2(1224.0, 792.0));
+                        let page_size_pts = self.pdf_viewer.page_size_pts(self.pdf_viewer.current_page);
                         let to_screen = |pdf_pt: Pos2| -> Pos2 {
                             let scale_x = orig_dim.x / page_size_pts.x.max(1.0);
                             let scale_y = orig_dim.y / page_size_pts.y.max(1.0);
@@ -844,9 +840,7 @@ impl eframe::App for BoardViewApp {
                                     let pdf_pt_y = rel_screen.y / (scale_y * effective_scale);
                                     let clicked_pdf_pt = Pos2::new(pdf_pt_x, pdf_pt_y);
 
-                                    let clicked_token = self.pdf_viewer.index.lock().ok().and_then(|idx| {
-                                        idx.find_token_at(self.pdf_viewer.current_page, clicked_pdf_pt)
-                                    });
+                                    let clicked_token = self.pdf_viewer.find_token_at(self.pdf_viewer.current_page, clicked_pdf_pt);
 
                                     if let Some(occ) = clicked_token {
                                         let token_raw = occ.text.trim();
