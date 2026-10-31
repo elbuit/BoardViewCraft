@@ -28,6 +28,8 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 
 - [x] T4 — Fix slow board interaction after T3 (user report 2026-10-31: board opens with trace look but is very slow); measure in the real GUI path, then fix (route: delegated writer; runtime diagnosis + likely multi-file)
 
+- [ ] T5 — Zoom is still slow (user report 2026-10-31 after T4: opening fast, zooming not); measure zoom in the real GUI at several levels and fix, e.g. world-space cached meshes transformed per frame instead of re-tessellating every zoom step (route: delegated writer)
+
 ## Acceptance criteria
 - On `tmp/MS-V375 REV 7.0.cad`: pins carry real pad width/height/rotation; parts carry outlines; PCIe edge connector fingers render as long thin rectangles at true size inside a filled body.
 - Other formats render as before (round pins), tests pass.
