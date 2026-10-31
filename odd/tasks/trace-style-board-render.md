@@ -24,7 +24,7 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 ## Tasks
 - [x] T1 — Model fields + pad-aware part bbox (route: delegated writer; multi-file)
 - [x] T2 — GenCAD pads and part outlines (route: same writer)
-- [ ] T3 — Renderer: filled bodies, rotated pads, palette (route: same writer)
+- [x] T3 — Renderer: filled bodies, rotated pads, palette (route: same writer)
 
 ## Acceptance criteria
 - On `tmp/MS-V375 REV 7.0.cad`: pins carry real pad width/height/rotation; parts carry outlines; PCIe edge connector fingers render as long thin rectangles at true size inside a filled body.
@@ -42,6 +42,7 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - `cargo test --release -p bvc-core --lib board::tests`: 7 passed. `cargo test --workspace --release`: all ok (71 passed, 1 ignored in ui-egui). Clippy per-file warning counts identical to base `0d78513`.
 
 ### T2 evidence
+- Commit: `9a89425` feat(gencad): read pad shapes and component outlines.
 - New `parser/gencad_geometry.rs` (port of trace `transform`, `geometry`, `outerContour`, MIT notice); `gencad.rs` parses `$PADS`, stack pads (layer/rot/mirror), shape artwork, and resolves pin -> padstack -> pad with trace's layer selection and transform chain (stack pad -> shape pin -> component).
 - Exact RECTANGULAR/SQUARE pads keep local size plus the placed angle; ROUND+CIRCLE pads get diameter; others (FINGER, multi-path) use the placed axis-aligned bounds (as trace). Sizeless pads keep radius 5 and no size.
 - Part outline = outer artwork contour, else trace fallback (body bounds + 0.2 mm rectangle); part bbox = body points (artwork + pad rects) as in trace. Fixture has no shape artwork, so all outlines are the fallback rectangle.
@@ -49,3 +50,12 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - Fixture stats: 7974 pins, 96 sizeless; rect rotations 0/90/180/270 (+ a few 135/225); CN1 fingers 27.559 x 153.937 mil.
 - Deviations: pin position stays the transformed shape PIN position (trace uses the pad geometry centre; equal for centred pads, < 0.001 mil off on the fixture); `$ARTWORKS` references are not expanded (trace does not either); `$BOARD` outline unchanged (out of scope); lenient parsing (bad rows skipped, trace fails).
 - `cargo test --workspace --release`: all ok. Clippy per-file counts identical to base.
+
+### T3 evidence
+- `canvas.rs`: part bodies filled (outline polygon, lyon via per-thread tessellator, convex-quad fast path) + stroked (0.95 px, selected 2 px in `selection`), drawn before vias/pads; the 18 px skip is replaced by trace's tiny-part marker (< 3 px -> >= 2.6 px rect). Pads with a size draw as rotated rects / true-size circles / equal-area points below 1.5 px (trace `appendPadPath`, markers 1 px ordinary, 2.2 px net/hover); sizeless pins keep the old LOD circle path (other formats unchanged). Hover, net highlight (filled) and opposite-side net outline work for rect pads too.
+- `render.rs`: `append_rotated_rect_to_mesh`, `append_rotated_rect_outline_to_mesh`, `append_closed_polyline_to_mesh`, `append_polygon_fill_to_mesh`; removed the now-unused `append_rect_outline_to_mesh`.
+- `theme.rs`: new `part_body_line` token (serde default for saved custom themes); Cadcraft/Dark use trace dark chip/chipLine/pad, Light uses trace light; Warm/SweetCold keep their pin colour, get opaque bodies.
+- Test-first exception: renderer behaviour has no prior runnable RED (visual); tests added with the change: ScreenPad rotation/view, small sizes, CN1 fingers tall on screen, filled bodies present, render helper tests.
+- Mesh build timing (`bench_fixture_mesh_build`, release, 1920x1080, median of 11; 3 runs): before (T2 renderer) fit 2.0-2.9 ms / zoom8 0.48-0.50 ms; after fit 2.8-3.8 ms / zoom8 0.62-0.74 ms (~+30-50%, still cached by `ViewCacheKey`).
+- `cargo test --workspace --release`: all ok (ui-egui 77 passed, 1 ignored). `cargo clippy --workspace --release`: warnings identical by file+message to the previous commit, per-file counts identical to base. `cargo build --release`: ok.
+- Not verified: visual appearance in the GUI (no screen access); custom-theme editor has no picker for `part_body_line` (needs a new i18n key; i18n.rs out of surface).

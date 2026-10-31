@@ -1146,6 +1146,133 @@ pub fn render_calibration_overlays(
 
 /// Generates render meshes for all visible board entities using spatial frustum queries,
 /// precomputed net membership, and subpixel LOD tessellation.
+/// Below this projected size (pixels) a part body becomes a small display-only marker.
+const TINY_PART_PX: f64 = 3.0;
+/// Minimum on-screen size (pixels) of a tiny-part marker.
+const TINY_PART_MARKER_PX: f32 = 2.6;
+/// Minimum on-screen pad radius / half-size (pixels) for ordinary and net-highlighted pads.
+const PAD_MARKER_PX: f32 = 1.0;
+const PAD_MARKER_NET_PX: f32 = 2.2;
+/// Below this on-screen half-size (pixels) a pad is drawn as an equal-area square point.
+const PAD_POINT_PX: f32 = 1.5;
+
+/// Appends one part body: its outline (or bounding box) filled and stroked, or a marker when tiny.
+///
+/// Portions adapted from TRACE Boardviewer (MIT), Copyright (c) 2026 TRACE Boardviewer contributors
+/// (`drawBodies` in `src/components/board-render-2d.ts`).
+#[allow(clippy::too_many_arguments)]
+fn append_part_body(
+    mesh: &mut Mesh,
+    part: &bvc_core::Part,
+    bbox: Rect,
+    is_selected: bool,
+    scale: f32,
+    axis_x: egui::Vec2,
+    axis_y: egui::Vec2,
+    to_screen: &dyn Fn(Point) -> Pos2,
+    tokens: &Tokens,
+) {
+    let (line_color, line_px) = if is_selected { (tokens.selection, 2.0) } else { (tokens.part_body_line, 0.95) };
+    if bbox.width().max(bbox.height()) * (scale as f64) < TINY_PART_PX {
+        // Display-only footprint marker keeps tiny parts visible without changing geometry.
+        let at_least = |v: egui::Vec2, px: f32| {
+            let len = v.length();
+            if len < px && len > 0.0 { v * (px / len) } else { v }
+        };
+        let half_u = at_least(axis_x * (bbox.width() * 0.5) as f32, TINY_PART_MARKER_PX * 0.5);
+        let half_v = at_least(axis_y * (bbox.height() * 0.5) as f32, TINY_PART_MARKER_PX * 0.5);
+        let fill = if is_selected { tokens.selection } else { tokens.part_body };
+        Renderer::append_rotated_rect_to_mesh(mesh, to_screen(bbox.center()), half_u, half_v, fill);
+        return;
+    }
+    let mut outline: &[Point] = &part.outline;
+    if outline.len() > 3 && outline[0] == outline[outline.len() - 1] {
+        outline = &outline[..outline.len() - 1];
+    }
+    let points: Vec<Pos2> = if outline.len() >= 3 {
+        outline.iter().map(|&p| to_screen(p)).collect()
+    } else {
+        [
+            Point::new(bbox.min_x, bbox.min_y),
+            Point::new(bbox.max_x, bbox.min_y),
+            Point::new(bbox.max_x, bbox.max_y),
+            Point::new(bbox.min_x, bbox.max_y),
+        ]
+        .into_iter()
+        .map(to_screen)
+        .collect()
+    };
+    Renderer::append_polygon_fill_to_mesh(mesh, &points, tokens.part_body);
+    Renderer::append_closed_polyline_to_mesh(mesh, &points, line_px * 0.5, line_color);
+}
+
+/// On-screen shape of a pad with a known physical size.
+///
+/// Portions adapted from TRACE Boardviewer (MIT), Copyright (c) 2026 TRACE Boardviewer contributors
+/// (`appendPadPath` in `src/lib/render-geometry.ts`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ScreenPad {
+    /// Round pad of this screen radius.
+    Circle(f32),
+    /// Rotated rectangle given by its screen half-extent vectors.
+    Rect(egui::Vec2, egui::Vec2),
+    /// Equal-area axis-aligned square point of this half-size (pad too small to show its shape).
+    Point(f32),
+}
+
+impl ScreenPad {
+    /// Screen shape of `pin`'s pad, or `None` when the pad has no physical size (caller keeps the
+    /// legacy radius-based circle). `marker_px` is the minimum radius in pixels for round pads.
+    fn of(pin: &bvc_core::Pin, scale: f32, axis_x: egui::Vec2, axis_y: egui::Vec2, marker_px: f32) -> Option<Self> {
+        let (w, h) = pin.pad_size()?;
+        let scale_f64 = scale as f64;
+        if pin.shape == bvc_core::model::PadShape::Round {
+            let radius = (w.min(h) * 0.5 * scale_f64) as f32;
+            let radius = radius.max(marker_px);
+            return Some(if radius < PAD_POINT_PX {
+                ScreenPad::Point(radius * std::f32::consts::PI.sqrt() * 0.5)
+            } else {
+                ScreenPad::Circle(radius)
+            });
+        }
+        let min_world = 1.5 / scale_f64;
+        let half_w = w.max(min_world) * 0.5;
+        let half_h = h.max(min_world) * 0.5;
+        if (half_w.max(half_h) * scale_f64) < PAD_POINT_PX as f64 {
+            return Some(ScreenPad::Point(((half_w * half_h).sqrt() * scale_f64) as f32));
+        }
+        let (cos, sin) = bvc_core::model::quadrant(pin.rotation_deg);
+        let u = axis_x * (cos * half_w) as f32 + axis_y * (sin * half_w) as f32;
+        let v = axis_x * (-sin * half_h) as f32 + axis_y * (cos * half_h) as f32;
+        Some(ScreenPad::Rect(u, v))
+    }
+
+    fn fill(self, mesh: &mut Mesh, center: Pos2, color: Color32) {
+        match self {
+            ScreenPad::Circle(r) => Renderer::append_circle_to_mesh(mesh, center, r, color),
+            ScreenPad::Rect(u, v) => Renderer::append_rotated_rect_to_mesh(mesh, center, u, v, color),
+            ScreenPad::Point(h) => Renderer::append_rect_filled_to_mesh(
+                mesh,
+                Pos2::new(center.x - h, center.y - h),
+                Pos2::new(center.x + h, center.y + h),
+                color,
+            ),
+        }
+    }
+
+    fn outline(self, mesh: &mut Mesh, center: Pos2, stroke_w: f32, color: Color32) {
+        match self {
+            ScreenPad::Circle(r) => Renderer::append_circle_outline_to_mesh(mesh, center, r, stroke_w, color),
+            ScreenPad::Rect(u, v) => {
+                Renderer::append_rotated_rect_outline_to_mesh(mesh, center, u, v, stroke_w * 0.5, color)
+            }
+            ScreenPad::Point(h) => {
+                Renderer::append_circle_outline_to_mesh(mesh, center, h.max(1.5), stroke_w, color)
+            }
+        }
+    }
+}
+
 pub fn generate_board_meshes(
     b: &Board,
     vp: &Viewport,
@@ -1190,55 +1317,29 @@ pub fn generate_board_meshes(
         }
     }
 
-    // 2. Component bounding outlines
-    let outlines_mesh: Mesh = b
+    // Linear part of the world-to-screen mapping (screen pixels per world unit along world X and Y).
+    // Lets pads and bodies be placed with one multiply-add per corner instead of a full transform.
+    let screen_origin = vp.world_to_screen(vp.center, rect);
+    let axis_x = vp.world_to_screen(Point::new(vp.center.x + 1.0, vp.center.y), rect) - screen_origin;
+    let axis_y = vp.world_to_screen(Point::new(vp.center.x, vp.center.y + 1.0), rect) - screen_origin;
+    let to_screen = |p: Point| -> Pos2 {
+        screen_origin + axis_x * (p.x - vp.center.x) as f32 + axis_y * (p.y - vp.center.y) as f32
+    };
+
+    // 2. Part bodies: filled outline plus stroke, drawn below vias and pads (TRACE Boardviewer style).
+    let bodies_mesh: Mesh = b
         .parts
         .par_iter()
         .filter(|part| {
-            if !part.side.visible_on(vp.side) {
-                return false;
-            }
-            match part.bounding_box {
-                Some(ref bbox) => {
-                    let is_part_selected = selected_part_idx == Some(part.id);
-                    if !is_part_selected {
-                        // LOD decimation: skip dense outlines for small components when zoomed out
-                        let w_screen = bbox.width() * (vp.scale as f64);
-                        let h_screen = bbox.height() * (vp.scale as f64);
-                        if w_screen < 18.0 && h_screen < 18.0 {
-                            return false;
-                        }
-                    }
-                    bbox.intersects(&visible_world)
-                }
-                None => false,
-            }
+            part.side.visible_on(vp.side)
+                && part.bounding_box.is_some_and(|bbox| bbox.intersects(&visible_world))
         })
         .fold(
             Mesh::default,
             |mut mesh, part| {
-                if let Some(ref c_rect) = part.bounding_box {
+                if let Some(bbox) = part.bounding_box {
                     let is_part_selected = selected_part_idx == Some(part.id);
-                    let stroke_color = if is_part_selected {
-                        tokens.selection
-                    } else {
-                        tokens.part_body
-                    };
-
-                    let p1 = vp.world_to_screen(Point::new(c_rect.min_x, c_rect.min_y), rect);
-                    let p2 = vp.world_to_screen(Point::new(c_rect.max_x, c_rect.min_y), rect);
-                    let p3 = vp.world_to_screen(Point::new(c_rect.max_x, c_rect.max_y), rect);
-                    let p4 = vp.world_to_screen(Point::new(c_rect.min_x, c_rect.max_y), rect);
-
-                    Renderer::append_rect_outline_to_mesh(
-                        &mut mesh,
-                        p1,
-                        p2,
-                        p3,
-                        p4,
-                        0.75, // half_width for 1.5px stroke
-                        stroke_color,
-                    );
+                    append_part_body(&mut mesh, part, bbox, is_part_selected, vp.scale, axis_x, axis_y, &to_screen, tokens);
                 }
                 mesh
             },
@@ -1251,8 +1352,8 @@ pub fn generate_board_meshes(
             },
         );
 
-    if !outlines_mesh.is_empty() {
-        new_meshes.push(outlines_mesh);
+    if !bodies_mesh.is_empty() {
+        new_meshes.push(bodies_mesh);
     }
 
     // Precompute O(1) net membership lookup
@@ -1414,28 +1515,41 @@ pub fn generate_board_meshes(
                     // Selected pin outline is rendered exclusively by the painter pass with the outer ring + label,
                     // avoiding double concentric circles.
                 } else if is_hovered {
-                    let screen_r = raw_screen_r.clamp(2.0, 40.0);
-                    Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
+                    if let Some(pad) = ScreenPad::of(pin, vp.scale, axis_x, axis_y, PAD_MARKER_NET_PX) {
+                        pad.fill(&mut hl_mesh, screen_pos, tokens.hover);
+                    } else {
+                        let screen_r = raw_screen_r.clamp(2.0, 40.0);
+                        Renderer::append_circle_to_mesh(&mut hl_mesh, screen_pos, screen_r, tokens.hover);
+                    }
                 } else if is_net_selected {
+                    let pad = ScreenPad::of(pin, vp.scale, axis_x, axis_y, PAD_MARKER_NET_PX);
                     if is_on_cur_side {
-                        // Current side: filled highlight circle
-                        Renderer::append_lod_circle_to_mesh(
-                            &mut hl_mesh,
-                            screen_pos,
-                            raw_screen_r,
-                            is_high_density,
-                            tokens.pin_highlight_cur_side,
-                        );
+                        // Current side: filled highlight pad
+                        if let Some(pad) = pad {
+                            pad.fill(&mut hl_mesh, screen_pos, tokens.pin_highlight_cur_side);
+                        } else {
+                            Renderer::append_lod_circle_to_mesh(
+                                &mut hl_mesh,
+                                screen_pos,
+                                raw_screen_r,
+                                is_high_density,
+                                tokens.pin_highlight_cur_side,
+                            );
+                        }
                     } else {
                         // Opposite side: hollow outline / border ONLY!
                         let stroke_w = if is_high_density { 1.2 } else { 1.8 };
-                        Renderer::append_circle_outline_to_mesh(
-                            &mut hl_mesh,
-                            screen_pos,
-                            raw_screen_r.clamp(1.5, 40.0),
-                            stroke_w,
-                            tokens.pin_highlight_opp_side,
-                        );
+                        if let Some(pad) = pad {
+                            pad.outline(&mut hl_mesh, screen_pos, stroke_w, tokens.pin_highlight_opp_side);
+                        } else {
+                            Renderer::append_circle_outline_to_mesh(
+                                &mut hl_mesh,
+                                screen_pos,
+                                raw_screen_r.clamp(1.5, 40.0),
+                                stroke_w,
+                                tokens.pin_highlight_opp_side,
+                            );
+                        }
                     }
                 } else {
                     let color = if !is_on_cur_side {
@@ -1446,13 +1560,17 @@ pub fn generate_board_meshes(
                         tokens.pin_default
                     };
 
-                    Renderer::append_lod_circle_to_mesh(
-                        &mut normal_mesh,
-                        screen_pos,
-                        raw_screen_r,
-                        false,
-                        color,
-                    );
+                    if let Some(pad) = ScreenPad::of(pin, vp.scale, axis_x, axis_y, PAD_MARKER_PX) {
+                        pad.fill(&mut normal_mesh, screen_pos, color);
+                    } else {
+                        Renderer::append_lod_circle_to_mesh(
+                            &mut normal_mesh,
+                            screen_pos,
+                            raw_screen_r,
+                            false,
+                            color,
+                        );
+                    }
                 }
 
                 (normal_mesh, hl_mesh)
@@ -1734,6 +1852,133 @@ mod tests {
         assert!(!meshes.is_empty(), "Meshes must be produced for GND");
         println!("Dense net tessellation (4,755 GND nodes) took {:?}", elapsed);
         assert!(elapsed.as_millis() < 80, "Tessellation took {:?}, expected < 80ms in debug build", elapsed);
+    }
+
+    fn axes(vp: &Viewport, rect: EguiRect) -> (egui::Vec2, egui::Vec2) {
+        let o = vp.world_to_screen(vp.center, rect);
+        (
+            vp.world_to_screen(Point::new(vp.center.x + 1.0, vp.center.y), rect) - o,
+            vp.world_to_screen(Point::new(vp.center.x, vp.center.y + 1.0), rect) - o,
+        )
+    }
+
+    fn rect_pad(w: f64, h: f64, rot: f64) -> Pin {
+        Pin {
+            shape: bvc_core::model::PadShape::Rect,
+            width: Some(w),
+            height: Some(h),
+            rotation_deg: rot,
+            radius: w.min(h) / 2.0,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn screen_pad_follows_pad_rotation_and_view() {
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut vp = Viewport::default();
+        vp.scale = 1.0;
+        let (ax, ay) = axes(&vp, rect);
+        // 10 x 40 pad: tall on screen unrotated, wide when rotated 90 degrees.
+        let Some(ScreenPad::Rect(u, v)) = ScreenPad::of(&rect_pad(10.0, 40.0, 0.0), vp.scale, ax, ay, PAD_MARKER_PX) else {
+            panic!("expected a rect")
+        };
+        assert!((u.length() - 5.0).abs() < 1e-4 && (v.length() - 20.0).abs() < 1e-4);
+        assert!(v.y.abs() > v.x.abs());
+        let Some(ScreenPad::Rect(_, v)) = ScreenPad::of(&rect_pad(10.0, 40.0, 90.0), vp.scale, ax, ay, PAD_MARKER_PX) else {
+            panic!("expected a rect")
+        };
+        assert!(v.x.abs() > v.y.abs());
+        // View rotation turns it back to tall.
+        vp.rotation = vp.rotation.rotate_cw();
+        let (ax, ay) = axes(&vp, rect);
+        let Some(ScreenPad::Rect(_, v)) = ScreenPad::of(&rect_pad(10.0, 40.0, 90.0), vp.scale, ax, ay, PAD_MARKER_PX) else {
+            panic!("expected a rect")
+        };
+        assert!(v.y.abs() > v.x.abs());
+    }
+
+    #[test]
+    fn screen_pad_small_sizes_and_sizeless_pins() {
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut vp = Viewport::default();
+        vp.scale = 0.01;
+        let (ax, ay) = axes(&vp, rect);
+        assert!(matches!(ScreenPad::of(&rect_pad(10.0, 40.0, 0.0), vp.scale, ax, ay, PAD_MARKER_PX), Some(ScreenPad::Point(_))));
+        // Sizeless pins keep the legacy circle path.
+        assert_eq!(ScreenPad::of(&Pin { radius: 5.0, ..Default::default() }, vp.scale, ax, ay, PAD_MARKER_PX), None);
+        // A round pad never shrinks below the marker radius.
+        let round = Pin { width: Some(2.0), height: Some(2.0), radius: 1.0, ..Default::default() };
+        vp.scale = 1.0;
+        let (ax, ay) = axes(&vp, rect);
+        assert_eq!(ScreenPad::of(&round, vp.scale, ax, ay, PAD_MARKER_NET_PX), Some(ScreenPad::Circle(PAD_MARKER_NET_PX)));
+    }
+
+    #[test]
+    fn fixture_pcie_fingers_render_tall_and_bodies_are_filled() {
+        let Some(board) = ms_v375_fixture() else { return };
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        vp.scale *= 8.0;
+        let (ax, ay) = axes(&vp, rect);
+        let cn1 = &board.parts[board.part_by_name["CN1"]];
+        let mut tall = 0;
+        for &pi in &cn1.pin_indices {
+            if let Some(ScreenPad::Rect(u, v)) = ScreenPad::of(&board.pins[pi], vp.scale, ax, ay, PAD_MARKER_PX) {
+                let (long, short) = if u.length() > v.length() { (u, v) } else { (v, u) };
+                if long.y.abs() > long.x.abs() && long.length() > 2.0 * short.length() {
+                    tall += 1;
+                }
+            }
+        }
+        assert!(tall >= 160, "{tall} CN1 fingers render as tall thin rectangles");
+
+        // Bodies are filled: the body mesh contains the body fill colour.
+        let tokens = Tokens::DARK;
+        let mut renderer = Renderer::new();
+        let meshes = generate_board_meshes(
+            &board, &vp, rect, &tokens, None, None, None, None, None, None, &mut renderer,
+            false, ViaDisplayMode::Web, false, true, false, true,
+        );
+        assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.part_body)));
+        assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.pin_default)));
+    }
+
+    /// Loads the MS-V375 GenCAD fixture from `tmp/` (skips when absent).
+    fn ms_v375_fixture() -> Option<Board> {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tmp/MS-V375 REV 7.0.cad");
+        let data = std::fs::read(&path).ok()?;
+        Some(bvc_core::ParserRegistry::default().parse_file("MS-V375.cad", &data).expect("parse fixture"))
+    }
+
+    /// Median mesh build time on the fixture: whole board and an 8x zoom. Prints timings for comparison.
+    #[test]
+    fn bench_fixture_mesh_build() {
+        let Some(board) = ms_v375_fixture() else { return };
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+        let tokens = Tokens::DARK;
+        let mut renderer = Renderer::new();
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), canvas_rect);
+        let mut zoomed = vp.clone();
+        zoomed.scale *= 8.0;
+        for (label, view) in [("fit", &vp), ("zoom8", &zoomed)] {
+            let mut times = Vec::new();
+            let mut vertices = 0;
+            for _ in 0..11 {
+                let start = Instant::now();
+                let meshes = generate_board_meshes(
+                    &board, view, canvas_rect, &tokens, None, None, None, None, None, None, &mut renderer,
+                    true, ViaDisplayMode::Web, false, true, false, true,
+                );
+                times.push(start.elapsed());
+                vertices = meshes.iter().map(|m| m.vertices.len()).sum::<usize>();
+            }
+            times.sort();
+            println!("fixture mesh build [{label}]: median {:?}, min {:?}, {vertices} vertices", times[5], times[0]);
+            assert!(vertices > 0);
+        }
     }
 
     #[test]
