@@ -221,7 +221,7 @@ impl BoardViewApp {
                     self.status_msg = format!("Failed to load photo: {err}");
                 } else {
                     self.status_msg = format!("Loaded overlay photo for {side:?}: {}", path.display());
-                    self.side_panel_state.active_tab = side_panel::Tab::Overlay;
+                    self.side_panel_state.overlay_editing = true;
                 }
             }
         }
@@ -273,7 +273,7 @@ impl eframe::App for BoardViewApp {
                                     self.status_msg = format!("Failed to load dropped photo: {err}");
                                 } else {
                                     self.status_msg = format!("Loaded dropped overlay photo for {cur_side:?}: {}", path.display());
-                                    self.side_panel_state.active_tab = side_panel::Tab::Overlay;
+                                    self.side_panel_state.overlay_editing = true;
                                 }
                             }
                         }
@@ -439,6 +439,18 @@ impl eframe::App for BoardViewApp {
                     if ui.button(i18n::tr(lang, "toolbar.load_photo")).clicked() {
                         let cur_side = self.canvas_state.viewport.side;
                         self.open_photo_dialog(ui.ctx(), cur_side);
+                        ui.close();
+                    }
+                    // Re-open the overlay adjustment once the side panel left it.
+                    let any_overlay = self.overlay_manager.top.is_loaded() || self.overlay_manager.bottom.is_loaded();
+                    if ui.add_enabled(any_overlay, egui::Button::new(i18n::tr(lang, "actions.adjust_overlay"))).clicked() {
+                        // Show a side that has a photo when the current one has none.
+                        let cur_side = self.canvas_state.viewport.side;
+                        if !self.overlay_manager.slot_for_side_ref(cur_side).is_loaded() {
+                            self.canvas_state.viewport.side =
+                                if self.overlay_manager.top.is_loaded() { Side::Top } else { Side::Bottom };
+                        }
+                        self.side_panel_state.overlay_editing = true;
                         ui.close();
                     }
                     let pdf_toggle_label = if self.pdf_viewer.is_open {
@@ -938,7 +950,6 @@ impl eframe::App for BoardViewApp {
                                                     self.canvas_state.viewport.side = side;
                                                 }
 
-                                                self.side_panel_state.active_tab = side_panel::Tab::Part;
                                                 self.canvas_state.cached_view_key = None;
                                                 self.status_msg = format!("Selected part {} from schematic PDF", part.name);
                                                 ui.ctx().request_repaint();
@@ -954,7 +965,6 @@ impl eframe::App for BoardViewApp {
                                                     self.canvas_state.viewport.center = first_pin.pos;
                                                 }
 
-                                                self.side_panel_state.active_tab = side_panel::Tab::Net;
                                                 self.canvas_state.cached_view_key = None;
                                                 self.status_msg = format!("Selected net {} ({} pins) from schematic PDF", net.name, net.pin_indices.len());
                                                 ui.ctx().request_repaint();
@@ -1045,7 +1055,7 @@ impl eframe::App for BoardViewApp {
         CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
             .show(ui, |ui: &mut Ui| {
-                let overlay_mode_active = self.side_panel_state.active_tab == side_panel::Tab::Overlay;
+                let overlay_mode_active = self.side_panel_state.overlay_editing;
                 let response = show_canvas(
                     ui,
                     &self.tokens,

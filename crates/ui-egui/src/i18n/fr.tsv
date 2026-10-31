@@ -29,17 +29,17 @@
 	actions.mirror_x	Miroir X [Horizontal] (M)
 	actions.mirror_y	Miroir Y [Vertical] (Shift+M)
 	actions.reset	Réinitialiser l'orientation
-	side_panel.net_details	Détails du réseau
-	side_panel.part_details	Détails du composant
-	side_panel.search	Recherche
+	actions.adjust_overlay	Ajuster la photo superposée
+	side_panel.back_to_search	← Recherche
 	side_panel.pins_on_net	Broches sur le réseau :
 	side_panel.vias_on_net	Vias sur le réseau :
 	side_panel.search_parts	Rechercher des composants :
 	side_panel.search_nets	Rechercher des réseaux :
 	side_panel.side	Côté
 	side_panel.pins	Broches
-	side_panel.overlay	Photo superposée
 	overlay.title	Photo superposée
+	overlay.done	Terminé
+	overlay.done_calibrating_hint	Terminez ou annulez d'abord l'alignement par broches
 	overlay.side_top	DESSUS
 	overlay.side_bottom	DESSOUS
 	overlay.side_both	LES DEUX

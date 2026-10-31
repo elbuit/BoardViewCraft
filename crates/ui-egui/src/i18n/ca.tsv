@@ -29,17 +29,17 @@
 	actions.mirror_x	Espillar X [Horitzontal] (M)
 	actions.mirror_y	Espillar Y [Vertical] (Shift+M)
 	actions.reset	Restablir orientació
-	side_panel.net_details	Detalls de Xarxa
-	side_panel.part_details	Detalls de Component
-	side_panel.search	Cercar
+	actions.adjust_overlay	Ajustar foto superposada
+	side_panel.back_to_search	← Cercar
 	side_panel.pins_on_net	Pins a la Xarxa:
 	side_panel.vias_on_net	Vies a la Xarxa:
 	side_panel.search_parts	Cercar Components:
 	side_panel.search_nets	Cercar Xarxes:
 	side_panel.side	Capa
 	side_panel.pins	Pins
-	side_panel.overlay	Foto Superposada
 	overlay.title	Foto de Fons
+	overlay.done	Fet
+	overlay.done_calibrating_hint	Acaba o cancel·la primer l'alineació per pins
 	overlay.side_top	SUPERIOR
 	overlay.side_bottom	INFERIOR
 	overlay.side_both	AMBDUES

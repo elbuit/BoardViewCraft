@@ -29,17 +29,17 @@
 	actions.mirror_x	Espejar X [Horizontal] (M)
 	actions.mirror_y	Espejar Y [Vertical] (Shift+M)
 	actions.reset	Restablecer orientación
-	side_panel.net_details	Detalles de Red
-	side_panel.part_details	Detalles de Componente
-	side_panel.search	Buscar
+	actions.adjust_overlay	Ajustar foto superpuesta
+	side_panel.back_to_search	← Buscar
 	side_panel.pins_on_net	Pines en la Red:
 	side_panel.vias_on_net	Vías en la Red:
 	side_panel.search_parts	Buscar Componentes:
 	side_panel.search_nets	Buscar Redes:
 	side_panel.side	Capa
 	side_panel.pins	Pines
-	side_panel.overlay	Foto Superpuesta
 	overlay.title	Foto de Fondo
+	overlay.done	Hecho
+	overlay.done_calibrating_hint	Termina o cancela primero la alineación por pines
 	overlay.side_top	SUPERIOR
 	overlay.side_bottom	INFERIOR
 	overlay.side_both	AMBAS

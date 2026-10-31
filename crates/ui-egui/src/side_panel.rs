@@ -7,31 +7,37 @@ use crate::theme::Tokens;
 use bvc_core::{Board, Point, Side};
 use egui::{Button, Color32, DragValue, RichText, ScrollArea, Slider, TextEdit, Ui};
 
+#[derive(Default)]
 pub struct SidePanelState {
     pub filter_part: String,
     pub filter_net: String,
-    pub active_tab: Tab,
+    /// Photo overlay adjustment is in progress: the panel shows the overlay view
+    /// (and the canvas manipulates the photo) until the user presses "Done".
+    pub overlay_editing: bool,
     /// Part the board view should be centered on, requested by a search click.
     /// Consumed (and cleared) by the app right after `show_side_panel` runs.
     pub focus_part: Option<usize>,
 }
 
+/// The selection-driven view of the side panel. The photo overlay view is not a
+/// variant: it is shown while `SidePanelState::overlay_editing` is set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Net,
     Part,
     Search,
-    Overlay,
 }
 
-impl Default for SidePanelState {
-    fn default() -> Self {
-        Self {
-            filter_part: String::new(),
-            filter_net: String::new(),
-            active_tab: Tab::Net,
-            focus_part: None,
-        }
+/// The detail view the side panel shows for the current selection: a pin, via or
+/// net shows the net details, a part alone (or an unconnected pin) shows the part
+/// details and an empty selection shows the search.
+pub fn auto_view(part: bool, pin: bool, via: bool, net: bool) -> Tab {
+    if net || via {
+        Tab::Net
+    } else if part || pin {
+        Tab::Part
+    } else {
+        Tab::Search
     }
 }
 
@@ -80,36 +86,23 @@ pub fn show_side_panel(
     lang: Language,
     on_load_photo: &mut Option<Side>,
 ) {
-    ui.horizontal(|ui| {
-        if ui
-            .selectable_label(state.active_tab == Tab::Net, i18n::tr(lang, "side_panel.net_details"))
-            .clicked()
-        {
-            state.active_tab = Tab::Net;
-        }
-        if ui
-            .selectable_label(state.active_tab == Tab::Part, i18n::tr(lang, "side_panel.part_details"))
-            .clicked()
-        {
-            state.active_tab = Tab::Part;
-        }
-        if ui
-            .selectable_label(state.active_tab == Tab::Search, i18n::tr(lang, "side_panel.search"))
-            .clicked()
-        {
-            state.active_tab = Tab::Search;
-        }
-        if ui
-            .selectable_label(state.active_tab == Tab::Overlay, i18n::tr(lang, "side_panel.overlay"))
-            .clicked()
-        {
-            state.active_tab = Tab::Overlay;
-        }
-    });
-
-    ui.separator();
-
-    if state.active_tab == Tab::Overlay {
+    // Overlay adjustment stays on screen while a pin alignment is running, so it
+    // can always be finished or cancelled.
+    let calibrating = alignment_session.is_active();
+    if state.overlay_editing || calibrating {
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let done = ui.add_enabled(!calibrating, Button::new(i18n::tr(lang, "overlay.done")));
+                let done = if calibrating {
+                    done.on_disabled_hover_text(i18n::tr(lang, "overlay.done_calibrating_hint"))
+                } else {
+                    done
+                };
+                if done.clicked() {
+                    state.overlay_editing = false;
+                }
+            });
+        });
         show_overlay_panel(
             ui,
             tokens,
@@ -130,7 +123,26 @@ pub fn show_side_panel(
         return;
     };
 
-    match state.active_tab {
+    let view = auto_view(
+        selected_part_idx.is_some(),
+        selected_pin_idx.is_some(),
+        selected_via_idx.is_some(),
+        selected_net.is_some(),
+    );
+
+    // Detail views get a way back to the search, which clears the selection.
+    if view != Tab::Search {
+        if ui.button(i18n::tr(lang, "side_panel.back_to_search")).clicked() {
+            *selected_part_idx = None;
+            *selected_pin_idx = None;
+            *selected_via_idx = None;
+            *selected_net = None;
+            return;
+        }
+        ui.separator();
+    }
+
+    match view {
         Tab::Net => {
             if let Some(net_name) = selected_net {
                 ui.horizontal(|ui| {
@@ -354,7 +366,6 @@ pub fn show_side_panel(
                                     selected_net,
                                 );
                                 state.focus_part = Some(part.id);
-                                state.active_tab = Tab::Part;
                             }
                         }
                     }
@@ -390,20 +401,6 @@ pub fn show_side_panel(
                     }
                 }
             });
-        }
-        Tab::Overlay => {
-            show_overlay_panel(
-                ui,
-                tokens,
-                overlay_manager,
-                alignment_session,
-                current_side,
-                current_rotation_rad,
-                current_sx,
-                current_sy,
-                lang,
-                on_load_photo,
-            );
         }
     }
 }
@@ -796,6 +793,30 @@ pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
 mod tests {
     use super::*;
     use bvc_core::{Part, PartType, Pin, Point};
+
+    #[test]
+    fn test_auto_view_empty_selection_shows_search() {
+        assert_eq!(auto_view(false, false, false, false), Tab::Search);
+    }
+
+    #[test]
+    fn test_auto_view_part_only_shows_part() {
+        assert_eq!(auto_view(true, false, false, false), Tab::Part);
+    }
+
+    #[test]
+    fn test_auto_view_pin_via_or_net_shows_net() {
+        assert_eq!(auto_view(true, true, false, true), Tab::Net);
+        assert_eq!(auto_view(false, false, true, true), Tab::Net);
+        assert_eq!(auto_view(false, false, false, true), Tab::Net);
+        assert_eq!(auto_view(false, false, true, false), Tab::Net);
+    }
+
+    #[test]
+    fn test_auto_view_unconnected_pin_shows_its_part() {
+        // A pin without a net has no net details to show; its part is shown instead.
+        assert_eq!(auto_view(true, true, false, false), Tab::Part);
+    }
 
     #[test]
     fn test_export_net_details_tsv() {
