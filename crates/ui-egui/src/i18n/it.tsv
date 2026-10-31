@@ -134,3 +134,13 @@
 	pdf.prompt_found_msg	È stato trovato uno schema PDF corrispondente nella stessa cartella. Vuoi aprirlo?
 	pdf.prompt_open	Apri schema (Invio)
 	pdf.prompt_cancel	Annulla (Esc)
+	toolbar.about	Informazioni...
+	about.title	Informazioni su BoardViewCraft
+	about.description	Visualizzatore boardview per la riparazione di schede, con riferimento incrociato agli schemi PDF.
+	about.version	Versione
+	about.license	Licenza
+	about.platform	Piattaforma
+	about.build_profile	Profilo di compilazione
+	about.ui_toolkit	Toolkit dell'interfaccia
+	about.pdf_engine	Motore PDF
+	about.close	Chiudi

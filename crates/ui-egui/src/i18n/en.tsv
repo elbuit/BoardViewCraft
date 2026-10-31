@@ -134,3 +134,13 @@
 	pdf.prompt_found_msg	A matching schematic PDF was found in the same folder. Would you like to open it?
 	pdf.prompt_open	Open Schematic (Enter)
 	pdf.prompt_cancel	Cancel (Esc)
+	toolbar.about	About...
+	about.title	About BoardViewCraft
+	about.description	Boardview viewer for PCB repair, with schematic PDF cross-probing.
+	about.version	Version
+	about.license	License
+	about.platform	Platform
+	about.build_profile	Build profile
+	about.ui_toolkit	UI toolkit
+	about.pdf_engine	PDF engine
+	about.close	Close

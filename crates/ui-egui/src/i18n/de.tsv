@@ -134,3 +134,13 @@
 	pdf.prompt_found_msg	Ein passender Schaltplan (PDF) wurde im selben Ordner gefunden. Möchten Sie ihn öffnen?
 	pdf.prompt_open	Schaltplan öffnen (Enter)
 	pdf.prompt_cancel	Abbrechen (Esc)
+	toolbar.about	Über...
+	about.title	Über BoardViewCraft
+	about.description	Boardview-Betrachter für die Platinenreparatur, mit Querverweisen zu PDF-Schaltplänen.
+	about.version	Version
+	about.license	Lizenz
+	about.platform	Plattform
+	about.build_profile	Build-Profil
+	about.ui_toolkit	UI-Toolkit
+	about.pdf_engine	PDF-Engine
+	about.close	Schließen
