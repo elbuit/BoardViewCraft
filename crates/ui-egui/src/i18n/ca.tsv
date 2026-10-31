@@ -1,5 +1,8 @@
 # BoardViewCraft Catalan catalog
 	app.title	BoardViewCraft - Visor de Plaques en Rust
+	menu.file	Fitxer
+	menu.view	Visualitza
+	menu.help	Ajuda
 	toolbar.open_board	Obrir Board...
 	toolbar.open_recent	Fitxers Recents
 	toolbar.no_recent_files	Sense fitxers recents

@@ -1,5 +1,8 @@
 # BoardViewCraft Italian catalog
 	app.title	BoardViewCraft - Visualizzatore di circuiti stampati in Rust
+	menu.file	File
+	menu.view	Visualizza
+	menu.help	Aiuto
 	toolbar.open_board	Apri scheda...
 	toolbar.open_recent	File recenti
 	toolbar.no_recent_files	Nessun file recente

@@ -1,5 +1,8 @@
 # BoardViewCraft English catalog
 	app.title	BoardViewCraft - Pure Rust Board Viewer
+	menu.file	File
+	menu.view	View
+	menu.help	Help
 	toolbar.open_board	Open Board...
 	toolbar.open_recent	Open Recent
 	toolbar.no_recent_files	No recent files

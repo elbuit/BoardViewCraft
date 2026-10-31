@@ -18,6 +18,8 @@ User request 2026-10-31. Today the search click (`crates/ui-egui/src/side_panel.
 
 - [x] T3 — Clicking a part in the schematic PDF selects only the part and centers the board via `part_focus_target`; sets `probed_part` so the PDF does not jump back to the part's first hit (route: inline; one-file edit, user request 2026-10-31)
 
+- [x] T4 — Reorganize the top toolbar into menus: File (Open Board, Open Recent, Preferences), Actions (unchanged), View (Zoom submenu, Pins/Vias checkboxes), Help (About); side and rotate quick buttons kept (route: inline; user request 2026-10-31)
+
 ## Acceptance criteria
 - After clicking a search result: only the part is selected (pin/via/net None), viewport center == part bbox center, view side shows the part.
 - About menu entry opens a window with at least version, license, OS/arch, build profile.
@@ -34,3 +36,5 @@ ask-on-risk. Forecast ~200 authored lines.
 - T3: no RED possible (handler lives inside the egui panel closure in lib.rs; centering logic already covered by `part_focus_target` tests).
   - `cargo test -p bvc-ui-egui --release`: 66 passed, 0 failed, 1 ignored. clippy lib.rs warnings 13 -> 13. `cargo build --release`: success.
   - GUI behaviour not verified: manual check pending.
+- T4: UI-only restructure inside the toolbar closure, no meaningful RED; strings `menu.file/view/help` added to 6 catalogs, key-count test 145 -> 148.
+  - `cargo test -p bvc-ui-egui --release`: 66 passed, 0 failed, 1 ignored. clippy lib.rs 13 -> 13. `cargo build --release`: success. GUI check pending.

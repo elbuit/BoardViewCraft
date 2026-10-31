@@ -1,5 +1,8 @@
 # BoardViewCraft Spanish catalog
 	app.title	BoardViewCraft - Visor de Placas en Rust
+	menu.file	Archivo
+	menu.view	Ver
+	menu.help	Ayuda
 	toolbar.open_board	Abrir Board...
 	toolbar.open_recent	Archivos Recientes
 	toolbar.no_recent_files	Sin archivos recientes
