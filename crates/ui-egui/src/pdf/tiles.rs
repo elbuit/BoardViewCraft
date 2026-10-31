@@ -57,15 +57,33 @@ pub fn tile_side(scale: f32, page_max_px: u32) -> u32 {
     by_zoom.max(page_max_px.div_ceil(4).min(4096))
 }
 
+/// Largest tile side worth rendering for a viewport whose long side is `viewport_px` device
+/// pixels: the power of two covering it, within [`TILE`]..=4096. With tiles that size any viewport
+/// spans at most 2 x 2 tiles, so a heavy page still costs at most four (parallel) interprets.
+///
+/// Deviation from pdfcraft, whose tile side depends on the zoom and page only: at deep zoom that
+/// side reaches 4096 px while the viewport shows about 1 Mpx. On the MS-V375 fixture a page interpret
+/// costs ~10 ms but a 4096 px tile ~80-115 ms (its pixels), and each one is a 64 MiB texture upload,
+/// so a viewport-sized cap cuts the worker time and uploads of a deep-zoom jump several fold. A power
+/// of two keeps the tile grid stable while the panel is resized within the same range.
+pub fn viewport_tile_cap(viewport_px: f32) -> u32 {
+    if !viewport_px.is_finite() || viewport_px >= 4096.0 {
+        return 4096;
+    }
+    (viewport_px.max(1.0).ceil() as u32).next_power_of_two().clamp(TILE, 4096)
+}
+
 /// The tiles of a page `page_pts` at `scale` that intersect `visible`, the visible part of the page
-/// in normalized page coordinates (`[u0, v0, u1, v1]`, 0..1 across the page). Sorted nearest the
-/// viewport centre first, so workers sharpen what is looked at before the edges. Empty when nothing
-/// of the page is visible.
+/// in normalized page coordinates (`[u0, v0, u1, v1]`, 0..1 across the page), no larger than
+/// [`viewport_tile_cap`] of `viewport_px` (the viewport's long side in device pixels). Sorted
+/// nearest the viewport centre first, so workers sharpen what is looked at before the edges.
+/// Empty when nothing of the page is visible.
 pub fn visible_tiles(
     page_pts: (f32, f32),
     scale: f32,
     max_texture_side: f32,
     visible: [f32; 4],
+    viewport_px: f32,
 ) -> Vec<Tile> {
     let [u0, v0, u1, v1] = visible;
     let (u0, v0, u1, v1) = (u0.max(0.0), v0.max(0.0), u1.min(1.0), v1.min(1.0));
@@ -79,6 +97,7 @@ pub fn visible_tiles(
     );
     // Never zero (u32 division below), never above the GPU texture limit.
     let ts = tile_side(scale, dw.max(dh))
+        .min(viewport_tile_cap(viewport_px))
         .min(max_texture_side as u32)
         .max(64);
     let (vx0, vy0) = ((u0 * dw as f32) as u32, (v0 * dh as f32) as u32);
@@ -309,13 +328,13 @@ mod tests {
         // Scale 8: 4896 x 6336 px, tile side max(1365, 1224) = 1365.
         let scale = 8.0;
         let ts = tile_side(scale, device_pixels(792.0, scale));
-        let whole = visible_tiles(LETTER, scale, MAX_SIDE, [0.0, 0.0, 1.0, 1.0]);
+        let whole = visible_tiles(LETTER, scale, MAX_SIDE, [0.0, 0.0, 1.0, 1.0], f32::INFINITY);
         let cols = device_pixels(612.0, scale).div_ceil(ts) as usize;
         let rows = device_pixels(792.0, scale).div_ceil(ts) as usize;
         assert_eq!(whole.len(), cols * rows);
 
         // A small window in the middle of the page needs only the tiles under it.
-        let part = visible_tiles(LETTER, scale, MAX_SIDE, [0.45, 0.45, 0.55, 0.55]);
+        let part = visible_tiles(LETTER, scale, MAX_SIDE, [0.45, 0.45, 0.55, 0.55], f32::INFINITY);
         assert!(!part.is_empty() && part.len() < whole.len());
         let (dw, dh) = (
             device_pixels(612.0, scale) as f32,
@@ -339,7 +358,7 @@ mod tests {
     fn edge_tiles_are_clipped_to_the_page_and_nearest_centre_comes_first() {
         let scale = 8.0;
         let (dw, dh) = (device_pixels(612.0, scale), device_pixels(792.0, scale));
-        let tiles = visible_tiles(LETTER, scale, MAX_SIDE, [0.0, 0.0, 1.0, 1.0]);
+        let tiles = visible_tiles(LETTER, scale, MAX_SIDE, [0.0, 0.0, 1.0, 1.0], f32::INFINITY);
         for t in &tiles {
             assert!(t.w > 0 && t.h > 0 && t.x + t.w <= dw && t.y + t.h <= dh);
         }
@@ -352,9 +371,47 @@ mod tests {
     }
 
     #[test]
+    fn viewport_tile_cap_is_a_power_of_two_covering_the_viewport() {
+        assert_eq!(viewport_tile_cap(100.0), TILE);
+        assert_eq!(viewport_tile_cap(900.0), 1024);
+        assert_eq!(viewport_tile_cap(1024.0), 1024);
+        assert_eq!(viewport_tile_cap(1800.0), 2048);
+        assert_eq!(viewport_tile_cap(5000.0), 4096);
+        assert_eq!(viewport_tile_cap(f32::INFINITY), 4096);
+        assert_eq!(viewport_tile_cap(f32::NAN), 4096);
+    }
+
+    #[test]
+    fn deep_zoom_tiles_are_no_larger_than_the_viewport_needs() {
+        // Scale 40: 24480 x 31680 px, where pdfcraft's tile side alone is 4096.
+        let scale = 40.0;
+        assert_eq!(tile_side(scale, device_pixels(792.0, scale)), 4096);
+        let (dw, dh) = (device_pixels(612.0, scale) as f32, device_pixels(792.0, scale) as f32);
+        // A 900 x 860 px viewport anywhere on the page: at most 2 x 2 tiles of 1024 px.
+        for (x, y) in [(0.0, 0.0), (5000.0, 7000.0), (12345.0, 20001.0)] {
+            let window = [x / dw, y / dh, (x + 900.0) / dw, (y + 860.0) / dh];
+            let tiles = visible_tiles(LETTER, scale, MAX_SIDE, window, 900.0);
+            assert!(!tiles.is_empty() && tiles.len() <= 4, "{tiles:?}");
+            assert!(tiles.iter().all(|t| t.w <= 1024 && t.h <= 1024), "{tiles:?}");
+            let pixels: u32 = tiles.iter().map(|t| t.w * t.h).sum();
+            assert!(pixels <= 4 * 1024 * 1024);
+        }
+    }
+
+    #[test]
+    fn a_page_shown_whole_keeps_its_few_large_tiles() {
+        // The page fits the viewport: the cap never binds, so a giant sheet stays a handful of interprets.
+        let scale = 8.0;
+        let side = device_pixels(792.0, scale) as f32;
+        let capped = visible_tiles(LETTER, scale, MAX_SIDE, [0.0, 0.0, 1.0, 1.0], side);
+        let uncapped = visible_tiles(LETTER, scale, MAX_SIDE, [0.0, 0.0, 1.0, 1.0], f32::INFINITY);
+        assert_eq!(capped, uncapped);
+    }
+
+    #[test]
     fn nothing_visible_plans_no_tiles() {
-        assert!(visible_tiles(LETTER, 8.0, MAX_SIDE, [1.2, 0.0, 1.5, 1.0]).is_empty());
-        assert!(visible_tiles(LETTER, 8.0, MAX_SIDE, [0.5, 0.5, 0.5, 0.9]).is_empty());
+        assert!(visible_tiles(LETTER, 8.0, MAX_SIDE, [1.2, 0.0, 1.5, 1.0], f32::INFINITY).is_empty());
+        assert!(visible_tiles(LETTER, 8.0, MAX_SIDE, [0.5, 0.5, 0.5, 0.9], f32::INFINITY).is_empty());
     }
 
     #[test]

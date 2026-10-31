@@ -432,7 +432,8 @@ impl PdfSchematicViewer {
                 (vis.max.x - page_rect.min.x) / w,
                 (vis.max.y - page_rect.min.y) / h,
             ];
-            let wanted_tiles = tiles::visible_tiles(pts, scale, max_side, norm);
+            let viewport_px = viewport.width().max(viewport.height()) * ppp;
+            let wanted_tiles = tiles::visible_tiles(pts, scale, max_side, norm, viewport_px);
             visible_keys.extend(wanted_tiles.iter().map(|t| tiles::TileKey::new(page, tag, *t)));
             if settled && !self.failed_pages.contains(&page) {
                 for t in self.tiles.missing(page, tag, &wanted_tiles) {
@@ -910,7 +911,9 @@ mod tests {
             let max = page_rect.min + vec2((t.x + t.w) as f32 / dw * w, (t.y + t.h) as f32 / dh * h);
             assert!(Rect::from_min_max(min, max).intersects(viewport), "{t:?} is off screen");
         }
-        let whole = tiles::visible_tiles((size.x, size.y), scale, 2048.0, [0.0, 0.0, 1.0, 1.0]);
+        // No tile is larger than the viewport needs (800 x 600 px: 1024 px tiles).
+        assert!(tiles.iter().all(|r| r.tile.is_some_and(|t| t.w <= 1024 && t.h <= 1024)), "{tiles:?}");
+        let whole = tiles::visible_tiles((size.x, size.y), scale, 2048.0, [0.0, 0.0, 1.0, 1.0], f32::INFINITY);
         assert!(tiles.len() < whole.len() / 4, "{} of {} tiles requested", tiles.len(), whole.len());
     }
 
