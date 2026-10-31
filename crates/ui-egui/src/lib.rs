@@ -57,6 +57,11 @@ pub fn find_matching_schematic_pdf(board_path: &std::path::Path) -> Option<std::
     None
 }
 
+/// The schematic PDF remembered for `board_path`, when that file still exists.
+pub fn remembered_schematic_pdf(prefs: &Preferences, board_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    prefs.board_schematic(board_path).filter(|pdf| pdf.is_file()).map(std::path::Path::to_path_buf)
+}
+
 pub struct BoardViewApp {
     board: Option<Board>,
     parser_registry: Arc<ParserRegistry>,
@@ -80,6 +85,8 @@ pub struct BoardViewApp {
     // Status message
     status_msg: String,
     filename: Option<String>,
+    /// File path of the loaded board, when it was opened from a file (keys its schematic PDF).
+    board_path: Option<std::path::PathBuf>,
 
     // PDF Schematic integration
     pdf_viewer: pdf::PdfSchematicViewer,
@@ -107,6 +114,7 @@ impl Default for BoardViewApp {
             selected_net: None,
             status_msg: "Ready. Open a .cad file to inspect.".to_string(),
             filename: None,
+            board_path: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
             pending_schematic_prompt: None,
         }
@@ -131,36 +139,49 @@ impl BoardViewApp {
         }
     }
 
-    pub fn load_file(&mut self, filename: &str, data: &[u8]) {
+    /// Parses and loads a board. Returns whether it was loaded; on failure the current board
+    /// (and its schematic PDF) stay as they were.
+    pub fn load_file(&mut self, filename: &str, data: &[u8]) -> bool {
         match self.parser_registry.parse_file(filename, data) {
             Ok(board) => {
-                let parts_cnt = board.parts.len();
-                let pins_cnt = board.pins.len();
-                let vias_cnt = board.vias.len();
-                let nets_cnt = board.nets.len();
-
-                self.status_msg = format!(
-                    "Loaded {filename}: {parts_cnt} parts, {pins_cnt} pins, {vias_cnt} vias, {nets_cnt} nets"
-                );
-                self.filename = Some(filename.to_string());
-                self.selected_pin_idx = None;
-                self.selected_via_idx = None;
-                self.selected_part_idx = None;
-                self.selected_net = None;
-                self.side_panel_state.search.invalidate();
-
-                // Center view and request auto-fit to window on next render frame
-                if let Some(bbox) = board.bounding_box {
-                    self.canvas_state.viewport.center = bbox.center();
-                    self.pending_auto_fit = true;
-                }
-
-                self.board = Some(board);
+                self.adopt_board(filename, board);
+                true
             }
             Err(err) => {
                 self.status_msg = format!("Failed to open {filename}: {err}");
+                false
             }
         }
+    }
+
+    /// Makes `board` the current board. The previous board's schematic PDF and a pending PDF
+    /// prompt are closed: each board has its own schematic.
+    fn adopt_board(&mut self, filename: &str, board: Board) {
+        let parts_cnt = board.parts.len();
+        let pins_cnt = board.pins.len();
+        let vias_cnt = board.vias.len();
+        let nets_cnt = board.nets.len();
+
+        self.status_msg = format!(
+            "Loaded {filename}: {parts_cnt} parts, {pins_cnt} pins, {vias_cnt} vias, {nets_cnt} nets"
+        );
+        self.filename = Some(filename.to_string());
+        self.board_path = None;
+        self.selected_pin_idx = None;
+        self.selected_via_idx = None;
+        self.selected_part_idx = None;
+        self.selected_net = None;
+        self.side_panel_state.search.invalidate();
+        self.pdf_viewer.close();
+        self.pending_schematic_prompt = None;
+
+        // Center view and request auto-fit to window on next render frame
+        if let Some(bbox) = board.bounding_box {
+            self.canvas_state.viewport.center = bbox.center();
+            self.pending_auto_fit = true;
+        }
+
+        self.board = Some(board);
     }
 
     pub fn open_file_from_path(&mut self, path: &std::path::Path) {
@@ -170,21 +191,49 @@ impl BoardViewApp {
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("board.cad");
-                self.load_file(name, &bytes);
+                if !self.load_file(name, &bytes) {
+                    return;
+                }
+                self.board_path = Some(path.to_path_buf());
                 self.preferences.add_recent_file(path.to_path_buf());
                 let _ = self.preferences.save_atomic();
 
-                // If a matching schematic PDF exists in the same folder and isn't already open, prompt user
-                if let Some(pdf_candidate) = find_matching_schematic_pdf(path) {
-                    let already_open = self.pdf_viewer.path.as_ref().is_some_and(|p| p == &pdf_candidate);
-                    if !already_open {
-                        self.pending_schematic_prompt = Some(pdf_candidate);
+                // Reopen the board's remembered schematic; otherwise offer a matching PDF in the same folder.
+                if let Some(pdf) = remembered_schematic_pdf(&self.preferences, path) {
+                    let status = self.status_msg.clone();
+                    if self.open_schematic(&pdf) {
+                        self.status_msg = format!("{status}; reopened its schematic {}", pdf.display());
                     }
+                } else if let Some(pdf_candidate) = find_matching_schematic_pdf(path) {
+                    self.pending_schematic_prompt = Some(pdf_candidate);
                 }
             }
             Err(err) => {
                 self.status_msg = format!("Could not open {}: {err}", path.display());
             }
+        }
+    }
+
+    /// Opens a schematic PDF and, when a board file is loaded, remembers it as that board's
+    /// schematic. Returns whether the PDF was opened.
+    pub fn open_schematic(&mut self, path: &std::path::Path) -> bool {
+        if let Err(err) = self.pdf_viewer.open_file(path) {
+            self.status_msg = format!("Failed to open schematic PDF: {err}");
+            return false;
+        }
+        self.status_msg = format!("Opened schematic: {}", path.display());
+        if self.remember_schematic(path) {
+            let _ = self.preferences.save_atomic();
+        }
+        true
+    }
+
+    /// Records `pdf` as the current board's schematic (no-op without a board file). Returns
+    /// whether the preferences changed and need saving.
+    fn remember_schematic(&mut self, pdf: &std::path::Path) -> bool {
+        match (&self.board, &self.board_path) {
+            (Some(_), Some(board)) => self.preferences.remember_board_schematic(board.clone(), pdf.to_path_buf()),
+            _ => false,
         }
     }
 
@@ -196,6 +245,7 @@ impl BoardViewApp {
             return;
         };
         self.board = None;
+        self.board_path = None;
         self.selected_pin_idx = None;
         self.selected_via_idx = None;
         self.selected_part_idx = None;
@@ -272,11 +322,7 @@ impl BoardViewApp {
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         {
-            if let Err(err) = self.pdf_viewer.open_file(&path) {
-                self.status_msg = format!("Failed to open schematic PDF: {err}");
-            } else {
-                self.status_msg = format!("Opened schematic: {}", path.display());
-            }
+            self.open_schematic(&path);
         }
     }
 }
@@ -310,11 +356,7 @@ impl eframe::App for BoardViewApp {
                             }
                         }
                         "pdf" => {
-                            if let Err(err) = self.pdf_viewer.open_file(path) {
-                                self.status_msg = format!("Failed to load schematic PDF: {err}");
-                            } else {
-                                self.status_msg = format!("Loaded schematic PDF: {}", path.display());
-                            }
+                            self.open_schematic(path);
                         }
                         _ => {
                             self.open_file_from_path(path);
@@ -1078,11 +1120,8 @@ impl eframe::App for BoardViewApp {
                 });
 
             if accept_dialog {
-                if let Err(err) = self.pdf_viewer.open_file(pdf_path) {
-                    self.status_msg = format!("Failed to open schematic PDF: {err}");
-                } else {
-                    self.status_msg = format!("Opened schematic: {}", pdf_path.display());
-                }
+                let pdf_path = pdf_path.clone();
+                self.open_schematic(&pdf_path);
                 self.pending_schematic_prompt = None;
                 ui.ctx().request_repaint();
             } else if close_dialog {
@@ -1189,6 +1228,7 @@ mod focus_tests {
             selected_net: Some("VCC".to_string()),
             status_msg: "Selected".to_string(),
             filename: None,
+            board_path: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
             pending_schematic_prompt: None,
         };
@@ -1228,6 +1268,52 @@ mod focus_tests {
         assert!(app.pending_schematic_prompt.is_none());
         assert!(app.canvas_state.cached_view_key.is_none());
         assert_eq!(app.status(), "Closed MS-V375.cad.");
+    }
+
+    #[test]
+    fn opening_a_board_closes_the_previous_schematic() {
+        let mut app = BoardViewApp::default();
+        app.board = Some(Board::new());
+        app.board_path = Some(std::path::PathBuf::from("/boards/a.cad"));
+        app.pdf_viewer.path = Some(std::path::PathBuf::from("/boards/a.pdf"));
+        app.pdf_viewer.is_open = true;
+        app.pending_schematic_prompt = Some(std::path::PathBuf::from("/boards/a.pdf"));
+
+        app.adopt_board("b.cad", Board::new());
+
+        assert!(!app.pdf_viewer.is_open && app.pdf_viewer.path.is_none());
+        assert!(app.pending_schematic_prompt.is_none());
+        assert!(app.board_path.is_none(), "the caller sets the path of a board opened from a file");
+        assert_eq!(app.filename.as_deref(), Some("b.cad"));
+    }
+
+    #[test]
+    fn schematic_is_remembered_only_for_a_board_file() {
+        let mut app = BoardViewApp::default();
+        let pdf = std::path::Path::new("/boards/a.pdf");
+        assert!(!app.remember_schematic(pdf), "no board loaded");
+        app.board = Some(Board::new());
+        assert!(!app.remember_schematic(pdf), "board without a file path (dropped bytes)");
+        app.board_path = Some(std::path::PathBuf::from("/boards/a.cad"));
+        assert!(app.remember_schematic(pdf));
+        assert_eq!(app.preferences.board_schematic(std::path::Path::new("/boards/a.cad")), Some(pdf));
+        assert!(!app.remember_schematic(pdf), "unchanged association needs no save");
+    }
+
+    #[test]
+    fn remembered_schematic_requires_an_existing_pdf() {
+        let dir = std::env::temp_dir().join(format!("bvc_assoc_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let board = dir.join("board.cad");
+        let pdf = dir.join("schematic.pdf");
+        std::fs::write(&pdf, b"%PDF-1.4").unwrap();
+        let mut prefs = Preferences::default();
+        assert_eq!(remembered_schematic_pdf(&prefs, &board), None);
+        prefs.remember_board_schematic(board.clone(), pdf.clone());
+        assert_eq!(remembered_schematic_pdf(&prefs, &board), Some(pdf.clone()));
+        std::fs::remove_file(&pdf).unwrap();
+        assert_eq!(remembered_schematic_pdf(&prefs, &board), None, "a moved or deleted PDF falls back to the prompt");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
