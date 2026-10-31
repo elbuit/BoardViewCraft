@@ -19,6 +19,8 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub mod tiles;
+
 /// PDF points to standard CSS/screen points ratio (96 DPI / 72 PDF points)
 pub const PT: f32 = 96.0 / 72.0;
 
