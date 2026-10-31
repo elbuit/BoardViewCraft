@@ -21,7 +21,7 @@ ask-on-risk. Forecast ~350-500 authored lines.
 
 ## Tasks
 - [x] T1 — Pure tile planning + tile cache module with unit tests (route: delegated writer; trigger: preparation reading of pdfcraft cache, 2+ files)
-- [ ] T2 — Integrate tiles into `PdfSchematicViewer` and the PDF panel drawing in `lib.rs` (route: delegated writer, same worker)
+- [x] T2 — Integrate tiles into `PdfSchematicViewer` and the PDF panel drawing in `lib.rs` (route: delegated writer, same worker)
 
 ## Acceptance criteria
 - At zoom where page side * scale > threshold, only tiles intersecting the viewport are requested.
@@ -39,4 +39,12 @@ ask-on-risk. Forecast ~350-500 authored lines.
 - T1 done: `crates/ui-egui/src/pdf/tiles.rs` (pure tile planning + generic `TileCache`, 13 unit tests). RED observed first (12/13 failing on `todo!()` stubs), then GREEN.
   - `cargo test -p bvc-ui-egui`: 50 passed, 0 failed.
   - `cargo clippy -p bvc-ui-egui --release`: no new warnings (base is not clean: 2 pre-existing collapsible-if in pdf.rs, so `-D warnings` not applicable).
-  - Commit: see `git log` (feat(pdf): add tile planning and tile texture cache).
+  - Commit: `7628b60` feat(pdf): add tile planning and tile texture cache for zoomed schematics.
+- T2 done: `PdfSchematicViewer::paint_current_page` replaces `ensure_current_page_texture`; `lib.rs` lays out the page and delegates painting.
+  - Raster scale is the exact display scale (`page_rect.width() * ppp / page_width_pt`, includes the panel fit factor); the 8192 px whole-page clamp is gone.
+  - Past the threshold: low-res backdrop (preview) first, then only viewport tiles nearest-centre first; old-zoom tiles drawn stretched until replaced; queue replaced only when it changes (pool cancels obsolete in-flight work); results not in the last queue are dropped.
+  - Tests: 2 viewer-level fixture tests (written after implementation, no RED) asserting only on-screen tiles at the unclamped scale, and whole-page rendering for small layouts.
+  - `cargo test -p bvc-ui-egui`: 52 passed, 0 failed.
+  - `cargo clippy -p bvc-ui-egui --release`: no new warnings (pdf.rs 2 -> 1 pre-existing, lib.rs 15 unchanged).
+  - `cargo build --release`: success.
+  - GUI behaviour (no blank flashes, highlight/centering visually) not verified at runtime: manual check pending.

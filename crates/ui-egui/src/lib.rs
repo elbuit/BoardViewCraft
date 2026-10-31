@@ -770,8 +770,8 @@ impl eframe::App for BoardViewApp {
                         }
                     }
 
-                    // Render crisp rasterized PDF page texture from engine
-                    if let Some((texture, _orig_dim)) = self.pdf_viewer.ensure_current_page_texture(ui.ctx()) {
+                    // Render crisp rasterized PDF page (whole, or backdrop + visible tiles) from engine
+                    if self.pdf_viewer.doc_info.is_some() {
                         let page_size_pts = self.pdf_viewer.page_size_pts(self.pdf_viewer.current_page);
                         // Natural unzoomed size of the page in UI points
                         let base_page_size = page_size_pts * crate::pdf::PT;
@@ -801,12 +801,18 @@ impl eframe::App for BoardViewApp {
                             + self.pdf_viewer.pan_offset;
 
                         let img_rect = Rect::from_min_size(render_pos, render_size);
-                        painter.image(
-                            texture.id(),
-                            img_rect,
-                            Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            Color32::WHITE,
-                        );
+                        let painted = self.pdf_viewer.paint_current_page(ui.ctx(), &painter, img_rect, rect);
+                        if !painted {
+                            let page_label = i18n::tr(lang, "pdf.loading_page")
+                                .replace("{}", &self.pdf_viewer.current_page.to_string());
+                            painter.text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                page_label,
+                                egui::FontId::proportional(16.0),
+                                Color32::from_rgb(100, 100, 110),
+                            );
+                        }
 
                         // PDF coordinate mapping function (PDF points -> screen points)
                         let to_screen = |pdf_pt: Pos2| -> Pos2 {

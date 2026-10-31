@@ -6,15 +6,17 @@
 //! - Instant cross-probing: finding all component designators across all pages in milliseconds.
 //! - Multi-worker asynchronous page rasterization via `RenderPool` (multithreaded, cancel-in-flight).
 //! - Dedicated high-priority rendering for requested/navigated pages.
-//! - Dynamic scale resolution (`scale = zoom * PT * ppp`) keeping vector graphics and text razor-sharp.
+//! - Exact device scale (1 texel per device pixel) keeping vector graphics and text razor-sharp.
+//! - Tiled rendering past `tiles::TILE_THRESHOLD`: a low-res backdrop plus only the visible tiles.
 //! - Multi-hit selection and navigation list support.
 
-use egui::{ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
+use egui::{pos2, vec2, Color32, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use pdfcraft_render::{
-    text::TextFilter, DocInfo, PageRenderer, PageText, RenderConfig, RenderPool, RenderRequest, RequestKind,
+    device_pixels, text::TextFilter, DocInfo, PageRenderer, PageText, RenderConfig, RenderPool, RenderRequest,
+    RequestKind, Tile,
 };
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -49,16 +51,26 @@ pub fn scale_tag(scale: f32) -> u64 {
     (f64::from(scale) * 65536.0).round() as u64
 }
 
-/// Convert rendered raw Pixels into egui::ColorImage
+/// Convert rendered Pixels (premultiplied RGBA8, as the renderer produces them) into egui::ColorImage
 fn texture_image(size: [usize; 2], pixels: pdfcraft_render::Pixels) -> ColorImage {
-    ColorImage::from_rgba_unmultiplied(size, &pixels)
+    ColorImage::from_rgba_premultiplied(size, &pixels)
 }
 
-/// Cached texture entry with its rendered scale tag
+/// Seconds the display scale must stay unchanged before sharp re-renders are requested,
+/// so a zoom gesture does not restart full-page interprets on every frame.
+const SETTLE_SECS: f64 = 0.12;
+
+/// Rendered results converted into textures per frame at most.
+const RESULTS_PER_FRAME: usize = 8;
+
+/// Cached whole-page raster (or low-res backdrop of a tiled page) with its rendered scale tag
 struct CachedPageTexture {
     handle: TextureHandle,
-    dim: Vec2,
     tag: u64,
+}
+
+fn pixels_request(page_0: usize, scale: f32, tile: Option<Tile>, preview: bool) -> RenderRequest {
+    RenderRequest { page: page_0, kind: RequestKind::Pixels, tile, scale, tag: scale_tag(scale), preview }
 }
 
 /// Embedded schematic viewer matching pdfcraft's canvas engine architecture.
@@ -81,18 +93,27 @@ pub struct PdfSchematicViewer {
     // Page text layers pre-extracted for instant whole-document search (0-based page index -> PageText)
     pub page_texts: HashMap<usize, Arc<PageText>>,
 
-    // High-fidelity page textures cached by page number (1-based)
+    // Whole-page rasters (or backdrops of tiled pages) cached by page number (1-based)
     page_textures: HashMap<usize, CachedPageTexture>,
+
+    // Tiles of the current page when it is too large to rasterize whole
+    tiles: tiles::TileCache<TextureHandle>,
 
     // Multithreaded RenderPool matching pdfcraft's engine
     render_pool: Option<RenderPool>,
 
-    // Last requested raster scale tag per page: (page, tag)
-    last_requested_tags: HashMap<usize, u64>,
+    // The queue last handed to the pool; results outside it are obsolete
+    last_queue: Vec<RenderRequest>,
 
-    // Settle timer tracking zoom adjustments to avoid worker churning
-    last_zoom_change_time: f64,
-    last_observed_zoom: f32,
+    // Pages (1-based) the renderer failed on: never re-requested
+    failed_pages: HashSet<usize>,
+
+    // Settle timer tracking display scale changes to avoid worker churning
+    settled_scale: f32,
+    last_observed_scale: f32,
+    last_scale_change_time: f64,
+    // Adopt the next display scale at once (cross-probe / match navigation)
+    force_settle: bool,
 }
 
 impl Default for PdfSchematicViewer {
@@ -112,10 +133,14 @@ impl Default for PdfSchematicViewer {
             pending_center_on_match: false,
             page_texts: HashMap::new(),
             page_textures: HashMap::new(),
+            tiles: tiles::TileCache::default(),
             render_pool: None,
-            last_requested_tags: HashMap::new(),
-            last_zoom_change_time: 0.0,
-            last_observed_zoom: 1.0,
+            last_queue: Vec::new(),
+            failed_pages: HashSet::new(),
+            settled_scale: 0.0,
+            last_observed_scale: 0.0,
+            last_scale_change_time: 0.0,
+            force_settle: false,
         }
     }
 }
@@ -142,7 +167,11 @@ impl PdfSchematicViewer {
         self.current_page = 1;
         self.doc_info = Some(info);
         self.page_textures.clear();
-        self.last_requested_tags.clear();
+        self.tiles.clear();
+        self.last_queue.clear();
+        self.failed_pages.clear();
+        self.settled_scale = 0.0;
+        self.force_settle = true;
         self.search_results.clear();
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
@@ -164,10 +193,8 @@ impl PdfSchematicViewer {
             .map(|n| n.get().clamp(2, 8))
             .unwrap_or(4);
         let pool = RenderPool::new(bytes_arc, threads, RenderConfig::default());
+        // The first paint of the page queues its raster at the exact display scale.
         self.render_pool = Some(pool);
-
-        // 4. Immediately trigger rasterization for page 1
-        self.update_render_queue(1.0);
 
         Ok(())
     }
@@ -180,15 +207,6 @@ impl PdfSchematicViewer {
             }
         }
         Vec2::new(1224.0, 792.0)
-    }
-
-    /// Computes the exact device scale needed so 1 device pixel = 1 texture pixel (pdfcraft formula).
-    pub fn calculate_render_scale(&self, ppp: f32) -> f32 {
-        let raw_scale = self.zoom * PT * ppp;
-        let page_size = self.page_size_pts(self.current_page);
-        let max_dim = page_size.x.max(page_size.y).max(1.0);
-        let max_scale = 8192.0 / max_dim;
-        raw_scale.clamp(0.25, max_scale)
     }
 
     /// Finds the token at the clicked PDF point coordinate on the given page.
@@ -228,114 +246,177 @@ impl PdfSchematicViewer {
         }
     }
 
-    /// Queues raster tasks to the `RenderPool` with the visible page strictly first.
-    pub fn update_render_queue(&mut self, ppp: f32) {
-        let Some(pool) = &self.render_pool else { return };
-
-        let curr_0 = self.current_page.saturating_sub(1);
-        let scale = self.calculate_render_scale(ppp);
-        let tag = scale_tag(scale);
-
-        let mut requests = Vec::new();
-
-        // 1. Current page raster (highest priority, rendered immediately)
-        requests.push(RenderRequest {
-            page: curr_0,
-            scale,
-            kind: RequestKind::Pixels,
-            tag,
-            tile: None,
-            preview: false,
-        });
-
-        // 2. Adjacent pages raster prefetch (page + 1 and page - 1 at normal reading scale ~1.5)
-        let prefetch_scale = (1.5 * ppp).clamp(0.5, 3.0);
-        let prefetch_tag = scale_tag(prefetch_scale);
-        if self.current_page < self.total_pages {
-            requests.push(RenderRequest {
-                page: curr_0 + 1,
-                scale: prefetch_scale,
-                kind: RequestKind::Pixels,
-                tag: prefetch_tag,
-                tile: None,
-                preview: false,
-            });
-        }
-        if curr_0 > 0 {
-            requests.push(RenderRequest {
-                page: curr_0 - 1,
-                scale: prefetch_scale,
-                kind: RequestKind::Pixels,
-                tag: prefetch_tag,
-                tile: None,
-                preview: false,
-            });
-        }
-
-        pool.set_queue(requests);
-    }
-
-    /// Pumps completed jobs from the `RenderPool` and checks whether re-rendering is needed for sharp zoom.
-    pub fn ensure_current_page_texture(&mut self, ctx: &egui::Context) -> Option<(TextureHandle, Vec2)> {
+    /// Pumps rendered results, plans the rasters of the current page laid out at `page_rect`
+    /// (screen points) inside `viewport`, and paints them: the whole-page raster (or the low-res
+    /// backdrop of a tiled page) first, then the cached tiles on top. Returns whether anything
+    /// was painted (false while the first raster of the page is still rendering).
+    pub fn paint_current_page(
+        &mut self,
+        ctx: &egui::Context,
+        painter: &egui::Painter,
+        page_rect: Rect,
+        viewport: Rect,
+    ) -> bool {
         let ppp = ctx.pixels_per_point();
-        let current_time = ctx.input(|i| i.time);
+        let now = ctx.input(|i| i.time);
+        let max_side = ctx.input(|i| i.max_texture_side) as f32;
+        let page = self.current_page;
+        let size = self.page_size_pts(page);
+        let pts = (size.x.max(1.0), size.y.max(1.0));
 
-        // Detect zoom changes to handle debounce settling
-        if (self.zoom - self.last_observed_zoom).abs() > 0.001 {
-            self.last_observed_zoom = self.zoom;
-            self.last_zoom_change_time = current_time;
+        // Exactly the device scale: a raster at any other scale is resampled on screen and blurs.
+        let wanted = (page_rect.width() * ppp / pts.0).max(0.01);
+        if (wanted - self.last_observed_scale).abs() > wanted * 1e-4 {
+            self.last_observed_scale = wanted;
+            self.last_scale_change_time = now;
+        }
+        let settled = self.force_settle || self.settled_scale <= 0.0 || now - self.last_scale_change_time > SETTLE_SECS;
+        if settled {
+            self.settled_scale = wanted;
+            self.force_settle = false;
+        } else {
+            let wait = SETTLE_SECS - (now - self.last_scale_change_time);
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait.max(0.0)));
         }
 
-        let is_settled = (current_time - self.last_zoom_change_time) > 0.12;
+        self.receive(ctx, max_side);
 
-        if let Some(pool) = &self.render_pool {
-            // Drain finished jobs from pool
-            for _ in 0..8 {
-                let Some(res) = pool.try_recv() else { break };
-                if res.request.kind == RequestKind::Pixels
-                    && res.error.is_none()
-                    && res.width > 0
-                    && res.height > 0
-                    && !res.rgba.is_empty()
-                {
-                    let page_1 = res.request.page + 1;
-                    let tag = res.request.tag;
-                    let size = [res.width as usize, res.height as usize];
-                    let color_image = texture_image(size, res.rgba);
-                    let handle = ctx.load_texture(
-                        format!("pdf_p{page_1}_t{tag}"),
-                        color_image,
-                        TextureOptions::LINEAR,
-                    );
-                    let dim = Vec2::new(res.width as f32, res.height as f32);
-                    self.page_textures.insert(
-                        page_1,
-                        CachedPageTexture { handle, dim, tag },
-                    );
-                    ctx.request_repaint();
+        // Until the zoom settles, rasters stay at the settled scale and are drawn stretched.
+        let scale = self.settled_scale;
+        let tag = scale_tag(scale);
+        let tiled = tiles::is_tiled(pts, scale, max_side);
+        let mut queue = Vec::new();
+
+        // 1. The page itself: whole and sharp when small, a low-res backdrop when tiled.
+        //    Under tiles, a whole-page raster sharper than the backdrop is a better backdrop: keep it.
+        let page_scale = if tiled { tiles::base_scale(pts, max_side) } else { scale };
+        let page_ok = self.page_textures.get(&page).is_some_and(|t| {
+            t.tag == scale_tag(page_scale) || (tiled && tiles::tag_scale(t.tag) >= page_scale)
+        });
+        if !page_ok && !self.failed_pages.contains(&page) {
+            queue.push(pixels_request(page - 1, page_scale, None, tiled));
+        }
+
+        // 2. Tiles intersecting the viewport, nearest its centre first.
+        let mut visible_keys = HashSet::new();
+        let vis = page_rect.intersect(viewport);
+        if tiled && vis.is_positive() {
+            let (w, h) = (page_rect.width(), page_rect.height());
+            let norm = [
+                (vis.min.x - page_rect.min.x) / w,
+                (vis.min.y - page_rect.min.y) / h,
+                (vis.max.x - page_rect.min.x) / w,
+                (vis.max.y - page_rect.min.y) / h,
+            ];
+            let wanted_tiles = tiles::visible_tiles(pts, scale, max_side, norm);
+            visible_keys.extend(wanted_tiles.iter().map(|t| tiles::TileKey::new(page, tag, *t)));
+            if settled && !self.failed_pages.contains(&page) {
+                for t in self.tiles.missing(page, tag, &wanted_tiles) {
+                    queue.push(pixels_request(page - 1, scale, Some(t), false));
                 }
             }
         }
+        self.tiles.evict(page, tag, &visible_keys);
 
-        // Check if current page needs an updated, sharp raster at the current zoom level
-        let wanted_scale = self.calculate_render_scale(ppp);
-        let wanted_tag = scale_tag(wanted_scale);
-
-        let need_fresh_render = match self.page_textures.get(&self.current_page) {
-            Some(t) => t.tag != wanted_tag,
-            None => true,
-        };
-
-        if need_fresh_render && (is_settled || !self.page_textures.contains_key(&self.current_page)) {
-            if self.last_requested_tags.get(&self.current_page).copied() != Some(wanted_tag) {
-                self.last_requested_tags.insert(self.current_page, wanted_tag);
-                self.update_render_queue(ppp);
+        // 3. Prefetch the adjacent pages as they would be drawn at this scale.
+        for n in [page + 1, page.saturating_sub(1)] {
+            if n == page || n == 0 || n > self.total_pages || self.failed_pages.contains(&n) {
+                continue;
+            }
+            let s = self.page_size_pts(n);
+            let n_pts = (s.x.max(1.0), s.y.max(1.0));
+            let n_tiled = tiles::is_tiled(n_pts, scale, max_side);
+            let n_scale = if n_tiled { tiles::base_scale(n_pts, max_side) } else { scale };
+            if self.page_textures.get(&n).is_none_or(|t| t.tag != scale_tag(n_scale)) {
+                queue.push(pixels_request(n - 1, n_scale, None, n_tiled));
             }
         }
+        self.page_textures.retain(|p, _| p.abs_diff(page) <= 1);
 
-        self.page_textures
-            .get(&self.current_page)
-            .map(|t| (t.handle.clone(), t.dim))
+        // Replacing the queue cancels in-flight renders that are no longer wanted.
+        if let Some(pool) = &self.render_pool
+            && queue != self.last_queue
+        {
+            pool.set_queue(queue.clone());
+            self.last_queue = queue;
+        }
+        if !self.last_queue.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        }
+
+        self.paint(painter, page_rect, viewport, pts, tag, tiled, ppp)
+    }
+
+    /// Converts a bounded batch of finished renders into textures. Results that are no longer
+    /// queued (an obsolete scale, page or tile) are dropped without allocating anything.
+    fn receive(&mut self, ctx: &egui::Context, max_side: f32) {
+        let Some(pool) = &self.render_pool else { return };
+        for _ in 0..RESULTS_PER_FRAME {
+            let Some(res) = pool.try_recv() else { break };
+            if res.request.kind != RequestKind::Pixels || !self.last_queue.contains(&res.request) {
+                continue;
+            }
+            ctx.request_repaint();
+            let page_1 = res.request.page + 1;
+            if res.error.is_some() {
+                self.failed_pages.insert(page_1);
+                continue;
+            }
+            let (w, h) = (res.width as usize, res.height as usize);
+            if w == 0 || h == 0 || w as f32 > max_side || h as f32 > max_side || res.rgba.len() != tiles::rgba_bytes(w, h) {
+                continue;
+            }
+            let tag = res.request.tag;
+            let image = texture_image([w, h], res.rgba);
+            match res.request.tile {
+                Some(t) => {
+                    let handle = ctx.load_texture(format!("pdf_p{page_1}_t{tag}_{}_{}", t.x, t.y), image, TextureOptions::LINEAR);
+                    self.tiles.insert(tiles::TileKey::new(page_1, tag, t), t, handle);
+                }
+                None => {
+                    let handle = ctx.load_texture(format!("pdf_p{page_1}_t{tag}"), image, TextureOptions::LINEAR);
+                    self.page_textures.insert(page_1, CachedPageTexture { handle, tag });
+                }
+            }
+        }
+    }
+
+    /// Paints the current page's raster stretched over `page_rect`, then (when tiled) its cached
+    /// tiles: earlier zooms first, stretched, the tiles at `tag` on top, snapped to device pixels.
+    #[allow(clippy::too_many_arguments)]
+    fn paint(
+        &self,
+        painter: &egui::Painter,
+        page_rect: Rect,
+        viewport: Rect,
+        pts: (f32, f32),
+        tag: u64,
+        tiled: bool,
+        ppp: f32,
+    ) -> bool {
+        let full_uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        let mut painted = false;
+        if let Some(t) = self.page_textures.get(&self.current_page) {
+            painter.image(t.handle.id(), page_rect, full_uv, Color32::WHITE);
+            painted = true;
+        }
+        if !tiled {
+            return painted;
+        }
+        let snap = |p: Pos2| pos2((p.x * ppp).round() / ppp, (p.y * ppp).round() / ppp);
+        let (w, h) = (page_rect.width(), page_rect.height());
+        for (key, t, tex) in self.tiles.paint_order(self.current_page, tag) {
+            let s = tiles::tag_scale(key.tag);
+            let (dw, dh) = (device_pixels(pts.0, s) as f32, device_pixels(pts.1, s) as f32);
+            let min = page_rect.min + vec2(t.x as f32 / dw * w, t.y as f32 / dh * h);
+            let max = page_rect.min + vec2((t.x + t.w) as f32 / dw * w, (t.y + t.h) as f32 / dh * h);
+            let r = Rect::from_min_max(snap(min), snap(max));
+            if r.intersects(viewport) {
+                painter.image(tex.id(), r, full_uv, Color32::WHITE);
+                painted = true;
+            }
+        }
+        painted
     }
 
     /// Evaluates `active_search` across ALL pages instantly using pre-extracted `PageText`.
@@ -403,9 +484,8 @@ impl PdfSchematicViewer {
             let target_page = self.search_results[idx].page_number;
             self.current_page = target_page;
             self.pending_center_on_match = true;
-            // Force immediate raster request for the target page
-            self.last_requested_tags.remove(&target_page);
-            self.update_render_queue(1.0);
+            // Render the target page at its new scale at once, without waiting for a settle
+            self.force_settle = true;
         }
     }
 
@@ -425,15 +505,12 @@ impl PdfSchematicViewer {
             self.zoom = 3.0;
         }
 
-        self.last_observed_zoom = self.zoom;
-
         if !self.search_results.is_empty() {
             let target_page = self.search_results[0].page_number;
             self.current_page = target_page;
             self.pending_center_on_match = true;
-            // Clear tag to force immediate sharp rasterization of target page
-            self.last_requested_tags.remove(&target_page);
-            self.update_render_queue(1.0);
+            // Force immediate sharp rasterization of the target page at the elevated zoom
+            self.force_settle = true;
             true
         } else {
             false
@@ -478,6 +555,68 @@ mod tests {
         viewer.zoom = 3.5;
         viewer.cross_probe("C35");
         assert_eq!(viewer.zoom, 3.5);
+    }
+
+    /// Opens the fixture and lays out its first page `width` points wide at `origin` inside
+    /// `viewport`; returns the viewer, the page rect and the queue handed to the pool.
+    fn plan_fixture(origin: Pos2, width: f32, viewport: Rect) -> Option<(PdfSchematicViewer, Rect, Vec<RenderRequest>)> {
+        // Tests run from the crate directory; the fixture lives in the workspace `tmp/`.
+        let pdf_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp/MS-V375 REV 7.0.pdf");
+        if !pdf_path.exists() {
+            return None;
+        }
+        let mut viewer = PdfSchematicViewer::default();
+        viewer.open_file(&pdf_path).ok()?;
+        let size = viewer.page_size_pts(1);
+        let page_rect = Rect::from_min_size(origin, vec2(width, width * size.y / size.x));
+        let ctx = egui::Context::default();
+        let painter = egui::Painter::new(ctx.clone(), egui::LayerId::background(), viewport);
+        viewer.paint_current_page(&ctx, &painter, page_rect, viewport);
+        let queue = viewer.last_queue.clone();
+        Some((viewer, page_rect, queue))
+    }
+
+    #[test]
+    fn test_zoomed_page_requests_only_visible_tiles_at_exact_scale() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
+        // A page laid out 30000 points wide around the viewport: far past the old 8192 px clamp.
+        let Some((viewer, page_rect, queue)) = plan_fixture(pos2(-14000.0, -9000.0), 30000.0, viewport) else {
+            return;
+        };
+        let size = viewer.page_size_pts(1);
+        let scale = 30000.0 / size.x;
+
+        // The low-res backdrop of the current page comes first.
+        let first = queue.first().expect("backdrop requested");
+        assert_eq!((first.page, first.tile, first.preview), (0, None, true));
+        assert!(size.x.max(size.y) * first.scale <= tiles::BASE_SIDE + 1.0);
+
+        // Then tiles at the exact, unclamped device scale, each one under the viewport.
+        let tiles: Vec<_> = queue.iter().filter(|r| r.page == 0 && r.tile.is_some()).collect();
+        assert!(!tiles.is_empty());
+        let (dw, dh) = (device_pixels(size.x, scale) as f32, device_pixels(size.y, scale) as f32);
+        let (w, h) = (page_rect.width(), page_rect.height());
+        for r in &tiles {
+            assert!((r.scale - scale).abs() < 1e-3, "tile scale {} != {scale}", r.scale);
+            let t = r.tile.unwrap();
+            let min = page_rect.min + vec2(t.x as f32 / dw * w, t.y as f32 / dh * h);
+            let max = page_rect.min + vec2((t.x + t.w) as f32 / dw * w, (t.y + t.h) as f32 / dh * h);
+            assert!(Rect::from_min_max(min, max).intersects(viewport), "{t:?} is off screen");
+        }
+        let whole = tiles::visible_tiles((size.x, size.y), scale, 2048.0, [0.0, 0.0, 1.0, 1.0]);
+        assert!(tiles.len() < whole.len() / 4, "{} of {} tiles requested", tiles.len(), whole.len());
+    }
+
+    #[test]
+    fn test_small_page_renders_whole_without_tiles() {
+        let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
+        let page_rect = Rect::from_min_size(pos2(50.0, 50.0), vec2(700.0, 1.0));
+        let Some((viewer, _, queue)) = plan_fixture(page_rect.min, page_rect.width(), viewport) else { return };
+        let size = viewer.page_size_pts(1);
+        let first = queue.first().expect("page requested");
+        assert_eq!((first.page, first.tile, first.preview), (0, None, false));
+        assert!((first.scale - 700.0 / size.x).abs() < 1e-3);
+        assert!(queue.iter().all(|r| r.tile.is_none()));
     }
 
     #[test]
