@@ -7,7 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 bvc-core = { workspace = true }
-egui = { workspace = true }
+egui = { workspace = true, features = ["bytemuck"] }
 eframe = { workspace = true }
 lyon_tessellation = { workspace = true }
 rayon = { workspace = true }
@@ -18,3 +18,4 @@ serde_json = { workspace = true }
 image = { workspace = true }
 flate2 = { workspace = true }
 pdfcraft-render = { workspace = true }
+bytemuck = { version = "1", features = ["extern_crate_alloc"] }
