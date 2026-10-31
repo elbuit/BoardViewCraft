@@ -223,10 +223,13 @@ impl Viewport {
     }
 }
 
+/// Everything the board meshes depend on except zoom and pan.
+///
+/// Zoom and pan steps re-map the cached meshes (`BoardMeshBase`) instead of re-tessellating, so
+/// the view centre and scale are not part of the key; a rebuild for them is decided by
+/// `BoardMeshBase::covers`.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ViewCacheKey {
-    pub center: (i64, i64), // scaled integer for float comparison or approx
-    pub scale_bits: u32,
     pub side: Side,
     pub rotation: Rotation,
     pub mirror_x: bool,
@@ -262,8 +265,6 @@ impl ViewCacheKey {
         prefs: &Preferences,
     ) -> Self {
         Self {
-            center: ((vp.center.x * 1000.0) as i64, (vp.center.y * 1000.0) as i64),
-            scale_bits: vp.scale.to_bits(),
             side: vp.side,
             rotation: vp.rotation,
             mirror_x: vp.mirror_x,
@@ -284,14 +285,145 @@ impl ViewCacheKey {
     }
 }
 
+/// Largest zoom ratio (either way) between the view a mesh base was tessellated for and the
+/// displayed view before it is rebuilt. Within it, screen-space minimum sizes (pads >= 1.5 px,
+/// tiny-part markers, stroke widths) scale with the zoom and snap back on the next rebuild.
+pub const MESH_ZOOM_BUCKET: f32 = std::f32::consts::SQRT_2;
+
+/// World region whose geometry a mesh base holds: the culled view grown by half the visible size
+/// on every side, so zooming out within `MESH_ZOOM_BUCKET` or panning by up to half a screen
+/// stays inside it.
+pub fn mesh_coverage(vp: &Viewport, rect: EguiRect) -> Rect {
+    let visible = vp.visible_world_rect(rect);
+    view_cull_rect(vp, rect).expand(visible.width().max(visible.height()) * 0.5)
+}
+
+/// World region culled for drawing: the visible rectangle plus a margin for pads and bodies whose
+/// anchor lies just outside it.
+pub fn view_cull_rect(vp: &Viewport, rect: EguiRect) -> Rect {
+    let margin_mils = (50.0 / vp.scale).max(40.0) as f64;
+    vp.visible_world_rect(rect).expand(margin_mils)
+}
+
+fn rect_contains_rect(outer: &Rect, inner: &Rect) -> bool {
+    outer.min_x <= inner.min_x && outer.max_x >= inner.max_x && outer.min_y <= inner.min_y && outer.max_y >= inner.max_y
+}
+
+/// Board meshes tessellated once in screen space for one view, plus what is needed to re-map
+/// them to a zoomed or panned view with the same side, rotation and mirroring.
+#[derive(Clone)]
+pub struct BoardMeshBase {
+    pub meshes: Vec<Arc<Mesh>>,
+    /// View centre (world) and scale the meshes were built for.
+    pub center: Point,
+    pub scale: f32,
+    /// Screen position of `center` when built (the canvas centre).
+    pub screen_center: Pos2,
+    /// World region whose geometry the meshes contain.
+    pub coverage: Rect,
+}
+
+impl BoardMeshBase {
+    /// Whether the meshes were tessellated for exactly this view.
+    pub fn is_built_for(&self, vp: &Viewport, rect: EguiRect) -> bool {
+        self.center == vp.center && self.scale == vp.scale && self.screen_center == rect.center()
+    }
+
+    /// Whether the meshes can be re-mapped to `vp` without visible loss: the zoom ratio stays in
+    /// the bucket and the culled view lies inside the tessellated region.
+    pub fn covers(&self, vp: &Viewport, rect: EguiRect) -> bool {
+        let ratio = vp.scale / self.scale;
+        (1.0 / MESH_ZOOM_BUCKET..=MESH_ZOOM_BUCKET).contains(&ratio)
+            && rect_contains_rect(&self.coverage, &view_cull_rect(vp, rect))
+    }
+
+    /// The meshes moved to `vp`. With side, rotation and mirroring unchanged, the old-screen to
+    /// new-screen map is a uniform scale about the old canvas centre plus a translation, so one
+    /// multiply-add per vertex replaces the whole tessellation.
+    pub fn remap(&self, vp: &Viewport, rect: EguiRect) -> Vec<Arc<Mesh>> {
+        let k = vp.scale / self.scale;
+        let target = vp.world_to_screen(self.center, rect);
+        if k == 1.0 && target == self.screen_center {
+            return self.meshes.clone();
+        }
+        let origin = self.screen_center;
+        self.meshes
+            .iter()
+            .map(|mesh| {
+                Arc::new(Mesh {
+                    indices: mesh.indices.clone(),
+                    vertices: mesh
+                        .vertices
+                        .iter()
+                        .map(|v| egui::epaint::Vertex { pos: target + (v.pos - origin) * k, ..*v })
+                        .collect(),
+                    texture_id: mesh.texture_id,
+                })
+            })
+            .collect()
+    }
+}
+
+/// What `sync_board_meshes` did to bring the displayed meshes up to date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeshSync {
+    /// Same view as the previous frame: nothing to do.
+    Kept,
+    /// Zoom or pan within the cached base: vertices re-mapped, no tessellation.
+    Remapped,
+    /// Key changed, zoom left the bucket or the view left the covered region: re-tessellated.
+    Rebuilt,
+}
+
+/// The displayed view: centre, scale and canvas centre.
+type DisplayedView = (Point, u32, Pos2);
+
 pub struct CanvasState {
     pub viewport: Viewport,
     pub hovered_pin: Option<usize>,
     pub hovered_via: Option<usize>,
-    /// Board meshes for `cached_view_key`, shared with the painter without copying.
+    /// Board meshes for the displayed view, shared with the painter without copying.
     pub cached_meshes: Vec<Arc<Mesh>>,
+    /// Key of `mesh_base`; set to `None` to force a rebuild on the next frame.
     pub cached_view_key: Option<ViewCacheKey>,
+    /// Last tessellated meshes, re-mapped for zoom and pan steps.
+    pub mesh_base: Option<BoardMeshBase>,
+    displayed_view: Option<DisplayedView>,
     pub context_menu_pin: Option<(usize, Pos2)>,
+}
+
+/// Brings `state.cached_meshes` up to date for `vp`: keeps them, re-maps the cached base for a
+/// zoom or pan step, or calls `build` with the world region to tessellate. After `Remapped` the
+/// caller requests one more frame so that a view that stopped moving gets rebuilt exactly.
+pub fn sync_board_meshes(
+    state: &mut CanvasState,
+    key: ViewCacheKey,
+    vp: &Viewport,
+    rect: EguiRect,
+    build: impl FnOnce(Rect) -> Vec<Mesh>,
+) -> MeshSync {
+    let view: DisplayedView = (vp.center, vp.scale.to_bits(), rect.center());
+    if state.cached_view_key.as_ref() == Some(&key) {
+        if state.displayed_view == Some(view) {
+            // Re-mapped meshes are exact for true-size geometry but scale the screen-space minimum
+            // sizes; once the view rests for a frame it is tessellated for real.
+            let settled = state.mesh_base.as_ref().is_some_and(|base| base.is_built_for(vp, rect));
+            if settled {
+                return MeshSync::Kept;
+            }
+        } else if let Some(base) = state.mesh_base.as_ref().filter(|base| base.covers(vp, rect)) {
+            state.cached_meshes = base.remap(vp, rect);
+            state.displayed_view = Some(view);
+            return MeshSync::Remapped;
+        }
+    }
+    let coverage = mesh_coverage(vp, rect);
+    let meshes: Vec<Arc<Mesh>> = build(coverage).into_iter().map(Arc::new).collect();
+    state.cached_meshes = meshes.clone();
+    state.mesh_base = Some(BoardMeshBase { meshes, center: vp.center, scale: vp.scale, screen_center: rect.center(), coverage });
+    state.cached_view_key = Some(key);
+    state.displayed_view = Some(view);
+    MeshSync::Rebuilt
 }
 
 impl Default for CanvasState {
@@ -302,6 +434,8 @@ impl Default for CanvasState {
             hovered_via: None,
             cached_meshes: Vec::new(),
             cached_view_key: None,
+            mesh_base: None,
+            displayed_view: None,
             context_menu_pin: None,
         }
     }
@@ -705,12 +839,14 @@ pub fn show_canvas(
             prefs,
         );
 
-        if canvas_state.cached_view_key.as_ref() != Some(&current_key) {
-            // Cache miss: generate meshes (without hover, drawn below) and update the cache.
-            let new_meshes = generate_board_meshes(
+        // Rebuilt meshes have no hover: the hovered pin or via is drawn by the overlay below.
+        let view = vp.clone();
+        let sync = sync_board_meshes(canvas_state, current_key, &view, rect, |coverage| {
+            generate_board_meshes_in(
                 b,
-                vp,
+                &view,
                 rect,
+                coverage,
                 tokens,
                 *selected_pin_idx,
                 *selected_via_idx,
@@ -725,9 +861,11 @@ pub fn show_canvas(
                 prefs.show_vias,
                 prefs.show_unnamed_vias,
                 prefs.show_pins,
-            );
-            canvas_state.cached_meshes = new_meshes.into_iter().map(Arc::new).collect();
-            canvas_state.cached_view_key = Some(current_key);
+            )
+        });
+        let vp = &canvas_state.viewport;
+        if sync == MeshSync::Remapped {
+            ui.ctx().request_repaint();
         }
         // Emitting a cached mesh only bumps its reference count.
         for mesh in &canvas_state.cached_meshes {
@@ -994,7 +1132,7 @@ pub fn show_canvas(
         render_calibration_overlays(
             &painter,
             rect,
-            vp,
+            &canvas_state.viewport,
             active_slot,
             alignment_session,
             board,
@@ -1353,6 +1491,9 @@ pub fn hover_overlay_mesh(
     mesh
 }
 
+/// Board meshes for the culled view (`view_cull_rect`). See `generate_board_meshes_in`.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
 pub fn generate_board_meshes(
     b: &Board,
     vp: &Viewport,
@@ -1372,11 +1513,53 @@ pub fn generate_board_meshes(
     show_unnamed_vias: bool,
     show_pins: bool,
 ) -> Vec<Mesh> {
-    let mut new_meshes = Vec::new();
+    generate_board_meshes_in(
+        b,
+        vp,
+        rect,
+        view_cull_rect(vp, rect),
+        tokens,
+        selected_pin_idx,
+        selected_via_idx,
+        selected_part_idx,
+        selected_net,
+        current_hover_pin,
+        current_hover_via,
+        renderer,
+        show_net_web,
+        via_display_mode,
+        show_opposite_elements,
+        show_vias,
+        show_unnamed_vias,
+        show_pins,
+    )
+}
 
-    // Compute visible world frustum with a generous margin in world coordinates
-    let margin_mils = (50.0 / vp.scale).max(40.0) as f64;
-    let visible_world = vp.visible_world_rect(rect).expand(margin_mils);
+/// Screen-space board meshes for `vp`, holding only parts, pads and vias inside the world
+/// region `cull_world` (offscreen geometry is never tessellated).
+#[allow(clippy::too_many_arguments)]
+pub fn generate_board_meshes_in(
+    b: &Board,
+    vp: &Viewport,
+    rect: EguiRect,
+    cull_world: Rect,
+    tokens: &Tokens,
+    selected_pin_idx: Option<usize>,
+    selected_via_idx: Option<usize>,
+    selected_part_idx: Option<usize>,
+    selected_net: Option<&str>,
+    current_hover_pin: Option<usize>,
+    current_hover_via: Option<usize>,
+    renderer: &mut Renderer,
+    show_net_web: bool,
+    via_display_mode: ViaDisplayMode,
+    show_opposite_elements: bool,
+    show_vias: bool,
+    show_unnamed_vias: bool,
+    show_pins: bool,
+) -> Vec<Mesh> {
+    let mut new_meshes = Vec::new();
+    let visible_world = cull_world;
 
     // 1. Board outline polygon
     if b.outline_polygon.len() >= 3 {
@@ -2038,6 +2221,149 @@ mod tests {
 
     /// Idle frames and hovering keep the cache key, so the board meshes are not rebuilt;
     /// view, selection and display preferences still invalidate it.
+    /// Runs `sync_board_meshes` for `vp` with a real tessellation and reports what it did.
+    fn sync(state: &mut CanvasState, board: &Board, vp: &Viewport, rect: EguiRect, selected_pin: Option<usize>) -> MeshSync {
+        let prefs = Preferences::default();
+        let key = ViewCacheKey::new(board, vp, rect, selected_pin, None, None, None, &prefs);
+        let mut renderer = Renderer::new();
+        sync_board_meshes(state, key, vp, rect, |coverage| {
+            generate_board_meshes_in(
+                board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, None, None, &mut renderer,
+                true, ViaDisplayMode::Web, false, true, false, true,
+            )
+        })
+    }
+
+    #[test]
+    fn zoom_and_pan_within_the_bucket_remap_instead_of_tessellating() {
+        let board = two_pin_board();
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        let mut state = CanvasState::default();
+
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Rebuilt);
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Kept);
+
+        // Every step of a wheel zoom (and a pan) inside the bucket only moves vertices.
+        let base_scale = vp.scale;
+        for step in [1.05, 1.1, 1.2, 1.3, 1.4] {
+            vp.scale = base_scale * step;
+            vp.center.x += 0.5;
+            assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped, "zoom x{step}");
+        }
+        for step in [0.95, 0.8, 0.72] {
+            vp.scale = base_scale * step;
+            assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped, "zoom x{step}");
+        }
+        // The view rests for a frame: tessellated exactly once, then kept.
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Rebuilt);
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Kept);
+
+        // Leaving the zoom bucket, or changing anything in the key, re-tessellates.
+        vp.scale *= MESH_ZOOM_BUCKET * 1.01;
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Rebuilt);
+        assert_eq!(sync(&mut state, &board, &vp, rect, Some(0)), MeshSync::Rebuilt);
+        state.cached_view_key = None;
+        assert_eq!(sync(&mut state, &board, &vp, rect, Some(0)), MeshSync::Rebuilt);
+    }
+
+    #[test]
+    fn panning_out_of_the_covered_region_re_tessellates() {
+        let board = two_pin_board();
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        vp.scale *= 20.0;
+        let mut state = CanvasState::default();
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Rebuilt);
+        let screen_w = (rect.width() / vp.scale) as f64;
+        vp.center.x += screen_w * 0.4;
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
+        vp.center.x += screen_w * 0.4;
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Rebuilt);
+    }
+
+    #[test]
+    fn remapped_meshes_match_a_fresh_tessellation_of_true_size_pads() {
+        let mut board = Board::new();
+        board.parts.push(bvc_core::Part { name: "U1".into(), ..Default::default() });
+        for (i, (x, rot)) in [(0.0, 0.0), (60.0, 90.0), (120.0, 45.0)].into_iter().enumerate() {
+            board.pins.push(Pin { id: i, pos: Point::new(x, 10.0), net_name: "N".into(), ..rect_pad(30.0, 12.0, rot) });
+        }
+        board.rebuild_indices();
+        let rect = EguiRect::from_min_size(Pos2::new(250.0, 40.0), egui::vec2(800.0, 600.0));
+        let mut vp = Viewport { rotation: Rotation::Deg90, mirror_x: true, ..Viewport::default() };
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        let mut state = CanvasState::default();
+        sync(&mut state, &board, &vp, rect, None);
+        let coverage = state.mesh_base.as_ref().unwrap().coverage;
+
+        vp.scale *= 1.3;
+        vp.center = Point::new(vp.center.x + 7.0, vp.center.y - 3.0);
+        assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
+        let fresh = generate_board_meshes_in(
+            &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, None, None, &mut Renderer::new(),
+            true, ViaDisplayMode::Web, false, true, false, true,
+        );
+        // Pads have true size, so the re-mapped pad mesh (the last one) equals a fresh one.
+        let (remapped, fresh) = (state.cached_meshes.last().unwrap(), fresh.last().unwrap());
+        assert_eq!(remapped.indices, fresh.indices);
+        assert_eq!(remapped.vertices.len(), fresh.vertices.len());
+        for (a, b) in remapped.vertices.iter().zip(&fresh.vertices) {
+            assert!((a.pos - b.pos).length() < 1e-2, "{:?} vs {:?}", a.pos, b.pos);
+            assert_eq!(a.color, b.color);
+        }
+    }
+
+    #[test]
+    fn offscreen_pads_are_not_tessellated() {
+        let board = two_pin_board();
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut vp = Viewport { center: board.pins[0].pos, scale: 40.0, ..Viewport::default() };
+        let pin_vertices = |vp: &Viewport| -> Vec<Pos2> {
+            let meshes = generate_board_meshes_in(
+                &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, false, false, true,
+            );
+            meshes.last().unwrap().vertices.iter().map(|v| v.pos).collect()
+        };
+        // Zoomed onto pin 0, pin 1 (100 mil away) is outside the covered region: only pin 0 is drawn.
+        let near = pin_vertices(&vp);
+        let pin0 = vp.world_to_screen(board.pins[0].pos, rect);
+        assert!(!near.is_empty() && near.iter().all(|p| (*p - pin0).length() <= 10.0 * 40.0 + 1.0));
+        // Zoomed out, both pins are inside the covered region.
+        vp.scale = 1.0;
+        let pin1 = vp.world_to_screen(board.pins[1].pos, rect);
+        assert!(pin_vertices(&vp).iter().any(|p| (*p - pin1).length() <= 11.0));
+    }
+
+    #[test]
+    fn fixture_deep_zoom_stays_within_vertex_budget() {
+        let Some(board) = ms_v375_fixture() else { return };
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(2560.0, 1346.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        let fit_scale = vp.scale;
+        let cn1 = board.parts.iter().find(|p| p.name == "CN1").and_then(|p| p.bounding_box).unwrap();
+        let vertices = |vp: &Viewport| -> usize {
+            generate_board_meshes_in(
+                &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, true, false, true,
+            )
+            .iter()
+            .map(|m| m.vertices.len())
+            .sum()
+        };
+        let fit = vertices(&vp);
+        vp.center = cn1.center();
+        for zoom in [8.0, 30.0] {
+            vp.scale = fit_scale * zoom;
+            let deep = vertices(&vp);
+            assert!(deep * 4 <= fit, "x{zoom}: {deep} vertices vs {fit} at fit");
+        }
+    }
+
     #[test]
     fn wheel_zoom_depends_on_scrolled_distance_not_frame_count() {
         let line = 40.0;
@@ -2076,9 +2402,14 @@ mod tests {
         assert_eq!(idle, key(&vp, None, &prefs));
         assert_eq!(idle, key(&vp.clone(), None, &prefs.clone()));
 
+        // Zoom and pan re-map the cached meshes (`sync_board_meshes`), so they are not in the key.
         let mut panned = vp.clone();
         panned.center.x += 1.0;
-        assert_ne!(idle, key(&panned, None, &prefs));
+        panned.scale *= 1.2;
+        assert_eq!(idle, key(&panned, None, &prefs));
+        let mut flipped = vp.clone();
+        flipped.side = Side::Bottom;
+        assert_ne!(idle, key(&flipped, None, &prefs));
         assert_ne!(idle, key(&vp, Some(0), &prefs));
         let mut no_pins = prefs.clone();
         no_pins.show_pins = false;
@@ -2430,4 +2761,5 @@ mod tests {
         assert_eq!(web_radial_via.vertices.len(), 12);
     }
 }
+
 
