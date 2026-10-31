@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 const MAX_BYTES: u64 = 64 * 1024;
+/// Maximum number of remembered board -> schematic PDF associations (oldest dropped first),
+/// keeping the preferences file well below `MAX_BYTES`.
+pub const MAX_BOARD_SCHEMATICS: usize = 32;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn default_true() -> bool {
@@ -37,6 +40,13 @@ impl ViaDisplayMode {
             ViaDisplayMode::Web => i18n::tr(lang, "prefs.via_mode_web"),
         }
     }
+}
+
+/// The schematic PDF last opened while a board file was loaded.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardSchematic {
+    pub board: PathBuf,
+    pub pdf: PathBuf,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -65,6 +75,9 @@ pub struct Preferences {
     pub show_pins: bool,
     #[serde(default)]
     pub recent_files: Vec<PathBuf>,
+    /// Each board's schematic PDF, most recently used first (at most `MAX_BOARD_SCHEMATICS`).
+    #[serde(default)]
+    pub board_schematics: Vec<BoardSchematic>,
 }
 
 impl Default for Preferences {
@@ -85,6 +98,7 @@ impl Default for Preferences {
             show_unnamed_vias: false,
             show_pins: true,
             recent_files: Vec::new(),
+            board_schematics: Vec::new(),
         }
     }
 }
@@ -120,6 +134,24 @@ impl Preferences {
         if self.recent_files.len() > 10 {
             self.recent_files.truncate(10);
         }
+    }
+
+    /// Remembers `pdf` as the schematic of `board` (most recent first, bounded). Returns whether
+    /// the preferences changed.
+    pub fn remember_board_schematic(&mut self, board: PathBuf, pdf: PathBuf) -> bool {
+        let entry = BoardSchematic { board, pdf };
+        if self.board_schematics.first() == Some(&entry) {
+            return false;
+        }
+        self.board_schematics.retain(|e| e.board != entry.board);
+        self.board_schematics.insert(0, entry);
+        self.board_schematics.truncate(MAX_BOARD_SCHEMATICS);
+        true
+    }
+
+    /// The schematic PDF remembered for `board`, if any.
+    pub fn board_schematic(&self, board: &Path) -> Option<&Path> {
+        self.board_schematics.iter().find(|e| e.board == board).map(|e| e.pdf.as_path())
     }
 
     pub fn load_from(path: &Path) -> Self {
@@ -559,6 +591,10 @@ mod tests {
             show_unnamed_vias: false,
             show_pins: true,
             recent_files: vec![PathBuf::from("/path/to/board.cad")],
+            board_schematics: vec![BoardSchematic {
+                board: PathBuf::from("/path/to/board.cad"),
+                pdf: PathBuf::from("/path/to/board.pdf"),
+            }],
         };
 
         let json = serde_json::to_string(&prefs).expect("Serialize to JSON");
@@ -649,6 +685,45 @@ mod tests {
         assert_eq!(fallback, Preferences::default());
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn board_schematics_default_when_missing_from_saved_preferences() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value.as_object_mut().unwrap().remove("board_schematics");
+        let prefs: Preferences = serde_json::from_value(value).expect("old preferences still load");
+        assert!(prefs.board_schematics.is_empty());
+    }
+
+    #[test]
+    fn board_schematic_insert_lookup_and_replace() {
+        let mut prefs = Preferences::default();
+        let a = PathBuf::from("/boards/a.cad");
+        assert_eq!(prefs.board_schematic(&a), None);
+        assert!(prefs.remember_board_schematic(a.clone(), PathBuf::from("/boards/a.pdf")));
+        assert!(prefs.remember_board_schematic(PathBuf::from("/boards/b.cad"), PathBuf::from("/b.pdf")));
+        assert_eq!(prefs.board_schematic(&a), Some(Path::new("/boards/a.pdf")));
+        // Reopening the same pair at the front changes nothing.
+        assert!(!prefs.remember_board_schematic(PathBuf::from("/boards/b.cad"), PathBuf::from("/b.pdf")));
+        // A new PDF for a board replaces its entry and moves it to the front.
+        assert!(prefs.remember_board_schematic(a.clone(), PathBuf::from("/other/a_rev2.pdf")));
+        assert_eq!(prefs.board_schematic(&a), Some(Path::new("/other/a_rev2.pdf")));
+        assert_eq!(prefs.board_schematics.len(), 2);
+        assert_eq!(prefs.board_schematics[0].board, a);
+    }
+
+    #[test]
+    fn board_schematics_evict_least_recent_beyond_cap() {
+        let mut prefs = Preferences::default();
+        for i in 0..MAX_BOARD_SCHEMATICS + 5 {
+            prefs.remember_board_schematic(PathBuf::from(format!("/b{i}.cad")), PathBuf::from(format!("/b{i}.pdf")));
+        }
+        assert_eq!(prefs.board_schematics.len(), MAX_BOARD_SCHEMATICS);
+        assert_eq!(prefs.board_schematic(Path::new("/b0.cad")), None, "oldest evicted");
+        assert_eq!(prefs.board_schematic(Path::new("/b4.cad")), None);
+        assert!(prefs.board_schematic(Path::new("/b5.cad")).is_some());
+        let newest = format!("/b{}.cad", MAX_BOARD_SCHEMATICS + 4);
+        assert_eq!(prefs.board_schematics[0].board, PathBuf::from(newest));
     }
 
     #[test]
