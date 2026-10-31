@@ -360,6 +360,7 @@ impl XzzParser {
                                                 p2: Point::ZERO,
                                                 pin_indices: Vec::new(),
                                                 bounding_box: None,
+                                                ..Default::default()
                                             });
 
                                             // Read sub-blocks (pins are type 0x09)
@@ -398,6 +399,7 @@ impl XzzParser {
                                                             pos: Point::new(x_orig as f64 / XZZ_GLOBAL_SCALE, y_orig as f64 / XZZ_GLOBAL_SCALE),
                                                             side: Side::Top,
                                                             radius: 12.0,
+                                                            ..Default::default()
                                                         });
                                                     }
                                                     cptr = pin_end;

@@ -458,6 +458,7 @@ impl FormatParser for KicadParser {
                 p2: Point::ZERO,
                 pin_indices: Vec::new(),
                 bounding_box: None,
+                ..Default::default()
             });
 
             // Angle rad
@@ -547,6 +548,7 @@ impl FormatParser for KicadParser {
                     side: pin_side,
                     net_name,
                     radius: radius_mils,
+                    ..Default::default()
                 });
             }
         }

@@ -79,6 +79,7 @@ impl Brd2Parser {
                 p2: Point::ZERO,
                 pin_indices: Vec::new(),
                 bounding_box: None,
+                ..Default::default()
             });
 
             // Pins for this part
@@ -102,6 +103,7 @@ impl Brd2Parser {
                         pos: Point::new(px as f64, py as f64),
                         side: pin_side,
                         radius: 12.0,
+                        ..Default::default()
                     });
                 }
             }

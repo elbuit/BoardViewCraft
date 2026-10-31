@@ -223,12 +223,12 @@ mod tests {
     fn test_spatial_grid_query() {
         let cell_size = 500.0;
         let pins = vec![
-            Pin { id: 0, part_id: 0, name: "1".into(), pos: Point::new(0.0, 0.0), side: Side::Top, net_name: "N1".into(), radius: 10.0 },
-            Pin { id: 1, part_id: 0, name: "2".into(), pos: Point::new(500.0, 0.0), side: Side::Top, net_name: "N1".into(), radius: 10.0 },
-            Pin { id: 2, part_id: 0, name: "3".into(), pos: Point::new(0.0, 500.0), side: Side::Top, net_name: "N1".into(), radius: 10.0 },
-            Pin { id: 3, part_id: 0, name: "4".into(), pos: Point::new(500.0, 500.0), side: Side::Top, net_name: "N1".into(), radius: 10.0 },
-            Pin { id: 4, part_id: 0, name: "5".into(), pos: Point::new(250.0, 250.0), side: Side::Top, net_name: "N1".into(), radius: 10.0 },
-            Pin { id: 5, part_id: 0, name: "6".into(), pos: Point::new(1000.0, 1000.0), side: Side::Top, net_name: "N1".into(), radius: 10.0 },
+            Pin { id: 0, part_id: 0, name: "1".into(), pos: Point::new(0.0, 0.0), side: Side::Top, net_name: "N1".into(), radius: 10.0, ..Default::default() },
+            Pin { id: 1, part_id: 0, name: "2".into(), pos: Point::new(500.0, 0.0), side: Side::Top, net_name: "N1".into(), radius: 10.0, ..Default::default() },
+            Pin { id: 2, part_id: 0, name: "3".into(), pos: Point::new(0.0, 500.0), side: Side::Top, net_name: "N1".into(), radius: 10.0, ..Default::default() },
+            Pin { id: 3, part_id: 0, name: "4".into(), pos: Point::new(500.0, 500.0), side: Side::Top, net_name: "N1".into(), radius: 10.0, ..Default::default() },
+            Pin { id: 4, part_id: 0, name: "5".into(), pos: Point::new(250.0, 250.0), side: Side::Top, net_name: "N1".into(), radius: 10.0, ..Default::default() },
+            Pin { id: 5, part_id: 0, name: "6".into(), pos: Point::new(1000.0, 1000.0), side: Side::Top, net_name: "N1".into(), radius: 10.0, ..Default::default() },
         ];
         let vias = vec![
             Via { id: 0, pos: Point::new(500.0, 500.0), side: Side::Top, net_name: "N1".into(), radius: 8.0 },
@@ -275,6 +275,7 @@ mod tests {
                 side: Side::Top,
                 net_name: "SIG".into(),
                 radius: 12.0,
+                ..Default::default()
             });
         }
 

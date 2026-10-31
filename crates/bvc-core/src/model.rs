@@ -1,7 +1,8 @@
 //! Core data models for BoardViewCraft.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Side {
+    #[default]
     Top,
     Bottom,
     Both,
@@ -28,13 +29,14 @@ impl Side {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PartType {
+    #[default]
     Smd,
     ThroughHole,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -123,8 +125,17 @@ impl Rect {
     }
 }
 
+/// Physical shape of a pad. Formats that do not describe pads leave `Round`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PadShape {
+    #[default]
+    Round,
+    Rect,
+    Square,
+}
+
 /// Represents a component / part on the board (e.g., U1, R10, C45).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Part {
     pub id: usize,
     pub name: String,
@@ -137,10 +148,14 @@ pub struct Part {
     pub pin_indices: Vec<usize>,
     /// Precomputed bounding box enclosing the part's pins (with margin)
     pub bounding_box: Option<Rect>,
+    /// Body outline in board coordinates (closed implicitly); empty when the format has none.
+    pub outline: Vec<Point>,
+    /// Placement rotation in degrees (counter-clockwise, board coordinates).
+    pub rotation_deg: f64,
 }
 
 /// Represents a pin of a component.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Pin {
     pub id: usize,
     /// Component ID this pin belongs to.
@@ -152,6 +167,51 @@ pub struct Pin {
     /// Name of the net connected to this pin.
     pub net_name: String,
     pub radius: f64,
+    /// Pad shape; `Round` with no size means "draw a marker of `radius`".
+    pub shape: PadShape,
+    /// Pad width (local X, before rotation) when the format gives a physical size.
+    pub width: Option<f64>,
+    /// Pad height (local Y, before rotation) when the format gives a physical size.
+    pub height: Option<f64>,
+    /// Pad rotation in degrees (counter-clockwise, board coordinates); dimensions stay local.
+    pub rotation_deg: f64,
+}
+
+impl Pin {
+    /// Physical pad size `(width, height)` when the format provided one.
+    #[inline]
+    pub fn pad_size(&self) -> Option<(f64, f64)> {
+        match (self.width, self.height) {
+            (Some(w), Some(h)) if w > 0.0 && h > 0.0 => Some((w, h)),
+            (Some(w), None) if w > 0.0 => Some((w, w)),
+            (None, Some(h)) if h > 0.0 => Some((h, h)),
+            _ => None,
+        }
+    }
+
+    /// Axis-aligned half extents of the pad's physical size after rotation, if the size is known.
+    /// Portions adapted from TRACE Boardviewer (MIT), Copyright (c) 2026 TRACE Boardviewer contributors
+    /// (`padExtent` in `src/lib/formats/common.ts`).
+    pub fn pad_half_extents(&self) -> Option<(f64, f64)> {
+        let (w, h) = self.pad_size()?;
+        if self.shape == PadShape::Round && w == h {
+            return Some((w * 0.5, h * 0.5));
+        }
+        let (cos, sin) = quadrant(self.rotation_deg);
+        let (cos, sin) = (cos.abs(), sin.abs());
+        Some((w * 0.5 * cos + h * 0.5 * sin, w * 0.5 * sin + h * 0.5 * cos))
+    }
+}
+
+/// Cosine and sine of `degrees`, exact for multiples of 90 degrees.
+pub fn quadrant(degrees: f64) -> (f64, f64) {
+    let turns = degrees / 90.0;
+    if turns.fract() == 0.0 {
+        let q = (turns as i64).rem_euclid(4) as usize;
+        return ([1.0, 0.0, -1.0, 0.0][q], [0.0, 1.0, 0.0, -1.0][q]);
+    }
+    let a = degrees.to_radians();
+    (a.cos(), a.sin())
 }
 
 /// Represents a via or test nail on the board.

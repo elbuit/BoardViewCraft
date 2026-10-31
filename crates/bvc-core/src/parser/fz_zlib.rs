@@ -108,6 +108,7 @@ impl FzZlibParser {
                                     p2: Point::ZERO,
                                     pin_indices: Vec::new(),
                                     bounding_box: None,
+                                    ..Default::default()
                                 });
                                 parts_map.insert(refdes, part_id);
                             }
@@ -141,6 +142,7 @@ impl FzZlibParser {
                                     p2: Point::ZERO,
                                     pin_indices: Vec::new(),
                                     bounding_box: None,
+                                    ..Default::default()
                                 });
                                 parts_map.insert(refdes, id);
                                 id
@@ -156,6 +158,7 @@ impl FzZlibParser {
                                 pos: Point::new(x, y),
                                 side,
                                 radius,
+                                ..Default::default()
                             });
                         }
                     }

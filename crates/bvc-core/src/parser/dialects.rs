@@ -129,6 +129,7 @@ impl BvrParser {
                 p2: Point::ZERO,
                 pin_indices: Vec::new(),
                 bounding_box: None,
+                ..Default::default()
             });
         }
 
@@ -185,6 +186,7 @@ impl BvrParser {
                     pos: Point::new(x as f64, y as f64),
                     side,
                     radius: 12.0,
+                    ..Default::default()
                 });
             }
         }
@@ -319,6 +321,7 @@ impl BvrParser {
                                     p2: Point::ZERO,
                                     pin_indices: Vec::new(),
                                     bounding_box: None,
+                                    ..Default::default()
                                 });
                                 new_id
                             }
@@ -334,6 +337,7 @@ impl BvrParser {
                                 p2: Point::ZERO,
                                 pin_indices: Vec::new(),
                                 bounding_box: None,
+                                ..Default::default()
                             });
                             new_id
                         };
@@ -354,6 +358,7 @@ impl BvrParser {
                                 side,
                                 net_name: net_name.to_string(),
                                 radius: 12.0,
+                                ..Default::default()
                             });
                         }
                     }
@@ -548,6 +553,7 @@ impl BvrParser {
                     p2: Point::ZERO,
                     pin_indices: Vec::new(),
                     bounding_box: None,
+                    ..Default::default()
                 });
 
                 for prec in current_part_pins.drain(..) {
@@ -566,6 +572,7 @@ impl BvrParser {
                         side: prec.side,
                         net_name: prec.net,
                         radius: prec.radius,
+                        ..Default::default()
                     });
                 }
 

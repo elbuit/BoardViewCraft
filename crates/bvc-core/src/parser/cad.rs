@@ -61,6 +61,7 @@ impl CadParser {
                             p2: Point::ZERO,
                             pin_indices: Vec::new(),
                             bounding_box: None,
+                            ..Default::default()
                         });
                         parts_map.insert(name, part_id);
                     }
@@ -87,6 +88,7 @@ impl CadParser {
                                     p2: Point::ZERO,
                                     pin_indices: Vec::new(),
                                     bounding_box: None,
+                                    ..Default::default()
                                 });
                                 parts_map.insert(part_clean.to_string(), id);
                                 id
@@ -120,6 +122,7 @@ impl CadParser {
                             side: part_side,
                             net_name,
                             radius: 12.0,
+                            ..Default::default()
                         });
                     }
                 }

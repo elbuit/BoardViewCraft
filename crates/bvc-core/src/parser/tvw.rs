@@ -1021,6 +1021,7 @@ impl TvwParser {
                     max_x: comp.bx2 as f64 / 100.0,
                     max_y: comp.by2 as f64 / 100.0,
                 }),
+                ..Default::default()
             });
 
             // Canonical pin mapping: pad_index // 8
@@ -1064,6 +1065,7 @@ impl TvwParser {
                         pos: Point::new(pr.x as f64 / 100.0, pr.y as f64 / 100.0),
                         side: pin_side,
                         radius,
+                        ..Default::default()
                     });
                     board.parts[part_id].pin_indices.push(pin_id);
                 }
@@ -1105,6 +1107,7 @@ impl TvwParser {
                         pos: Point::new(px, py),
                         side,
                         radius,
+                        ..Default::default()
                     });
                 } else {
                     // Stray pin/pad -> via / test nail

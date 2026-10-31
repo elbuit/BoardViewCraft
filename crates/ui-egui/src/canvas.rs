@@ -1660,6 +1660,7 @@ mod tests {
                 side: if i % 2 == 0 { Side::Top } else { Side::Bottom },
                 net_name: "GND".into(),
                 radius: 15.0,
+                ..Default::default()
             });
         }
 
@@ -1880,6 +1881,7 @@ mod tests {
             side: Side::Top,
             net_name: "TEST_NET".into(),
             radius: 10.0,
+            ..Default::default()
         });
         board.pins.push(Pin {
             id: 1,
@@ -1889,6 +1891,7 @@ mod tests {
             side: Side::Top,
             net_name: "TEST_NET".into(),
             radius: 10.0,
+            ..Default::default()
         });
         board.vias.push(Via {
             id: 0,
