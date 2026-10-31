@@ -188,6 +188,36 @@ impl BoardViewApp {
         }
     }
 
+    /// Closes the current board and everything tied to it: selection, side panel details,
+    /// photo overlays (aligned to that board), the schematic PDF and a pending PDF prompt.
+    /// View preferences and the side panel search filters are kept.
+    pub fn close_board(&mut self) {
+        let Some(name) = self.filename.take().or_else(|| self.board.as_ref().map(|_| "board".to_string())) else {
+            return;
+        };
+        self.board = None;
+        self.selected_pin_idx = None;
+        self.selected_via_idx = None;
+        self.selected_part_idx = None;
+        self.selected_net = None;
+        self.pending_auto_fit = false;
+        self.canvas_state.cached_meshes.clear();
+        self.canvas_state.cached_view_key = None;
+        self.canvas_state.hovered_pin = None;
+        self.canvas_state.hovered_via = None;
+        self.canvas_state.context_menu_pin = None;
+        self.side_panel_state.overlay_editing = false;
+        self.side_panel_state.focus_part = None;
+        self.side_panel_state.stay_on_part = None;
+        self.side_panel_state.search.invalidate();
+        self.overlay_manager.top.clear();
+        self.overlay_manager.bottom.clear();
+        self.alignment_session = AlignmentSession::default();
+        self.pdf_viewer.close();
+        self.pending_schematic_prompt = None;
+        self.status_msg = format!("Closed {name}.");
+    }
+
     pub fn open_file_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter(
@@ -412,6 +442,7 @@ impl eframe::App for BoardViewApp {
                         self.open_file_dialog();
                         ui.close();
                     }
+                    let mut close_board = false;
                     ui.menu_button(i18n::tr(lang, "toolbar.open_recent"), |ui| {
                         if self.preferences.recent_files.is_empty() {
                             ui.label(RichText::new(i18n::tr(lang, "toolbar.no_recent_files")).color(self.tokens.text_dim()));
@@ -425,10 +456,17 @@ impl eframe::App for BoardViewApp {
                             }
                         }
                     });
+                    if ui.add_enabled(self.board.is_some(), egui::Button::new(i18n::tr(lang, "toolbar.close_board"))).clicked() {
+                        close_board = true;
+                        ui.close();
+                    }
                     ui.separator();
                     if ui.button(i18n::tr(lang, "toolbar.preferences")).clicked() {
                         self.preferences_open = true;
                         ui.close();
+                    }
+                    if close_board {
+                        self.close_board();
                     }
                 });
 
@@ -1157,6 +1195,39 @@ mod focus_tests {
 
         assert!(app.selected_pin_idx.is_some());
         assert!(app.selected_net.is_some());
+    }
+
+    #[test]
+    fn close_board_returns_to_the_no_board_state() {
+        let mut app = BoardViewApp::default();
+        app.close_board();
+        assert_eq!(app.status(), "Ready. Open a .cad file to inspect.", "no board: nothing to close");
+
+        app.board = Some(Board::new());
+        app.filename = Some("MS-V375.cad".to_string());
+        app.selected_pin_idx = Some(1);
+        app.selected_via_idx = Some(2);
+        app.selected_part_idx = Some(3);
+        app.selected_net = Some("GND".to_string());
+        app.side_panel_state.filter_part = "U1".to_string();
+        app.side_panel_state.overlay_editing = true;
+        app.side_panel_state.stay_on_part = Some(3);
+        app.pdf_viewer.path = Some(std::path::PathBuf::from("/boards/MS-V375.pdf"));
+        app.pdf_viewer.is_open = true;
+        app.pending_schematic_prompt = Some(std::path::PathBuf::from("/boards/MS-V375.pdf"));
+
+        app.close_board();
+
+        assert!(app.board.is_none());
+        assert!(app.filename.is_none());
+        assert!(app.selected_pin_idx.is_none() && app.selected_via_idx.is_none());
+        assert!(app.selected_part_idx.is_none() && app.selected_net.is_none());
+        assert!(!app.side_panel_state.overlay_editing && app.side_panel_state.stay_on_part.is_none());
+        assert_eq!(app.side_panel_state.filter_part, "U1", "search filters are kept");
+        assert!(!app.pdf_viewer.is_open && app.pdf_viewer.path.is_none());
+        assert!(app.pending_schematic_prompt.is_none());
+        assert!(app.canvas_state.cached_view_key.is_none());
+        assert_eq!(app.status(), "Closed MS-V375.cad.");
     }
 
     #[test]

@@ -5,6 +5,7 @@
 	menu.help	Ajuda
 	toolbar.open_board	Obrir Board...
 	toolbar.open_recent	Fitxers Recents
+	toolbar.close_board	Tancar Board
 	toolbar.no_recent_files	Sense fitxers recents
 	toolbar.actions	Accions
 	toolbar.preferences	Preferències...

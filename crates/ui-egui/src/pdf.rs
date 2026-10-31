@@ -289,6 +289,12 @@ impl PdfSchematicViewer {
         Ok(())
     }
 
+    /// Closes the document: drops its render pool, textures, text layers and search state,
+    /// leaving the viewer as it is before any PDF was opened.
+    pub fn close(&mut self) {
+        *self = Self::default();
+    }
+
     /// Work counters of the render loop since the viewer was created.
     pub fn stats(&self) -> ViewerStats {
         self.stats

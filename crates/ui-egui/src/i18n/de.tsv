@@ -5,6 +5,7 @@
 	menu.help	Hilfe
 	toolbar.open_board	Platine öffnen...
 	toolbar.open_recent	Zuletzt geöffnete Dateien
+	toolbar.close_board	Platine schließen
 	toolbar.no_recent_files	Keine aktuellen Dateien
 	toolbar.actions	Aktionen
 	toolbar.preferences	Einstellungen...
