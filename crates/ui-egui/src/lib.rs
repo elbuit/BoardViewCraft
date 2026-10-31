@@ -147,6 +147,7 @@ impl BoardViewApp {
                 self.selected_via_idx = None;
                 self.selected_part_idx = None;
                 self.selected_net = None;
+                self.side_panel_state.search.invalidate();
 
                 // Center view and request auto-fit to window on next render frame
                 if let Some(bbox) = board.bounding_box {
@@ -249,6 +250,7 @@ impl BoardViewApp {
         }
     }
 }
+
 
 impl eframe::App for BoardViewApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {

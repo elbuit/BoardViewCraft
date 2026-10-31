@@ -20,6 +20,80 @@ pub struct SidePanelState {
     /// Part whose details stay on screen while one of its pins, picked from those
     /// details, is selected. Dropped as soon as a different part (or none) is selected.
     pub stay_on_part: Option<usize>,
+    /// Search matches, recomputed only when the filter text or the board changes.
+    pub search: SearchCache,
+}
+
+/// Identity of the board a cached search belongs to (address plus sizes, so a new board
+/// loaded at the same address is still detected).
+type BoardStamp = (usize, usize, usize, usize);
+
+fn board_stamp(b: &Board) -> BoardStamp {
+    (b as *const Board as usize, b.parts.len(), b.pins.len(), b.nets.len())
+}
+
+/// Cached results of the part and net search lists.
+///
+/// The lists are virtualised (only visible rows are laid out), so the per-frame cost
+/// no longer grows with the number of parts and nets; the filtering itself only runs
+/// when the filter text or the board changes.
+#[derive(Default)]
+pub struct SearchCache {
+    parts: Option<(BoardStamp, String, Vec<usize>)>,
+    nets: Option<(BoardStamp, String, Vec<String>)>,
+    /// Number of times the match lists were recomputed (for tests).
+    pub recomputes: usize,
+}
+
+impl SearchCache {
+    /// Forgets cached matches (e.g. after a board is opened or closed).
+    pub fn invalidate(&mut self) {
+        self.parts = None;
+        self.nets = None;
+    }
+
+    /// Indices of the parts matching `filter`, in board order.
+    pub fn parts(&mut self, b: &Board, filter: &str) -> &[usize] {
+        let stamp = board_stamp(b);
+        let needle = filter.trim().to_ascii_uppercase();
+        let fresh = matches!(&self.parts, Some((s, n, _)) if *s == stamp && *n == needle);
+        if !fresh {
+            self.recomputes += 1;
+            self.parts = Some((stamp, needle.clone(), filter_part_indices(b, &needle)));
+        }
+        self.parts.as_ref().map(|(_, _, v)| v.as_slice()).unwrap_or_default()
+    }
+
+    /// Names of the nets matching `filter`, in name order.
+    pub fn nets(&mut self, b: &Board, filter: &str) -> &[String] {
+        let stamp = board_stamp(b);
+        let needle = filter.trim().to_ascii_uppercase();
+        let fresh = matches!(&self.nets, Some((s, n, _)) if *s == stamp && *n == needle);
+        if !fresh {
+            self.recomputes += 1;
+            self.nets = Some((stamp, needle.clone(), filter_net_names(b, &needle)));
+        }
+        self.nets.as_ref().map(|(_, _, v)| v.as_slice()).unwrap_or_default()
+    }
+}
+
+/// Parts whose name contains the upper-case `needle` (all parts when it is empty).
+pub fn filter_part_indices(b: &Board, needle: &str) -> Vec<usize> {
+    b.parts
+        .iter()
+        .enumerate()
+        .filter(|(_, part)| needle.is_empty() || part.name.to_ascii_uppercase().contains(needle))
+        .map(|(idx, _)| idx)
+        .collect()
+}
+
+/// Nets whose name contains the upper-case `needle` (all nets when it is empty).
+pub fn filter_net_names(b: &Board, needle: &str) -> Vec<String> {
+    b.nets
+        .keys()
+        .filter(|name| needle.is_empty() || name.to_ascii_uppercase().contains(needle))
+        .cloned()
+        .collect()
 }
 
 /// The selection-driven view of the side panel. The photo overlay view is not a
@@ -354,33 +428,28 @@ pub fn show_side_panel(
                     .hint_text("Type part name (e.g. U1, R1)..."),
             );
 
+            let row_height = ui.spacing().interact_size.y;
+            let part_matches = state.search.parts(b, &state.filter_part);
+            let mut clicked_part = None;
             ScrollArea::vertical()
                 .id_salt("search_parts_scroll")
                 .max_height(200.0)
-                .show(ui, |ui| {
-                    let needle = state.filter_part.trim().to_ascii_uppercase();
-                    for part in &b.parts {
-                        if needle.is_empty() || part.name.to_ascii_uppercase().contains(&needle) {
-                            let is_selected = *selected_part_idx == Some(part.id);
-                            if ui
-                                .selectable_label(
-                                    is_selected,
-                                    format!("{} ({:?})", part.name, part.side),
-                                )
-                                .clicked()
-                            {
-                                select_part_only(
-                                    part.id,
-                                    selected_pin_idx,
-                                    selected_via_idx,
-                                    selected_part_idx,
-                                    selected_net,
-                                );
-                                state.focus_part = Some(part.id);
-                            }
+                .show_rows(ui, row_height, part_matches.len(), |ui, row_range| {
+                    for &idx in &part_matches[row_range] {
+                        let Some(part) = b.parts.get(idx) else { continue };
+                        let is_selected = *selected_part_idx == Some(part.id);
+                        if ui
+                            .selectable_label(is_selected, format!("{} ({:?})", part.name, part.side))
+                            .clicked()
+                        {
+                            clicked_part = Some(part.id);
                         }
                     }
                 });
+            if let Some(part_id) = clicked_part {
+                select_part_only(part_id, selected_pin_idx, selected_via_idx, selected_part_idx, selected_net);
+                state.focus_part = Some(part_id);
+            }
 
             ui.separator();
             ui.label(RichText::new("Search Nets:").strong());
@@ -389,13 +458,14 @@ pub fn show_side_panel(
                     .hint_text("Type net name (e.g. VCC, GND)..."),
             );
 
+            let row_height = ui.spacing().interact_size.y;
+            let net_matches = state.search.nets(b, &state.filter_net);
             ScrollArea::vertical()
                 .id_salt("search_nets_scroll")
-                .show(ui, |ui| {
-                let needle = state.filter_net.trim().to_ascii_uppercase();
-                for (name, net) in &b.nets {
-                    if needle.is_empty() || name.to_ascii_uppercase().contains(&needle) {
-                        let is_selected = selected_net.as_deref() == Some(name);
+                .show_rows(ui, row_height, net_matches.len(), |ui, row_range| {
+                    for name in &net_matches[row_range] {
+                        let Some(net) = b.nets.get(name) else { continue };
+                        let is_selected = selected_net.as_deref() == Some(name.as_str());
                         if ui
                             .selectable_label(
                                 is_selected,
@@ -410,8 +480,7 @@ pub fn show_side_panel(
                             }
                         }
                     }
-                }
-            });
+                });
         }
     }
 }
@@ -804,6 +873,48 @@ pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
 mod tests {
     use super::*;
     use bvc_core::{Part, PartType, Pin, Point};
+
+    fn search_board() -> Board {
+        let mut b = Board::new();
+        for name in ["U1", "R10", "C3", "R2"] {
+            b.parts.push(Part { name: name.into(), ..Default::default() });
+        }
+        for (i, net) in ["GND", "VCC", "PCIE_RX0"].into_iter().enumerate() {
+            b.pins.push(Pin { id: i, part_id: 0, net_name: net.into(), ..Default::default() });
+        }
+        b.rebuild_indices();
+        b
+    }
+
+    #[test]
+    fn search_filters_parts_and_nets_case_insensitively() {
+        let b = search_board();
+        assert_eq!(filter_part_indices(&b, ""), vec![0, 1, 2, 3]);
+        assert_eq!(filter_part_indices(&b, "R"), vec![1, 3]);
+        assert_eq!(filter_net_names(&b, ""), vec!["GND", "PCIE_RX0", "VCC"]);
+        assert_eq!(filter_net_names(&b, "C"), vec!["PCIE_RX0", "VCC"]);
+    }
+
+    /// The match lists are recomputed only when the filter text or the board changes,
+    /// not on every frame.
+    #[test]
+    fn search_cache_recomputes_only_on_change() {
+        let b = search_board();
+        let mut cache = SearchCache::default();
+        assert_eq!(cache.parts(&b, "r"), &[1, 3]);
+        assert_eq!(cache.nets(&b, ""), &["GND", "PCIE_RX0", "VCC"]);
+        assert_eq!(cache.recomputes, 2);
+        for _ in 0..10 {
+            cache.parts(&b, " r ");
+            cache.nets(&b, "");
+        }
+        assert_eq!(cache.recomputes, 2, "idle frames reuse the cached matches");
+        assert_eq!(cache.parts(&b, "u"), &[0]);
+        assert_eq!(cache.recomputes, 3);
+        cache.invalidate();
+        cache.nets(&b, "");
+        assert_eq!(cache.recomputes, 4);
+    }
 
     #[test]
     fn test_auto_view_empty_selection_shows_search() {

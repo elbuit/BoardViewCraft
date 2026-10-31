@@ -26,7 +26,7 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - [x] T2 — GenCAD pads and part outlines (route: same writer)
 - [x] T3 — Renderer: filled bodies, rotated pads, palette (route: same writer)
 
-- [ ] T4 — Fix slow board interaction after T3 (user report 2026-10-31: board opens with trace look but is very slow); measure in the real GUI path, then fix (route: delegated writer; runtime diagnosis + likely multi-file)
+- [x] T4 — Fix slow board interaction after T3 (user report 2026-10-31: board opens with trace look but is very slow); measure in the real GUI path, then fix (route: delegated writer; runtime diagnosis + likely multi-file)
 
 ## Acceptance criteria
 - On `tmp/MS-V375 REV 7.0.cad`: pins carry real pad width/height/rotation; parts carry outlines; PCIe edge connector fingers render as long thin rectangles at true size inside a filled body.
@@ -64,6 +64,14 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - T3 commit: `3180acf` feat(ui): draw filled part bodies and real pad shapes.
 - Parent spot check: `cargo test --workspace --release` all green (bvc-core 22+4+18, bvc-ui-egui 77 passed, 1 ignored).
 - Review assessment (`--base-ref 0d78513 --committed-only`): risk high (`process_boundary` signal in crates/bvc-core/src/lib.rs; that file only got test-only `..Default::default()`), review due. Consent relayed to user: declined for this candidate (`declined_this_candidate`). `.atl/` added to local `.git/info/exclude` to unblock the preflight.
+
+### T4 evidence
+- Measured in the real GUI (release `boardviewcraft` on the Wayland desktop, window maximized 2560x1346, `tmp/MS-V375 REV 7.0.cad`, user preferences) with a temporary env-gated hook in `BoardViewApp::ui` (`raw_input_hook` injecting pointer/drag events; per-frame `frame.info().cpu_usage`, ui time split into side panel and canvas, mesh builds, vertices, wall interval). Hook removed before commit. Phases at 1x/3x/8x/20x of the fit scale, centred on the densest part: idle, hover sweep, drag pan.
+- Root cause: not the new renderer. The canvas cost was 0.3-4 ms/frame (mesh build 1-3 ms, 36-42k vertices, 4-5 meshes, egui tessellation negligible). The right-hand Search panel laid out every part and every net as a `selectable_label` each frame (non-virtualised `ScrollArea`): 10-17 ms/frame, so frames took 12-20 ms CPU and the wall interval was 17-34 ms (missing vsync, ~30 fps). The same cost exists on base `0d78513` (side panel 11-17 ms/frame there too), it just became noticeable. Second finding: hover was part of `ViewCacheKey`, so every pin/via under the moving mouse rebuilt the whole board mesh (32-82 rebuilds per 80-120 hover frames, 2-3 ms each), and cache hits deep-copied every mesh into the painter.
+- Fix: `side_panel.rs` search lists are virtualised with `show_rows` over a `SearchCache` (matches recomputed only when the filter text or board changes; invalidated on load). `canvas.rs`: hover removed from `ViewCacheKey` (built by `ViewCacheKey::new`) and drawn by a small per-frame `hover_overlay_mesh`; cached meshes are `Arc<Mesh>` so emitting them is a refcount bump.
+- Numbers (maximized, before -> after): side panel 10.1-17.1 -> 0.54-0.69 ms/frame; frame CPU (`cpu_usage`) idle 18.4 -> 2.9 ms, hover 13.7-18.0 -> 2.0-3.0 ms, pan 19.0-20.0 -> 3.7-6.6 ms; wall interval 17-34 -> 16.7 ms (vsync-bound 60 fps); hover rebuilds 22-42 -> 0 per 80 frames. Pan still rebuilds (1.2-3.1 ms) and needs no world-space cache at this cost.
+- Tests (no wall-clock thresholds): `view_cache_key_is_stable_across_idle_and_hover_frames`, `hover_overlay_is_small_and_separate_from_board_meshes`, `fixture_fit_view_stays_within_vertex_budget` (<= 12 vertices per pin, <= 8 meshes), `search_filters_parts_and_nets_case_insensitively`, `search_cache_recomputes_only_on_change`. Test-first exception: the slowness is a frame-time property found by GUI measurement; the regression tests encode the fix's invariants and were written with it.
+- `cargo test --workspace --release`: all ok (ui-egui 82 passed, 1 ignored). Clippy per-file counts for ui-egui identical to `d8db4f0` (canvas 22, lib 13, side_panel 7).
 
 ## Next step
 Manual GUI check on `tmp/MS-V375 REV 7.0.cad` (CN1 PCIe fingers, filled bodies, larger hover rings from real pad radii). Remaining plan steps (part-kind colours, KiCad/TVW pads, label backings, selection glow) await user decision.
