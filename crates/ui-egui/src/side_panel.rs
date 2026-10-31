@@ -4,13 +4,16 @@ use crate::i18n::{self, Language};
 use crate::overlay::OverlayManager;
 use crate::overlay_align::{AlignmentSession, MAX_PAIRS};
 use crate::theme::Tokens;
-use bvc_core::{Board, Side};
+use bvc_core::{Board, Point, Side};
 use egui::{Button, Color32, DragValue, RichText, ScrollArea, Slider, TextEdit, Ui};
 
 pub struct SidePanelState {
     pub filter_part: String,
     pub filter_net: String,
     pub active_tab: Tab,
+    /// Part the board view should be centered on, requested by a search click.
+    /// Consumed (and cleared) by the app right after `show_side_panel` runs.
+    pub focus_part: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,8 +30,36 @@ impl Default for SidePanelState {
             filter_part: String::new(),
             filter_net: String::new(),
             active_tab: Tab::Net,
+            focus_part: None,
         }
     }
+}
+
+/// Selects only `part_id`, clearing any pin, via or net selection.
+pub fn select_part_only(
+    part_id: usize,
+    selected_pin_idx: &mut Option<usize>,
+    selected_via_idx: &mut Option<usize>,
+    selected_part_idx: &mut Option<usize>,
+    selected_net: &mut Option<String>,
+) {
+    *selected_part_idx = Some(part_id);
+    *selected_pin_idx = None;
+    *selected_via_idx = None;
+    *selected_net = None;
+}
+
+/// Where the board view should move to show `part_id`: the world-space center of
+/// the part (bounding box center, falling back to its first pin) and the view
+/// side to display (unchanged when the part is already visible on `view_side`).
+pub fn part_focus_target(board: &Board, part_id: usize, view_side: Side) -> Option<(Point, Side)> {
+    let part = board.parts.get(part_id)?;
+    let center = match part.bounding_box {
+        Some(bbox) => bbox.center(),
+        None => board.pins.get(*part.pin_indices.first()?)?.pos,
+    };
+    let side = if part.side.visible_on(view_side) { view_side } else { part.side };
+    Some((center, side))
 }
 
 pub fn show_side_panel(
@@ -315,17 +346,14 @@ pub fn show_side_panel(
                                 )
                                 .clicked()
                             {
-                                *selected_part_idx = Some(part.id);
-                                if let Some(&first_pin) = part.pin_indices.first() {
-                                    *selected_pin_idx = Some(first_pin);
-                                    if let Some(pin) = b.pins.get(first_pin) {
-                                        *selected_net = if pin.net_name.is_empty() {
-                                            None
-                                        } else {
-                                            Some(pin.net_name.clone())
-                                        };
-                                    }
-                                }
+                                select_part_only(
+                                    part.id,
+                                    selected_pin_idx,
+                                    selected_via_idx,
+                                    selected_part_idx,
+                                    selected_net,
+                                );
+                                state.focus_part = Some(part.id);
                                 state.active_tab = Tab::Part;
                             }
                         }
@@ -829,6 +857,66 @@ mod tests {
         assert!(tsv.contains("Part:\tR1"));
         assert!(tsv.contains("Side:\tBottom"));
         assert!(tsv.contains("1\tGND\tBottom\t5.00\t5.00"));
+    }
+
+    fn board_with_part(side: Side, bbox: Option<bvc_core::Rect>) -> Board {
+        let mut board = Board::default();
+        board.parts.push(Part {
+            id: 0,
+            name: "U7".to_string(),
+            mfg_code: String::new(),
+            side,
+            part_type: PartType::Smd,
+            p1: Point::ZERO,
+            p2: Point::ZERO,
+            bounding_box: bbox,
+            pin_indices: vec![0],
+        });
+        board.pins.push(Pin {
+            id: 0,
+            name: "1".to_string(),
+            part_id: 0,
+            net_name: "VCC".to_string(),
+            pos: Point::new(3.0, 4.0),
+            radius: 1.0,
+            side,
+        });
+        board.rebuild_indices();
+        board
+    }
+
+    #[test]
+    fn test_select_part_only_clears_pin_via_and_net() {
+        let mut pin = Some(5);
+        let mut via = Some(2);
+        let mut part = Some(9);
+        let mut net = Some("GND".to_string());
+        select_part_only(3, &mut pin, &mut via, &mut part, &mut net);
+        assert_eq!(part, Some(3));
+        assert_eq!(pin, None);
+        assert_eq!(via, None);
+        assert_eq!(net, None);
+    }
+
+    #[test]
+    fn test_part_focus_target_uses_bbox_center_and_keeps_visible_side() {
+        let bbox = bvc_core::Rect { min_x: 10.0, min_y: 20.0, max_x: 30.0, max_y: 60.0 };
+        let board = board_with_part(Side::Top, Some(bbox));
+        let (center, side) = part_focus_target(&board, 0, Side::Top).unwrap();
+        assert_eq!(center, Point::new(20.0, 40.0));
+        assert_eq!(side, Side::Top);
+        // Viewing both sides already shows the part: keep the view side.
+        assert_eq!(part_focus_target(&board, 0, Side::Both).unwrap().1, Side::Both);
+    }
+
+    #[test]
+    fn test_part_focus_target_flips_to_part_side() {
+        let board = board_with_part(Side::Bottom, None);
+        let (center, side) = part_focus_target(&board, 0, Side::Top).unwrap();
+        // No bounding box: falls back to the first pin position.
+        assert_eq!(center, Point::new(3.0, 4.0));
+        assert_eq!(side, Side::Bottom);
+        assert!(part_focus_target(&board, 42, Side::Top).is_none());
     }
 }
 

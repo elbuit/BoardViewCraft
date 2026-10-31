@@ -620,6 +620,19 @@ impl eframe::App for BoardViewApp {
             self.open_photo_dialog(ui.ctx(), side);
         }
 
+        // Center the board view on a part picked in the side panel search,
+        // flipping the view side when the part is not visible on the current one.
+        if let Some(part_id) = self.side_panel_state.focus_part.take()
+            && let Some(board) = &self.board
+            && let Some((center, side)) =
+                side_panel::part_focus_target(board, part_id, self.canvas_state.viewport.side)
+        {
+            self.canvas_state.viewport.center = center;
+            self.canvas_state.viewport.side = side;
+            self.canvas_state.cached_view_key = None;
+            ui.ctx().request_repaint();
+        }
+
         // Automatic cross-probing: sync with PDF schematic whenever a component is selected.
         // Only on a selection change, so a search typed in the PDF panel is not overridden.
         if self.pdf_viewer.is_open {
