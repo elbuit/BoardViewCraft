@@ -108,3 +108,4 @@ neighbours (pdfcraft prefetches the adjacent rows the same way), now queued afte
 ## Status
 - T1 `cd5e00d`, T2 `dece3ab`, T3 `c671e9a`. Next: user check in the real app at 1800 %.
 - Review assess (`--base-ref 3ad7b36 --committed-only`): risk medium, review_due false (under_budget); pending in the slice.
+- Native review (consent granted, lens reliability): approved and acknowledged for 3ad7b36..7ec0ff4. Advisory R3-001 (non-blocking): `test_texture_image_mismatched_size_copies` (pdf.rs:843) does not exercise the copy fallback of `texture_image`; follow-up.
