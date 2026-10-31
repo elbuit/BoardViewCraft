@@ -922,27 +922,20 @@ impl eframe::App for BoardViewApp {
                                             // 1. Try matching component designator (e.g. C123, U5, R10)
                                             let part_match = board.find_part_by_name(token_raw).or_else(|| board.find_part_by_name(&token_clean));
                                             if let Some(part) = part_match {
+                                                // Select only the part (no pin, via or net), as the side panel search does
                                                 self.selected_part_idx = Some(part.id);
-                                                self.selected_pin_idx = part.pin_indices.first().copied();
+                                                self.selected_pin_idx = None;
                                                 self.selected_via_idx = None;
-                                                self.selected_net = self.selected_pin_idx
-                                                    .and_then(|p_idx| board.pins.get(p_idx))
-                                                    .and_then(|pin| if pin.net_name.is_empty() { None } else { Some(pin.net_name.clone()) });
+                                                self.selected_net = None;
+                                                // Already shown in the PDF: don't cross-probe it back to its first hit
+                                                self.pdf_viewer.probed_part = Some(part.id);
 
-                                                // Switch board view side if component is exclusively on the opposite side
-                                                if !part.side.visible_on(self.canvas_state.viewport.side) {
-                                                    self.canvas_state.viewport.side = match part.side {
-                                                        bvc_core::Side::Top => bvc_core::Side::Top,
-                                                        bvc_core::Side::Bottom => bvc_core::Side::Bottom,
-                                                        bvc_core::Side::Both => self.canvas_state.viewport.side,
-                                                    };
-                                                }
-
-                                                // Center canvas on component center
-                                                if let Some(bbox) = part.bounding_box {
-                                                    self.canvas_state.viewport.center = bbox.center();
-                                                } else if let Some(first_pin) = self.selected_pin_idx.and_then(|idx| board.pins.get(idx)) {
-                                                    self.canvas_state.viewport.center = first_pin.pos;
+                                                // Center the board on the part, flipping the view side if needed
+                                                if let Some((center, side)) =
+                                                    side_panel::part_focus_target(board, part.id, self.canvas_state.viewport.side)
+                                                {
+                                                    self.canvas_state.viewport.center = center;
+                                                    self.canvas_state.viewport.side = side;
                                                 }
 
                                                 self.side_panel_state.active_tab = side_panel::Tab::Part;
