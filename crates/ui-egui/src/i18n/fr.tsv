@@ -126,6 +126,9 @@
 	pdf.hits	résultats
 	pdf.hit_prev	Précédent
 	pdf.hit_next	Suivant
+	pdf.search	Rechercher
+	pdf.search_hint	Rechercher du texte dans le PDF...
+	pdf.no_hits	Aucun résultat
 	pdf.loading_page	Chargement de la page de schéma {}...
 	pdf.prompt_found_title	Schéma correspondant trouvé
 	pdf.prompt_found_msg	Un schéma PDF correspondant a été trouvé dans le même dossier. Souhaitez-vous l'ouvrir ?

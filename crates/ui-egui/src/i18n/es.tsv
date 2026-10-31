@@ -126,6 +126,9 @@
 	pdf.hits	coincidencias
 	pdf.hit_prev	Anterior
 	pdf.hit_next	Siguiente
+	pdf.search	Buscar
+	pdf.search_hint	Buscar texto en el PDF...
+	pdf.no_hits	Sin coincidencias
 	pdf.loading_page	Cargando página de esquemático {}...
 	pdf.prompt_found_title	Esquemático Coincidente Encontrado
 	pdf.prompt_found_msg	Se ha encontrado un esquemático PDF coincidente en la misma carpeta. ¿Deseas abrirlo?

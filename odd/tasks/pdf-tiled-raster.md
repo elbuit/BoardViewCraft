@@ -26,6 +26,8 @@ ask-on-risk. Forecast ~350-500 authored lines.
 
 - [x] T4 — Slow display of the target page after a search hit / cross-probe jump (user-reported 2026-10-31 after T3; headless T3 run measured 0.15-0.31 s and did not reproduce). Hypothesis: new page has no texture (cache keeps only current±1), so it stays blank until a 2048-px backdrop plus high-zoom tiles finish; pdfcraft shows cached thumbnails/previews instantly (route: delegated writer; trigger: runtime measurement + multi-step fix)
 
+- [x] T5 — Search box in the PDF panel (user request 2026-10-31): `PdfSchematicViewer::search` keeps zoom and jumps to the first hit (or when it arrives during indexing); Enter repeats to the next hit; board selection cross-probes only on selection change (`probed_part`) so it does not override a typed search; PDF keyboard shortcuts ignored while a text field has focus; strings in 6 catalogs (route: inline; small, understood change)
+
 ## Acceptance criteria
 - At zoom where page side * scale > threshold, only tiles intersecting the viewport are requested.
 - Base raster stays visible while tiles load; no blank flashes on zoom/pan.
@@ -87,3 +89,8 @@ ask-on-risk. Forecast ~350-500 authored lines.
 
 ## Next step
 Manual GUI check: zoom/pan on a large schematic (no blank flashes, no tile seams), search highlight and cross-probe centering; confirm open latency and CPU with the user's flow.
+- T5: RED observed (`search` missing, E0599), then GREEN `test_panel_search_jumps_to_first_hit_keeping_zoom`.
+  - `cargo test -p bvc-ui-egui --release`: 61 passed, 0 failed, 1 ignored (i18n key-count test updated 132 -> 135).
+  - `cargo build --release`: success. clippy: no new warnings in pdf.rs/lib.rs.
+  - R200 not-found report: not reproducible; R200 and R201 are plain text on page 34, found by pdfcraft text, the viewer search and the GenCAD board parse. Likely searched while indexing was in progress.
+  - GUI behaviour of the search box not verified by the agent: manual check pending.

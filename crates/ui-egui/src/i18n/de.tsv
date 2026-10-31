@@ -126,6 +126,9 @@
 	pdf.hits	Treffer
 	pdf.hit_prev	Vorheriger
 	pdf.hit_next	Nächster
+	pdf.search	Suchen
+	pdf.search_hint	Text im PDF suchen...
+	pdf.no_hits	Keine Treffer
 	pdf.loading_page	Lade Schaltplan-Seite {}...
 	pdf.prompt_found_title	Passenden Schaltplan gefunden
 	pdf.prompt_found_msg	Ein passender Schaltplan (PDF) wurde im selben Ordner gefunden. Möchten Sie ihn öffnen?

@@ -126,6 +126,9 @@
 	pdf.hits	hits
 	pdf.hit_prev	Prev
 	pdf.hit_next	Next
+	pdf.search	Search
+	pdf.search_hint	Search text in the PDF...
+	pdf.no_hits	No matches
 	pdf.loading_page	Loading Schematic Page {}...
 	pdf.prompt_found_title	Matching Schematic Found
 	pdf.prompt_found_msg	A matching schematic PDF was found in the same folder. Would you like to open it?
