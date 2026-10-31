@@ -541,8 +541,8 @@ pub fn show_canvas(
     if scroll_y != 0.0 && !is_overlay_interacting {
         if let Some(hover_pos) = response.hover_pos() {
             let mouse_world_before = vp.screen_to_world(hover_pos, rect);
-            let zoom_factor = if scroll_y > 0.0 { 1.15 } else { 1.0 / 1.15 };
-            vp.scale = (vp.scale * zoom_factor).clamp(0.001, 100.0);
+            let line_points = ui.ctx().options(|o| o.input_options.line_scroll_speed);
+            vp.scale = (vp.scale * wheel_zoom_factor(scroll_y, line_points)).clamp(0.001, 100.0);
             let mouse_world_after = vp.screen_to_world(hover_pos, rect);
 
             vp.center.x += mouse_world_before.x - mouse_world_after.x;
@@ -765,11 +765,7 @@ pub fn show_canvas(
 
                     // Dynamic font size scaled with component footprint dimensions (clamp between 10.0 and 28.0 pt)
                     let min_dim = w_screen.min(h_screen);
-                    let font_size = if min_dim > 24.0 {
-                        (10.0 + (min_dim - 24.0) * 0.12).clamp(10.0, 28.0)
-                    } else {
-                        10.0
-                    };
+                    let font_size = label_font_size(10.0 + (min_dim - 24.0).max(0.0) * 0.12, 10.0, 28.0);
 
                     let center = vp.world_to_screen(c_rect.center(), rect);
                     painter.text(
@@ -854,7 +850,7 @@ pub fn show_canvas(
                     };
 
                     if !display_text.is_empty() {
-                        let font_size = (r_screen * 0.9).clamp(8.0, 16.0);
+                        let font_size = label_font_size(r_screen * 0.9, 8.0, 16.0);
                         painter.text(
                             screen_pos,
                             egui::Align2::CENTER_CENTER,
@@ -864,7 +860,7 @@ pub fn show_canvas(
                         );
                     }
                 } else if !pin.name.is_empty() {
-                    let font_size = (r_screen * 1.1).clamp(8.0, 14.0);
+                    let font_size = label_font_size(r_screen * 1.1, 8.0, 14.0);
                     let text_color = if is_hovered {
                         tokens.hover
                     } else if is_net_selected {
@@ -1177,6 +1173,33 @@ const TINY_PART_MARKER_PX: f32 = 2.6;
 /// Minimum on-screen pad radius / half-size (pixels) for ordinary and net-highlighted pads.
 const PAD_MARKER_PX: f32 = 1.0;
 const PAD_MARKER_NET_PX: f32 = 2.2;
+/// Zoom applied by one mouse-wheel notch (one scrolled line).
+pub const WHEEL_NOTCH_ZOOM: f32 = 2.5;
+
+/// Zoom factor for this frame's smoothed wheel delta (`scroll_y` points, positive zooms in;
+/// `line_points` is egui's points per scrolled line).
+///
+/// egui spreads one wheel notch over several frames. The factor is proportional to the delta,
+/// so a notch zooms by `WHEEL_NOTCH_ZOOM` whatever the frame rate; a fixed step per frame with a
+/// non-zero delta zoomed less per notch when frames were slow (and far too fast on trackpads).
+pub fn wheel_zoom_factor(scroll_y: f32, line_points: f32) -> f32 {
+    WHEEL_NOTCH_ZOOM.powf(scroll_y / line_points.max(1.0))
+}
+
+/// Step (points) between the font sizes canvas labels may use.
+pub const LABEL_FONT_STEP: f32 = 2.0;
+
+/// Font size (points) of a zoom-dependent canvas label: clamped to `min..=max` and snapped to a
+/// multiple of `LABEL_FONT_STEP`.
+///
+/// egui caches laid-out text and rasterised glyphs per exact font size. A size that follows the
+/// zoom continuously misses both caches on every zoom frame (re-layout of every visible label
+/// plus new glyphs in the font atlas), which made wheel zoom cost 7-20 ms per frame in labels
+/// alone. A few fixed sizes keep labels and glyphs cached between zoom steps.
+pub fn label_font_size(raw: f32, min: f32, max: f32) -> f32 {
+    ((raw.clamp(min, max) / LABEL_FONT_STEP).round() * LABEL_FONT_STEP).clamp(min, max)
+}
+
 /// Below this on-screen half-size (pixels) a pad is drawn as an equal-area square point.
 const PAD_POINT_PX: f32 = 1.5;
 
@@ -2015,6 +2038,29 @@ mod tests {
 
     /// Idle frames and hovering keep the cache key, so the board meshes are not rebuilt;
     /// view, selection and display preferences still invalidate it.
+    #[test]
+    fn wheel_zoom_depends_on_scrolled_distance_not_frame_count() {
+        let line = 40.0;
+        assert!((wheel_zoom_factor(line, line) - WHEEL_NOTCH_ZOOM).abs() < 1e-5);
+        assert!((wheel_zoom_factor(-line, line) - 1.0 / WHEEL_NOTCH_ZOOM).abs() < 1e-5);
+        assert_eq!(wheel_zoom_factor(0.0, line), 1.0);
+        // One notch smoothed over few (slow) or many (fast) frames zooms the same.
+        for frames in [[40.0].as_slice(), &[25.0, 10.0, 5.0], &[8.0; 5]] {
+            let total: f32 = frames.iter().map(|&d| wheel_zoom_factor(d, line)).product();
+            assert!((total - WHEEL_NOTCH_ZOOM).abs() < 1e-4, "{frames:?}: {total}");
+        }
+    }
+
+    #[test]
+    fn label_font_sizes_snap_to_a_few_cached_sizes() {
+        let mut sizes: Vec<f32> = (0..=1000).map(|i| label_font_size(6.0 + i as f32 * 0.012, 8.0, 14.0)).collect();
+        assert!(sizes.windows(2).all(|w| w[0] <= w[1]), "monotonic");
+        assert!(sizes.iter().all(|s| (8.0..=14.0).contains(s) && s % LABEL_FONT_STEP == 0.0));
+        sizes.dedup();
+        assert_eq!(sizes, [8.0, 10.0, 12.0, 14.0]);
+        assert_eq!(label_font_size(500.0, 10.0, 28.0), 28.0);
+    }
+
     #[test]
     fn view_cache_key_is_stable_across_idle_and_hover_frames() {
         let board = two_pin_board();
