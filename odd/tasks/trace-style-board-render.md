@@ -26,6 +26,8 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - [x] T2 — GenCAD pads and part outlines (route: same writer)
 - [x] T3 — Renderer: filled bodies, rotated pads, palette (route: same writer)
 
+- [ ] T4 — Fix slow board interaction after T3 (user report 2026-10-31: board opens with trace look but is very slow); measure in the real GUI path, then fix (route: delegated writer; runtime diagnosis + likely multi-file)
+
 ## Acceptance criteria
 - On `tmp/MS-V375 REV 7.0.cad`: pins carry real pad width/height/rotation; parts carry outlines; PCIe edge connector fingers render as long thin rectangles at true size inside a filled body.
 - Other formats render as before (round pins), tests pass.
