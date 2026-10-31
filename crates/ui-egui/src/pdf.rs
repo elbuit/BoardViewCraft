@@ -96,6 +96,14 @@ pub struct ViewerStats {
     pub results_used: u64,
     /// Rendered results dropped because their request was no longer queued.
     pub results_dropped: u64,
+    /// Pixel results turned into textures (page rasters, previews and tiles).
+    pub rasters_used: u64,
+    /// Device pixels of the rasters turned into textures.
+    pub raster_pixels: u64,
+    /// Worker milliseconds the rasters turned into textures took to render.
+    pub raster_millis: u64,
+    /// UI-thread microseconds spent turning rasters into textures (conversion and upload queueing).
+    pub convert_micros: u64,
 }
 
 /// Cached whole-page raster (or low-res backdrop of a tiled page) with its rendered scale tag
@@ -566,7 +574,11 @@ impl PdfSchematicViewer {
                 continue;
             }
             let tag = res.request.tag;
+            let t0 = std::time::Instant::now();
             let image = texture_image([w, h], res.rgba);
+            self.stats.rasters_used += 1;
+            self.stats.raster_pixels += (w * h) as u64;
+            self.stats.raster_millis += u64::from(res.millis);
             match res.request.tile {
                 Some(t) => {
                     let handle = ctx.load_texture(format!("pdf_p{page_1}_t{tag}_{}_{}", t.x, t.y), image, TextureOptions::LINEAR);
@@ -578,6 +590,7 @@ impl PdfSchematicViewer {
                     cache.insert(page_1, CachedPageTexture { handle, tag });
                 }
             }
+            self.stats.convert_micros += t0.elapsed().as_micros() as u64;
         }
         if texts_arrived {
             self.refresh_search();
@@ -1234,6 +1247,121 @@ mod tests {
             t.elapsed().as_secs_f64(),
             viewer.page_texts.len(),
             viewer.total_pages
+        );
+    }
+
+    /// User CPU plus system CPU seconds of this process so far (Linux `/proc/self/stat`).
+    fn process_cpu_secs() -> Option<f64> {
+        let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+        // Fields after the parenthesised command name; utime and stime are fields 14 and 15.
+        let rest = &stat[stat.rfind(')')? + 2..];
+        let f: Vec<&str> = rest.split_whitespace().collect();
+        let ticks: f64 = f.get(11)?.parse::<f64>().ok()? + f.get(12)?.parse::<f64>().ok()?;
+        Some(ticks / 100.0)
+    }
+
+    /// Measures a panel search jump at deep zoom on the fixture (prints numbers): the time until
+    /// the backdrop and every visible tile of the hit's page are on screen, the tiles requested,
+    /// worker raster time, UI-thread texture conversion time and process CPU time.
+    /// `BVC_ZOOM` (default 18), `BVC_QUERY` (default R201) and `BVC_PPP` (default 1) vary it.
+    /// `cargo test -p bvc-ui-egui --release bench_deep_zoom_search -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn bench_deep_zoom_search() {
+        let env = |k: &str| std::env::var(k).ok();
+        let ppp: f32 = env("BVC_PPP").and_then(|v| v.parse().ok()).unwrap_or(1.0);
+        let zoom: f32 = env("BVC_ZOOM").and_then(|v| v.parse().ok()).unwrap_or(18.0);
+        let query = env("BVC_QUERY").unwrap_or_else(|| "R201".to_string());
+        let panel = env("BVC_PANEL")
+            .and_then(|v| v.split_once('x').and_then(|(w, h)| Some(vec2(w.parse().ok()?, h.parse().ok()?))))
+            .unwrap_or(vec2(860.0, 900.0));
+        let path = fixture_path();
+        if !path.exists() {
+            return;
+        }
+        let mut viewer = PdfSchematicViewer::default();
+        viewer.open_file(&path).expect("fixture opens");
+        let sim = FrameSim::new(Rect::from_min_size(pos2(0.0, 60.0), panel), ppp);
+        let limit = std::time::Duration::from_secs(120);
+        // BVC_EARLY=1 searches as soon as the first page shows, while text and previews are
+        // still being prepared in the background; otherwise after everything is idle.
+        if env("BVC_EARLY").is_some() {
+            sim.wait_until(&mut viewer, |v| v.page_textures.contains_key(&1));
+        } else {
+            sim.run_until_idle(&mut viewer, limit);
+            sim.index_all_text(&mut viewer);
+            sim.run_until_idle(&mut viewer, limit);
+        }
+
+        viewer.zoom = zoom;
+        let before = viewer.stats();
+        let pool_before = viewer.render_pool.as_ref().map(RenderPool::stats).unwrap_or_default();
+        let cpu0 = process_cpu_secs().unwrap_or(0.0);
+        let t = std::time::Instant::now();
+        if !viewer.search(&query) {
+            sim.wait_until(&mut viewer, |v| !v.search_results.is_empty());
+        }
+        let found_at = t.elapsed().as_secs_f64();
+        let page = viewer.current_page;
+        let mut tiles_seen: HashSet<(u64, u32, u32, u32, u32)> = HashSet::new();
+        let (mut backdrop_at, mut sharp_at, mut idle_at) = (None, None, None);
+        let mut ui_frame_max = 0.0f64;
+        while t.elapsed() < limit {
+            let f0 = std::time::Instant::now();
+            sim.frame(&mut viewer);
+            ui_frame_max = ui_frame_max.max(f0.elapsed().as_secs_f64());
+            let now = t.elapsed().as_secs_f64();
+            for r in viewer.last_queue.iter().filter(|r| r.page == page - 1) {
+                if let Some(tl) = r.tile {
+                    tiles_seen.insert((r.tag, tl.x, tl.y, tl.w, tl.h));
+                }
+            }
+            if backdrop_at.is_none() && viewer.page_textures.contains_key(&page) {
+                backdrop_at = Some(now);
+            }
+            let tiles_pending = viewer.last_queue.iter().any(|r| r.page == page - 1 && r.tile.is_some());
+            if sharp_at.is_none() && !tiles_seen.is_empty() && !tiles_pending {
+                sharp_at = Some(now);
+            }
+            if sharp_at.is_some() && viewer.last_queue.is_empty() {
+                idle_at = Some(now);
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+        let cpu = process_cpu_secs().unwrap_or(0.0) - cpu0;
+        let s = viewer.stats();
+        let pool = viewer.render_pool.as_ref().map(RenderPool::stats).unwrap_or_default();
+        let size = viewer.page_size_pts(page);
+        let scale = viewer.settled_scale;
+        let (dw, dh) = (device_pixels(size.x, scale), device_pixels(size.y, scale));
+        let side = tiles_seen.iter().map(|t| t.3.max(t.4)).max().unwrap_or(0);
+        let tile_px: u64 = tiles_seen.iter().map(|t| u64::from(t.3) * u64::from(t.4)).sum();
+        println!(
+            "deep zoom {zoom} ppp {ppp} '{query}' -> page {page} ({}x{} pt) scale {scale:.2} px/pt page {dw}x{dh} px, viewport {:.0} px",
+            size.x, size.y, panel.x * panel.y * ppp * ppp
+        );
+        println!(
+            "  found {found_at:.3}s backdrop {backdrop_at:?}s sharp {sharp_at:?}s idle {idle_at:?}s; tiles requested {} (max side {side}, {:.1} Mpx)",
+            tiles_seen.len(),
+            tile_px as f64 / 1e6
+        );
+        let used = s.rasters_used - before.rasters_used;
+        println!(
+            "  rasters used {used} ({:.1} Mpx), worker raster {} ms (avg {} ms), UI convert {:.1} ms, max frame {:.1} ms, dropped {}",
+            (s.raster_pixels - before.raster_pixels) as f64 / 1e6,
+            s.raster_millis - before.raster_millis,
+            (s.raster_millis - before.raster_millis) / used.max(1),
+            (s.convert_micros - before.convert_micros) as f64 / 1e3,
+            ui_frame_max * 1e3,
+            s.results_dropped - before.results_dropped
+        );
+        println!(
+            "  process CPU {cpu:.2}s; pool interprets {} rasterizations {} tile requests {} text {}",
+            pool.page_interpretations - pool_before.page_interpretations,
+            pool.rasterizations - pool_before.rasterizations,
+            pool.tile_requests - pool_before.tile_requests,
+            pool.text_interpretations - pool_before.text_interpretations
         );
     }
 }
