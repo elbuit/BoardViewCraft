@@ -1,9 +1,11 @@
 //! High-fidelity PDF schematic renderer and search engine with instant indexing and multi-hit navigation.
 //!
 //! Features:
-//! - Immediate multi-thread text indexing on document open (`rayon` parallel extraction of `PageText`).
-//! - Exact multi-occurrence search across pages using `PageText::find_opts` and `glyph_rects`.
-//! - Instant cross-probing: finding all component designators across all pages in milliseconds.
+//! - Background text indexing through the `RenderPool` (`RequestKind::Text`, one shared parser),
+//!   queued behind the visible rasters so opening never blocks and the page shows at once.
+//! - Exact multi-occurrence search across pages using `PageText::find_opts` and `glyph_rects`;
+//!   an active search refreshes as page texts arrive, and a cross-probe whose designator is not
+//!   indexed yet jumps to its first hit when it appears.
 //! - Multi-worker asynchronous page rasterization via `RenderPool` (multithreaded, cancel-in-flight).
 //! - Dedicated high-priority rendering for requested/navigated pages.
 //! - Exact device scale (1 texel per device pixel) keeping vector graphics and text razor-sharp.
@@ -12,10 +14,8 @@
 
 use egui::{pos2, vec2, Color32, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
 use pdfcraft_render::{
-    device_pixels, text::TextFilter, DocInfo, PageRenderer, PageText, RenderConfig, RenderPool, RenderRequest,
-    RequestKind, Tile,
+    device_pixels, DocInfo, PageText, RenderConfig, RenderPool, RenderRequest, RequestKind, Tile,
 };
-use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -63,10 +63,28 @@ const SETTLE_SECS: f64 = 0.12;
 /// Rendered results converted into textures per frame at most.
 const RESULTS_PER_FRAME: usize = 8;
 
+/// The tag of a text-layer request (as pdfcraft's canvas tags them).
+const TEXT_TAG: u64 = 1 << 62;
+
+/// Work counters of the viewer's render loop (diagnostics and regression tests).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ViewerStats {
+    /// Times a different queue was handed to the pool (each may cancel in-flight renders).
+    pub queue_changes: u64,
+    /// Rendered results turned into textures.
+    pub results_used: u64,
+    /// Rendered results dropped because their request was no longer queued.
+    pub results_dropped: u64,
+}
+
 /// Cached whole-page raster (or low-res backdrop of a tiled page) with its rendered scale tag
 struct CachedPageTexture {
     handle: TextureHandle,
     tag: u64,
+}
+
+fn text_request(page_0: usize) -> RenderRequest {
+    RenderRequest { page: page_0, kind: RequestKind::Text, tile: None, scale: 1.0, tag: TEXT_TAG, preview: false }
 }
 
 fn pixels_request(page_0: usize, scale: f32, tile: Option<Tile>, preview: bool) -> RenderRequest {
@@ -90,8 +108,18 @@ pub struct PdfSchematicViewer {
     pub is_open: bool,
     pub pending_center_on_match: bool,
 
-    // Page text layers pre-extracted for instant whole-document search (0-based page index -> PageText)
+    // Page text layers indexed so far for whole-document search (0-based page index -> PageText)
     pub page_texts: HashMap<usize, Arc<PageText>>,
+
+    // Pages (0-based) whose text layer could not be extracted: never re-requested
+    text_failed: HashSet<usize>,
+
+    // Text requests queued at once: the remaining workers stay free for the visible rasters
+    text_slots: usize,
+
+    // A cross-probe/search found nothing yet while pages were still being indexed:
+    // jump to its first hit once one is indexed
+    search_jump_pending: bool,
 
     // Whole-page rasters (or backdrops of tiled pages) cached by page number (1-based)
     page_textures: HashMap<usize, CachedPageTexture>,
@@ -114,6 +142,8 @@ pub struct PdfSchematicViewer {
     last_scale_change_time: f64,
     // Adopt the next display scale at once (cross-probe / match navigation)
     force_settle: bool,
+
+    stats: ViewerStats,
 }
 
 impl Default for PdfSchematicViewer {
@@ -132,6 +162,9 @@ impl Default for PdfSchematicViewer {
             is_open: false,
             pending_center_on_match: false,
             page_texts: HashMap::new(),
+            text_failed: HashSet::new(),
+            text_slots: 1,
+            search_jump_pending: false,
             page_textures: HashMap::new(),
             tiles: tiles::TileCache::default(),
             render_pool: None,
@@ -141,12 +174,14 @@ impl Default for PdfSchematicViewer {
             last_observed_scale: 0.0,
             last_scale_change_time: 0.0,
             force_settle: false,
+            stats: ViewerStats::default(),
         }
     }
 }
 
 impl PdfSchematicViewer {
-    /// Opens a PDF document using pdfcraft's native inspection and pre-indexes text in parallel.
+    /// Opens a PDF document using pdfcraft's native inspection. Nothing is rendered or extracted
+    /// here: the first paint queues the visible page, and the text layers are indexed behind it.
     pub fn open_file(&mut self, path: &Path) -> Result<(), String> {
         let bytes = std::fs::read(path).map_err(|e| format!("Failed to read PDF file: {e}"))?;
         let bytes_arc = Arc::new(bytes);
@@ -172,31 +207,30 @@ impl PdfSchematicViewer {
         self.failed_pages.clear();
         self.settled_scale = 0.0;
         self.force_settle = true;
+        self.active_search.clear();
         self.search_results.clear();
+        self.page_texts.clear();
+        self.text_failed.clear();
+        self.search_jump_pending = false;
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
         self.is_open = true;
 
-        // 2. Extract ALL text layers in parallel using rayon across available CPU cores (takes ~10-20ms for whole PDF)
-        let extracted_texts: Vec<(usize, Arc<PageText>)> = (0..total_pages)
-            .into_par_iter()
-            .filter_map(|p_idx| {
-                let mut renderer = PageRenderer::new(Arc::clone(&bytes_arc), RenderConfig::default());
-                renderer.filtered_text(p_idx, TextFilter::default()).ok().map(|t| (p_idx, Arc::new(t)))
-            })
-            .collect();
-
-        self.page_texts = extracted_texts.into_iter().collect();
-
-        // 3. Initialize RenderPool with worker threads matching system parallelism (e.g. 4)
+        // 2. One render pool (one shared parser) for rasters and text layers. Like pdfcraft, leave
+        //    a core to the UI thread; text indexing takes at most half of the workers.
         let threads = std::thread::available_parallelism()
-            .map(|n| n.get().clamp(2, 8))
-            .unwrap_or(4);
-        let pool = RenderPool::new(bytes_arc, threads, RenderConfig::default());
+            .map(|n| n.get().clamp(2, 8) - 1)
+            .unwrap_or(3);
+        self.text_slots = (threads / 2).max(1);
         // The first paint of the page queues its raster at the exact display scale.
-        self.render_pool = Some(pool);
+        self.render_pool = Some(RenderPool::new(bytes_arc, threads, RenderConfig::default()));
 
         Ok(())
+    }
+
+    /// Work counters of the render loop since the viewer was created.
+    pub fn stats(&self) -> ViewerStats {
+        self.stats
     }
 
     /// Returns the page size in PDF points for the given page (1-based).
@@ -333,12 +367,22 @@ impl PdfSchematicViewer {
         }
         self.page_textures.retain(|p, _| p.abs_diff(page) <= 1);
 
+        // 4. Text layers still to index, the current page first, behind every raster.
+        queue.extend(
+            (0..self.total_pages)
+                .map(|k| (page - 1 + k) % self.total_pages)
+                .filter(|p| !self.page_texts.contains_key(p) && !self.text_failed.contains(p))
+                .take(self.text_slots)
+                .map(text_request),
+        );
+
         // Replacing the queue cancels in-flight renders that are no longer wanted.
         if let Some(pool) = &self.render_pool
             && queue != self.last_queue
         {
             pool.set_queue(queue.clone());
             self.last_queue = queue;
+            self.stats.queue_changes += 1;
         }
         if !self.last_queue.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
@@ -351,12 +395,27 @@ impl PdfSchematicViewer {
     /// queued (an obsolete scale, page or tile) are dropped without allocating anything.
     fn receive(&mut self, ctx: &egui::Context, max_side: f32) {
         let Some(pool) = &self.render_pool else { return };
+        let mut texts_arrived = false;
         for _ in 0..RESULTS_PER_FRAME {
             let Some(res) = pool.try_recv() else { break };
-            if res.request.kind != RequestKind::Pixels || !self.last_queue.contains(&res.request) {
+            if !self.last_queue.contains(&res.request) {
+                self.stats.results_dropped += 1;
                 continue;
             }
+            self.stats.results_used += 1;
             ctx.request_repaint();
+            if res.request.kind == RequestKind::Text {
+                match res.text {
+                    Some(text) if res.error.is_none() => {
+                        self.page_texts.insert(res.request.page, text);
+                    }
+                    _ => {
+                        self.text_failed.insert(res.request.page);
+                    }
+                }
+                texts_arrived = true;
+                continue;
+            }
             let page_1 = res.request.page + 1;
             if res.error.is_some() {
                 self.failed_pages.insert(page_1);
@@ -378,6 +437,41 @@ impl PdfSchematicViewer {
                     self.page_textures.insert(page_1, CachedPageTexture { handle, tag });
                 }
             }
+        }
+        if texts_arrived {
+            self.refresh_search();
+        }
+    }
+
+    /// Whether every page's text layer has been indexed (or failed).
+    pub fn text_indexed(&self) -> bool {
+        self.page_texts.len() + self.text_failed.len() >= self.total_pages
+    }
+
+    /// Re-runs the active search over the pages indexed so far, keeping the selected hit, and
+    /// performs a pending cross-probe jump once its first hit is indexed.
+    fn refresh_search(&mut self) {
+        if self.active_search.is_empty() {
+            return;
+        }
+        let selected = self
+            .search_results
+            .get(self.selected_result_idx)
+            .map(|o| (o.page_number, o.glyph_range.clone()));
+        let query = self.active_search.clone();
+        self.perform_instant_search(&query);
+        if let Some(idx) = selected.and_then(|(page, range)| {
+            self.search_results.iter().position(|o| o.page_number == page && o.glyph_range == range)
+        }) {
+            self.selected_result_idx = idx;
+        } else if self.search_jump_pending && !self.search_results.is_empty() {
+            self.search_jump_pending = false;
+            self.select_match(0);
+        } else {
+            self.selected_result_idx = self.selected_result_idx.min(self.search_results.len().saturating_sub(1));
+        }
+        if self.text_indexed() {
+            self.search_jump_pending = false;
         }
     }
 
@@ -419,7 +513,7 @@ impl PdfSchematicViewer {
         painted
     }
 
-    /// Evaluates `active_search` across ALL pages instantly using pre-extracted `PageText`.
+    /// Evaluates `active_search` across the pages whose `PageText` is indexed so far.
     pub fn perform_instant_search(&mut self, query: &str) {
         let trimmed = query.trim();
         if trimmed.is_empty() {
@@ -499,6 +593,8 @@ impl PdfSchematicViewer {
 
         self.perform_instant_search(trimmed);
         self.selected_result_idx = 0;
+        // Not indexed yet: jump when the first hit arrives.
+        self.search_jump_pending = self.search_results.is_empty() && !self.text_indexed();
 
         // Adaptive zoom elevation: if unzoomed (<= 1.0), elevate to 3.0 (300%).
         if self.zoom <= 1.0 {
@@ -621,14 +717,8 @@ mod tests {
 
     #[test]
     fn test_ms_v375_instant_search_multiple_occurrences() {
-        let pdf_path = Path::new("tmp/MS-V375 REV 7.0.pdf");
-        if !pdf_path.exists() {
-            return;
-        }
-
-        let mut viewer = PdfSchematicViewer::default();
-        let res = viewer.open_file(pdf_path);
-        assert!(res.is_ok());
+        let Some((mut viewer, sim)) = open_fixture() else { return };
+        sim.index_all_text(&mut viewer);
 
         // Perform instant cross probe for U12
         let matched = viewer.cross_probe("U12");
@@ -644,5 +734,210 @@ mod tests {
             assert!(hit.page_number >= 1 && hit.page_number <= viewer.total_pages);
             assert!(hit.bbox.is_positive());
         }
+    }
+
+    /// Opening must not extract text: the first paint queues the visible page first and only a
+    /// bounded number of text layers behind it, all through the pool's one shared parser.
+    #[test]
+    fn test_open_defers_text_and_queues_visible_page_first() {
+        let Some((mut viewer, sim)) = open_fixture() else { return };
+        assert!(viewer.page_texts.is_empty(), "open_file must not extract text");
+        let pool = viewer.render_pool.as_ref().expect("pool").stats();
+        assert_eq!(pool.text_interpretations, 0);
+
+        sim.frame(&mut viewer);
+        let queue = viewer.last_queue.clone();
+        let first = queue.first().expect("visible page queued");
+        assert_eq!((first.page, first.kind), (0, RequestKind::Pixels));
+        let texts: Vec<_> = queue.iter().filter(|r| r.kind == RequestKind::Text).collect();
+        assert!(!texts.is_empty() && texts.len() <= viewer.text_slots, "{} text requests", texts.len());
+        assert_eq!(texts[0].page, 0, "the current page's text is indexed first");
+        let first_text = queue.iter().position(|r| r.kind == RequestKind::Text).unwrap();
+        assert!(queue[..first_text].iter().all(|r| r.kind == RequestKind::Pixels), "text queued behind rasters");
+    }
+
+    /// Indexing a whole static document interprets every page's text exactly once on one parser,
+    /// renders nothing twice and wastes no result.
+    #[test]
+    fn test_text_index_runs_once_per_page_on_shared_parser() {
+        let Some((mut viewer, sim)) = open_fixture() else { return };
+        sim.index_all_text(&mut viewer);
+        let pool = viewer.render_pool.as_ref().expect("pool").stats();
+        assert_eq!(viewer.page_texts.len(), viewer.total_pages);
+        assert_eq!(pool.parser_builds, 1, "{pool:?}");
+        assert_eq!(pool.text_interpretations as usize, viewer.total_pages, "{pool:?}");
+        // Page 1 and its prefetched neighbour, once each.
+        assert!(pool.page_interpretations <= 2, "{pool:?}");
+        assert_eq!(viewer.stats().results_dropped, 0);
+    }
+
+    /// A cross-probe issued before its designator is indexed jumps to the first hit when it arrives.
+    #[test]
+    fn test_cross_probe_before_indexing_jumps_when_hit_arrives() {
+        let Some((mut viewer, sim)) = open_fixture() else { return };
+        assert!(!viewer.cross_probe("U12"), "nothing indexed yet");
+        assert_eq!(viewer.current_page, 1);
+        sim.index_all_text(&mut viewer);
+        assert!(viewer.search_results.len() > 1);
+        let hit = &viewer.search_results[viewer.selected_result_idx];
+        assert_eq!(viewer.current_page, hit.page_number);
+        assert!(hit.text.contains("U12"));
+    }
+
+    /// Drives the viewer like the PDF panel in `lib.rs` does: a `panel` rect, the page fitted at
+    /// 95% and scaled by `zoom`, centred on the selected match when one is pending.
+    struct FrameSim {
+        ctx: egui::Context,
+        panel: Rect,
+        ppp: f32,
+        start: std::time::Instant,
+    }
+
+    impl FrameSim {
+        fn new(panel: Rect, ppp: f32) -> Self {
+            Self { ctx: egui::Context::default(), panel, ppp, start: std::time::Instant::now() }
+        }
+
+        /// One frame; returns whether the page painted anything.
+        fn frame(&self, viewer: &mut PdfSchematicViewer) -> bool {
+            let mut raw = egui::RawInput {
+                time: Some(self.start.elapsed().as_secs_f64()),
+                max_texture_side: Some(8192),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1920.0, 1080.0))),
+                ..Default::default()
+            };
+            raw.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(self.ppp);
+            self.ctx.begin_pass(raw);
+            let rect = self.panel;
+            let base = viewer.page_size_pts(viewer.current_page) * PT;
+            let fit = ((rect.width() * 0.95) / base.x.max(1.0)).min((rect.height() * 0.95) / base.y.max(1.0));
+            let display = fit * viewer.zoom;
+            let size = base * display;
+            if viewer.pending_center_on_match
+                && let Some(hit) = viewer.search_results.get(viewer.selected_result_idx)
+                && hit.page_number == viewer.current_page
+            {
+                let c = hit.bbox.center() * PT * display;
+                viewer.pan_offset = vec2(size.x * 0.5 - c.x, size.y * 0.5 - c.y);
+                viewer.pending_center_on_match = false;
+            }
+            let page_rect = Rect::from_min_size(rect.min + (rect.size() - size) * 0.5 + viewer.pan_offset, size);
+            let painter = egui::Painter::new(self.ctx.clone(), egui::LayerId::background(), rect);
+            let painted = viewer.paint_current_page(&self.ctx, &painter, page_rect, rect);
+            // No renderer applies the texture uploads here (epaint asserts on dropping them).
+            self.ctx.end_pass().textures_delta.clear();
+            painted
+        }
+
+        /// Runs frames until every page's text is indexed (generous bound: not a timing check).
+        fn index_all_text(&self, viewer: &mut PdfSchematicViewer) {
+            let t0 = std::time::Instant::now();
+            while !viewer.text_indexed() {
+                assert!(t0.elapsed() < std::time::Duration::from_secs(120), "text indexing stalled");
+                self.frame(viewer);
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            // Let the last refresh settle the queue.
+            self.frame(viewer);
+        }
+
+        /// Runs ~60 Hz frames until the queue drains (or `limit`); returns (first paint, drained).
+        fn run_until_idle(&self, viewer: &mut PdfSchematicViewer, limit: std::time::Duration) -> (Option<f64>, Option<f64>) {
+            let t0 = std::time::Instant::now();
+            let mut first = None;
+            while t0.elapsed() < limit {
+                let painted = self.frame(viewer);
+                if painted && first.is_none() {
+                    first = Some(t0.elapsed().as_secs_f64());
+                }
+                if first.is_some() && viewer.last_queue.is_empty() {
+                    return (first, Some(t0.elapsed().as_secs_f64()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            }
+            (first, None)
+        }
+    }
+
+    fn open_fixture() -> Option<(PdfSchematicViewer, FrameSim)> {
+        let path = fixture_path();
+        if !path.exists() {
+            return None;
+        }
+        let mut viewer = PdfSchematicViewer::default();
+        viewer.open_file(&path).ok()?;
+        Some((viewer, FrameSim::new(Rect::from_min_size(pos2(0.0, 60.0), vec2(860.0, 900.0)), 1.0)))
+    }
+
+    fn fixture_path() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tmp/MS-V375 REV 7.0.pdf")
+    }
+
+    /// Measures open, first paint and a cross-probe jump on the fixture (prints numbers).
+    /// `cargo test -p bvc-ui-egui --release bench_open_and_cross_probe -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn bench_open_and_cross_probe() {
+        let path = fixture_path();
+        if !path.exists() {
+            return;
+        }
+        let ppp: f32 = std::env::var("BVC_PPP").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
+        let mut viewer = PdfSchematicViewer::default();
+        let t = std::time::Instant::now();
+        viewer.open_file(&path).expect("fixture opens");
+        println!("open_file: {:.3}s ({} pages)", t.elapsed().as_secs_f64(), viewer.total_pages);
+
+        let sim = FrameSim::new(Rect::from_min_size(pos2(0.0, 60.0), vec2(860.0, 900.0)), ppp);
+        let limit = std::time::Duration::from_secs(60);
+        let (first, idle) = sim.run_until_idle(&mut viewer, limit);
+        let pool = viewer.render_pool.as_ref().map(RenderPool::stats);
+        println!("first page: painted {first:?}s idle {idle:?}s viewer {:?} pool {pool:?}", viewer.stats());
+
+        let t = std::time::Instant::now();
+        sim.index_all_text(&mut viewer);
+        let pool = viewer.render_pool.as_ref().map(RenderPool::stats);
+        println!("text indexed in {:.3}s more, pool {pool:?}", t.elapsed().as_secs_f64());
+
+        let before = viewer.stats();
+        let t = std::time::Instant::now();
+        assert!(viewer.cross_probe("U12"));
+        println!("cross_probe search: {:.3}s -> page {}", t.elapsed().as_secs_f64(), viewer.current_page);
+        let (first, idle) = sim.run_until_idle(&mut viewer, limit);
+        let s = viewer.stats();
+        let pool = viewer.render_pool.as_ref().map(RenderPool::stats);
+        println!(
+            "cross-probe page: painted {first:?}s idle {idle:?}s queue_changes {} used {} dropped {} pool {pool:?}",
+            s.queue_changes - before.queue_changes,
+            s.results_used - before.results_used,
+            s.results_dropped - before.results_dropped
+        );
+
+        // A cross-probe right after open, while the text layers are still being indexed.
+        let mut viewer = PdfSchematicViewer::default();
+        viewer.open_file(&path).expect("fixture opens");
+        let t = std::time::Instant::now();
+        while !sim.frame(&mut viewer) {
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+        viewer.cross_probe("U12");
+        let mut jumped = None;
+        while t.elapsed() < limit {
+            let painted = sim.frame(&mut viewer);
+            if viewer.current_page != 1 && jumped.is_none() {
+                jumped = Some(t.elapsed().as_secs_f64());
+            }
+            if jumped.is_some() && painted && viewer.page_textures.contains_key(&viewer.current_page) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(16));
+        }
+        println!(
+            "early cross-probe: jumped at {jumped:?}s, page {} painted at {:.3}s (indexed {}/{})",
+            viewer.current_page,
+            t.elapsed().as_secs_f64(),
+            viewer.page_texts.len(),
+            viewer.total_pages
+        );
     }
 }
