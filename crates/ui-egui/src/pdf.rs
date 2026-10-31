@@ -150,6 +150,10 @@ pub struct PdfSchematicViewer {
 
     // Search and cross-probing state
     pub active_search: String,
+    /// Text typed in the panel's search box.
+    pub search_input: String,
+    /// Board part last cross-probed, so a panel search is not overridden by the selection.
+    pub probed_part: Option<usize>,
     pub search_results: Vec<SchematicOccurrence>,
     pub selected_result_idx: usize,
     pub zoom: f32,
@@ -207,6 +211,8 @@ impl Default for PdfSchematicViewer {
             total_pages: 1,
             doc_info: None,
             active_search: String::new(),
+            search_input: String::new(),
+            probed_part: None,
             search_results: Vec::new(),
             selected_result_idx: 0,
             zoom: 1.0,
@@ -262,6 +268,7 @@ impl PdfSchematicViewer {
         self.settled_scale = 0.0;
         self.force_settle = true;
         self.active_search.clear();
+        self.probed_part = None;
         self.search_results.clear();
         self.page_texts.clear();
         self.text_failed.clear();
@@ -742,6 +749,28 @@ impl PdfSchematicViewer {
         }
     }
 
+    /// Runs a free-text search typed in the PDF panel and jumps to its first hit, keeping the
+    /// current zoom. Before indexing finishes, it jumps once the first hit arrives.
+    pub fn search(&mut self, query: &str) -> bool {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            self.active_search.clear();
+            self.search_results.clear();
+            self.search_jump_pending = false;
+            return false;
+        }
+
+        self.perform_instant_search(trimmed);
+        self.selected_result_idx = 0;
+        self.search_jump_pending = self.search_results.is_empty() && !self.text_indexed();
+        if self.search_results.is_empty() {
+            false
+        } else {
+            self.select_match(0);
+            true
+        }
+    }
+
     pub fn next_match(&mut self) {
         if !self.search_results.is_empty() {
             let next_idx = (self.selected_result_idx + 1) % self.search_results.len();
@@ -842,6 +871,24 @@ mod tests {
         assert_eq!((first.page, first.tile, first.preview), (0, None, false));
         assert!((first.scale - 700.0 / size.x).abs() < 1e-3);
         assert!(queue.iter().all(|r| r.tile.is_none()));
+    }
+
+    /// A search typed in the PDF panel jumps to its first hit without the cross-probe zoom, and
+    /// a search issued before indexing finishes jumps once its hit arrives.
+    #[test]
+    fn test_panel_search_jumps_to_first_hit_keeping_zoom() {
+        let Some((mut viewer, sim)) = open_fixture() else { return };
+        assert!(!viewer.search("R200"), "nothing is indexed right after open");
+        sim.wait_until(&mut viewer, |v| v.current_page == 34);
+        assert_eq!(viewer.search_results[viewer.selected_result_idx].text, "R200");
+        assert_eq!(viewer.zoom, 1.0);
+
+        assert!(viewer.search("R201"));
+        assert_eq!((viewer.current_page, viewer.search_results[0].text.as_str()), (34, "R201"));
+        assert!(viewer.pending_center_on_match);
+
+        assert!(!viewer.search("   "));
+        assert!(viewer.search_results.is_empty() && viewer.active_search.is_empty());
     }
 
     #[test]

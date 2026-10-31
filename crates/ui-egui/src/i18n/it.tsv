@@ -126,6 +126,9 @@
 	pdf.hits	risultati
 	pdf.hit_prev	Precedente
 	pdf.hit_next	Successivo
+	pdf.search	Cerca
+	pdf.search_hint	Cerca testo nel PDF...
+	pdf.no_hits	Nessun risultato
 	pdf.loading_page	Caricamento pagina schema {}...
 	pdf.prompt_found_title	Schema corrispondente trovato
 	pdf.prompt_found_msg	È stato trovato uno schema PDF corrispondente nella stessa cartella. Vuoi aprirlo?

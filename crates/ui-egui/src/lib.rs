@@ -620,16 +620,21 @@ impl eframe::App for BoardViewApp {
             self.open_photo_dialog(ui.ctx(), side);
         }
 
-        // Automatic cross-probing: sync with PDF schematic whenever a component is selected
+        // Automatic cross-probing: sync with PDF schematic whenever a component is selected.
+        // Only on a selection change, so a search typed in the PDF panel is not overridden.
         if self.pdf_viewer.is_open {
             if let Some(part_idx) = self.selected_part_idx {
                 if let Some(board) = &self.board {
                     if let Some(part) = board.parts.get(part_idx) {
-                        if self.pdf_viewer.active_search != part.name {
+                        if self.pdf_viewer.probed_part != Some(part_idx) {
+                            self.pdf_viewer.probed_part = Some(part_idx);
+                            self.pdf_viewer.search_input = part.name.clone();
                             self.pdf_viewer.cross_probe(&part.name);
                         }
                     }
                 }
+            } else {
+                self.pdf_viewer.probed_part = None;
             }
         }
 
@@ -709,6 +714,34 @@ impl eframe::App for BoardViewApp {
                             }
                         }
                     });
+
+                    // Text search: Enter or the button jumps to the first hit; Enter again on the
+                    // same query steps to the next one.
+                    ui.horizontal(|ui| {
+                        let search_resp = ui.add(
+                            egui::TextEdit::singleline(&mut self.pdf_viewer.search_input)
+                                .hint_text(i18n::tr(lang, "pdf.search_hint"))
+                                .desired_width(180.0),
+                        );
+                        let entered = search_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if entered || ui.button(i18n::tr(lang, "pdf.search")).clicked() {
+                            let query = self.pdf_viewer.search_input.trim().to_string();
+                            if entered && !query.is_empty() && query == self.pdf_viewer.active_search && !self.pdf_viewer.search_results.is_empty() {
+                                self.pdf_viewer.next_match();
+                            } else {
+                                self.pdf_viewer.search(&query);
+                            }
+                            if entered {
+                                search_resp.request_focus();
+                            }
+                        }
+                        if !self.pdf_viewer.active_search.is_empty()
+                            && self.pdf_viewer.search_results.is_empty()
+                            && self.pdf_viewer.text_indexed()
+                        {
+                            ui.label(RichText::new(i18n::tr(lang, "pdf.no_hits")).color(self.tokens.text_dim()));
+                        }
+                    });
                     ui.separator();
 
                     // PDF Page viewer canvas area with interactive pan and zoom
@@ -741,8 +774,13 @@ impl eframe::App for BoardViewApp {
                             ui.ctx().request_repaint();
                         }
 
-                        // Keyboard navigation inside PDF panel when hovered or focused
+                        // Keyboard navigation inside PDF panel when hovered, unless a text field
+                        // (e.g. the search box) has the keyboard
+                        let typing = ui.memory(|m| m.focused().is_some());
                         let (page_up, page_down, arrow_left, arrow_right, plus_key, minus_key) = ui.input(|i| {
+                            if typing {
+                                return Default::default();
+                            }
                             (
                                 i.key_pressed(egui::Key::PageUp),
                                 i.key_pressed(egui::Key::PageDown),

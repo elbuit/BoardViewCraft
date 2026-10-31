@@ -126,6 +126,9 @@
 	pdf.hits	coincidències
 	pdf.hit_prev	Anterior
 	pdf.hit_next	Següent
+	pdf.search	Cerca
+	pdf.search_hint	Cerca text al PDF...
+	pdf.no_hits	Cap coincidència
 	pdf.loading_page	Carregant pàgina d'esquemàtic {}...
 	pdf.prompt_found_title	Esquemàtic Coincident Trobat
 	pdf.prompt_found_msg	S'ha trobat un esquemàtic PDF coincident a la mateixa carpeta. Vols obrir-lo?
