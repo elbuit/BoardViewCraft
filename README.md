@@ -4,6 +4,8 @@
 
 BoardViewCraft is an open-source boardview inspection application built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It is designed to provide fluid navigation, clear part and pad rendering, and intuitive diagnostics for dense multi-layer PCB designs, with the board schematic PDF side by side.
 
+![BoardViewCraft showing a graphics card board with filled part bodies, pads and the part details panel](docs/screenshots/board-view-gpu-card.png)
+
 ---
 
 ## Features
