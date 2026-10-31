@@ -59,3 +59,10 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - Mesh build timing (`bench_fixture_mesh_build`, release, 1920x1080, median of 11; 3 runs): before (T2 renderer) fit 2.0-2.9 ms / zoom8 0.48-0.50 ms; after fit 2.8-3.8 ms / zoom8 0.62-0.74 ms (~+30-50%, still cached by `ViewCacheKey`).
 - `cargo test --workspace --release`: all ok (ui-egui 77 passed, 1 ignored). `cargo clippy --workspace --release`: warnings identical by file+message to the previous commit, per-file counts identical to base. `cargo build --release`: ok.
 - Not verified: visual appearance in the GUI (no screen access); custom-theme editor has no picker for `part_body_line` (needs a new i18n key; i18n.rs out of surface).
+- T3 commit: `3180acf` feat(ui): draw filled part bodies and real pad shapes.
+- Parent spot check: `cargo test --workspace --release` all green (bvc-core 22+4+18, bvc-ui-egui 77 passed, 1 ignored).
+- Review assessment (`--base-ref 0d78513 --committed-only`): risk high (`process_boundary` signal in crates/bvc-core/src/lib.rs; that file only got test-only `..Default::default()`), review due. Consent relayed to user: declined for this candidate (`declined_this_candidate`). `.atl/` added to local `.git/info/exclude` to unblock the preflight.
+
+## Next step
+Manual GUI check on `tmp/MS-V375 REV 7.0.cad` (CN1 PCIe fingers, filled bodies, larger hover rings from real pad radii). Remaining plan steps (part-kind colours, KiCad/TVW pads, label backings, selection glow) await user decision.
+
