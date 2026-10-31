@@ -54,9 +54,15 @@ pub fn scale_tag(scale: f32) -> u64 {
     (f64::from(scale) * 65536.0).round() as u64
 }
 
-/// Convert rendered Pixels (premultiplied RGBA8, as the renderer produces them) into egui::ColorImage
+/// A rendered raster as texture data, as pdfcraft's `texture_image` (canvas/cache.rs). Its words
+/// are premultiplied RGBA bytes, exactly `Color32`s, so the renderer's buffer becomes the image
+/// without a per-pixel copy on the UI thread; a buffer that cannot be reused is copied.
 fn texture_image(size: [usize; 2], pixels: pdfcraft_render::Pixels) -> ColorImage {
-    ColorImage::from_rgba_premultiplied(size, &pixels)
+    match bytemuck::allocation::try_cast_vec::<u32, Color32>(pixels.into_words()) {
+        Ok(px) if px.len() == size[0].saturating_mul(size[1]) => ColorImage::new(size, px),
+        Ok(px) => ColorImage::from_rgba_premultiplied(size, bytemuck::cast_slice(&px)),
+        Err((_, words)) => ColorImage::from_rgba_premultiplied(size, bytemuck::cast_slice(&words)),
+    }
 }
 
 /// Seconds the display scale must stay unchanged before sharp re-renders are requested,
@@ -812,6 +818,34 @@ impl PdfSchematicViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Rendered words become the texture's pixels unchanged (premultiplied R, G, B, A bytes).
+    #[test]
+    fn test_texture_image_keeps_pixels() {
+        let bytes: [[u8; 4]; 6] = [[255, 0, 0, 255], [0, 128, 0, 255], [0, 0, 64, 128], [10, 20, 30, 40], [0, 0, 0, 0], [255, 255, 255, 255]];
+        let words: Vec<u32> = bytes.iter().map(|b| u32::from_ne_bytes(*b)).collect();
+        let image = texture_image([3, 2], pdfcraft_render::Pixels::from(words));
+        assert_eq!(image.size, [3, 2]);
+        let want: Vec<Color32> = bytes.iter().map(|b| Color32::from_rgba_premultiplied(b[0], b[1], b[2], b[3])).collect();
+        assert_eq!(image.pixels, want);
+    }
+
+    /// The renderer's buffer becomes the texture without a copy on the UI thread, as pdfcraft does.
+    #[test]
+    fn test_texture_image_reuses_buffer() {
+        let words = vec![u32::from_ne_bytes([9, 8, 7, 255]); 64 * 64];
+        let ptr = words.as_ptr() as usize;
+        let image = texture_image([64, 64], pdfcraft_render::Pixels::from(words));
+        assert_eq!(image.pixels.as_ptr() as usize, ptr, "pixels were copied");
+    }
+
+    /// A buffer that does not match the size still converts (the safe copying path).
+    #[test]
+    fn test_texture_image_mismatched_size_copies() {
+        let words = vec![u32::from_ne_bytes([1, 2, 3, 4]); 2];
+        let image = texture_image([1, 2], pdfcraft_render::Pixels::from(words));
+        assert_eq!(image.pixels, vec![Color32::from_rgba_premultiplied(1, 2, 3, 4); 2]);
+    }
 
     #[test]
     fn test_cross_probe_adaptive_zoom_elevation() {
