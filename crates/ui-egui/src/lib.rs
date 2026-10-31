@@ -561,12 +561,6 @@ impl eframe::App for BoardViewApp {
                     self.canvas_state.viewport.side = if is_top { Side::Bottom } else { Side::Top };
                 }
 
-                // Quick rotation button
-                let rot_label = format!("{}: {}", i18n::tr(lang, "toolbar.rotate"), self.canvas_state.viewport.rotation.display_str());
-                if ui.button(rot_label).on_hover_text("Click or press R to rotate 90° CW").clicked() {
-                    self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
-                }
-
                 if let Some(name) = &self.filename {
                     ui.separator();
                     ui.label(RichText::new(name).color(self.tokens.text_dim()));

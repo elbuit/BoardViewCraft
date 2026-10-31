@@ -20,6 +20,9 @@ User request 2026-10-31. Today the search click (`crates/ui-egui/src/side_panel.
 
 - [x] T4 — Reorganize the top toolbar into menus: File (Open Board, Open Recent, Preferences), Actions (unchanged), View (Zoom submenu, Pins/Vias checkboxes), Help (About); side and rotate quick buttons kept (route: inline; user request 2026-10-31)
 
+- [x] T5 — Remove the quick rotate button from the toolbar (keep the TOP/BOTTOM side button) (route: same delegated writer as T6)
+- [ ] T6 — Side panel without tabs: show only the active tool, chosen from context: photo overlay alignment -> overlay panel (with a way to finish/leave it); pin/via/net selected -> net/pin details; part only -> part details; nothing selected -> search; a "back to search" control clears the selection (route: delegated writer; side_panel.rs + lib.rs + i18n, design default chosen by orchestrator, user to confirm in GUI)
+
 ## Acceptance criteria
 - After clicking a search result: only the part is selected (pin/via/net None), viewport center == part bbox center, view side shows the part.
 - About menu entry opens a window with at least version, license, OS/arch, build profile.
@@ -38,3 +41,5 @@ ask-on-risk. Forecast ~200 authored lines.
   - GUI behaviour not verified: manual check pending.
 - T4: UI-only restructure inside the toolbar closure, no meaningful RED; strings `menu.file/view/help` added to 6 catalogs, key-count test 145 -> 148.
   - `cargo test -p bvc-ui-egui --release`: 66 passed, 0 failed, 1 ignored. clippy lib.rs 13 -> 13. `cargo build --release`: success. GUI check pending.
+- T5: UI-only removal inside the toolbar closure, no meaningful RED. `toolbar.rotate` became unused and was removed from the 6 catalogs (key-count test 148 -> 147); `Rotation::display_str` is still used by the status bar.
+  - `cargo test -p bvc-ui-egui --release`: 66 passed, 0 failed, 1 ignored. clippy per-file ui-egui counts equal to base (lib.rs 13). `cargo build --release`: Finished. GUI check pending.
