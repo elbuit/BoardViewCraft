@@ -28,7 +28,7 @@ ask-on-risk. Forecast ~150-350 authored lines.
 
 ## Tasks
 - [x] T1 — Measure deep-zoom jump cost and compare with pdfcraft (route: delegated writer; trigger: runtime measurement + reading pdfcraft prepares the write) — `cd5e00d`
-- [ ] T2 — Zero-copy tile/page texture conversion as pdfcraft (route: same delegated writer)
+- [x] T2 — Zero-copy tile/page texture conversion as pdfcraft (route: same delegated writer) — `dece3ab`; RED `test_texture_image_reuses_buffer` observed failing before the change
 - [ ] T3 — Fix the dominant measured cause at deep zoom (tile sizing / holds / ordering per pdfcraft) (route: same delegated writer)
 
 ## Acceptance criteria
@@ -72,3 +72,11 @@ ordering, same backdrop and adjacent-page prefetch. The difference on the UI thr
 `texture_image`: BoardViewCraft copies every pixel (`from_rgba_premultiplied`, ~3.3 ns/px, up to
 302 ms in one frame here, before the GPU upload); pdfcraft reuses the renderer's buffer zero-copy.
 Dominant worker cost at deep zoom: tiles of up to 4096 px whose pixels, not interprets, cost the time.
+
+## T2 results (`dece3ab`, same harness, U12)
+
+| scenario | sharp before → after | UI convert | max frame | CPU |
+|---|---|---|---|---|
+| ppp 1, 860x900 | 0.26 → 0.15 s | 124 → 0.0 ms | 137 → 8 ms | 0.66 → 0.57 s |
+| ppp 2, 860x900 | 0.45 → 0.19 s | 272 → 0.1 ms | 302 → 20 ms | 1.28 → 0.86 s |
+| ppp 1, 1800x1000 | 0.22 → 0.14 s | 80 → 0.0 ms | 88 → 9 ms | 0.56 → 0.49 s |
