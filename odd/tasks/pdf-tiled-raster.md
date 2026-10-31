@@ -48,3 +48,9 @@ ask-on-risk. Forecast ~350-500 authored lines.
   - `cargo clippy -p bvc-ui-egui --release`: no new warnings (pdf.rs 2 -> 1 pre-existing, lib.rs 15 unchanged).
   - `cargo build --release`: success.
   - GUI behaviour (no blank flashes, highlight/centering visually) not verified at runtime: manual check pending.
+  - Commit: `06990a0` perf(pdf): render zoomed pages as visible tiles for faster search navigation.
+- Parent spot check: `cargo test -p bvc-ui-egui --release` -> 51 passed, 1 failed (`canvas::tests::bench_dense_net_tessellation`, untouched timing bench; passes when run alone in release and debug — flaky under parallel CPU load from the new fixture tests).
+- Review assessment (`--base-ref 3ab889b --committed-only`, untracked `.atl/` excluded): risk medium (`executable_change` lib.rs), `review_due=false`, reason `under_budget`.
+
+## Next step
+Manual GUI check: zoom/pan on a large schematic (no blank flashes, no tile seams), search highlight and cross-probe centering.
