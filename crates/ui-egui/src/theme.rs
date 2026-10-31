@@ -169,8 +169,13 @@ pub struct PcbTokens {
     // Board elements
     pub board_outline: Color32,
     pub board_fill: Color32,
+    /// Fill of part bodies.
     pub part_body: Color32,
+    /// Stroke of part bodies (missing in older saved custom themes, hence the default).
+    #[serde(default = "PcbTokens::default_part_body_line")]
+    pub part_body_line: Color32,
     pub part_text: Color32,
+    /// Fill of ordinary pads.
     pub pin_default: Color32,
     pub pin_unconnected: Color32,
     pub pin_highlight_cur_side: Color32,
@@ -181,7 +186,15 @@ pub struct PcbTokens {
     pub net_web: Color32,
 }
 
+/// Body and pad colours of the dark/light themes come from TRACE Boardviewer's board palette.
+/// Portions adapted from TRACE Boardviewer (MIT), Copyright (c) 2026 TRACE Boardviewer contributors
+/// (`src/components/board-palette.ts`).
 impl PcbTokens {
+    /// Body stroke for custom themes saved before the token existed (trace dark `chipLine`).
+    pub fn default_part_body_line() -> Color32 {
+        Color32::from_rgb(0x96, 0xb3, 0xc7)
+    }
+
     pub const CADCRAFT: PcbTokens = PcbTokens {
         canvas: Color32::from_rgb(0x1a, 0x1e, 0x24),
         grid_minor: Color32::from_rgb(0x22, 0x28, 0x32),
@@ -194,9 +207,10 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0xb0, 0xb8, 0xc4),
         board_fill: Color32::from_rgba_premultiplied(0x1e, 0x26, 0x30, 0x80),
-        part_body: Color32::from_rgba_premultiplied(0x38, 0x42, 0x52, 0x90),
+        part_body: Color32::from_rgb(0x35, 0x4b, 0x5d), // trace dark chip
+        part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xc0, 0xc6, 0xd0),
-        pin_default: Color32::from_rgb(0xdc, 0x50, 0x40), // Reddish-coral for standard pins
+        pin_default: Color32::from_rgb(0xd6, 0xdd, 0xc8), // trace dark pad
         pin_unconnected: Color32::from_rgb(0x70, 0x78, 0x84), // Gray for unconnected pins
         pin_highlight_cur_side: Color32::from_rgb(0x32, 0xdd, 0x66), // Bright vivid emerald green
         pin_highlight_opp_side: Color32::from_rgb(0x1b, 0x7d, 0xa8), // Deep cyan/blue
@@ -218,9 +232,10 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0xc0, 0xc8, 0xd4),
         board_fill: Color32::from_rgba_premultiplied(0x18, 0x20, 0x28, 0x90),
-        part_body: Color32::from_rgba_premultiplied(0x30, 0x3c, 0x4a, 0xa0),
+        part_body: Color32::from_rgb(0x35, 0x4b, 0x5d), // trace dark chip
+        part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xd5, 0xdc, 0xe5),
-        pin_default: Color32::from_rgb(0xe0, 0x55, 0x45),
+        pin_default: Color32::from_rgb(0xd6, 0xdd, 0xc8), // trace dark pad
         pin_unconnected: Color32::from_rgb(0x65, 0x70, 0x80),
         pin_highlight_cur_side: Color32::from_rgb(0x2e, 0xe0, 0x60),
         pin_highlight_opp_side: Color32::from_rgb(0x20, 0x90, 0xc8),
@@ -242,9 +257,10 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0x35, 0x40, 0x50),
         board_fill: Color32::from_rgba_premultiplied(0xdf, 0xe7, 0xf0, 0x80),
-        part_body: Color32::from_rgba_premultiplied(0xb0, 0xc0, 0xd4, 0x80),
+        part_body: Color32::from_rgb(0xa5, 0xb7, 0xc2), // trace light chip
+        part_body_line: Color32::from_rgb(0x4d, 0x6a, 0x80), // trace light chipLine
         part_text: Color32::from_rgb(0x24, 0x29, 0x2f),
-        pin_default: Color32::from_rgb(0xd1, 0x38, 0x2c),
+        pin_default: Color32::from_rgb(0x36, 0x5b, 0x4a), // trace light pad
         pin_unconnected: Color32::from_rgb(0x8c, 0x95, 0x9f),
         pin_highlight_cur_side: Color32::from_rgb(0x1a, 0x9e, 0x3d),
         pin_highlight_opp_side: Color32::from_rgb(0x09, 0x69, 0xda),
@@ -266,7 +282,8 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0xff, 0xff, 0xff), // crisp white
         board_fill: Color32::from_rgba_premultiplied(0x18, 0x18, 0x18, 0x40),
-        part_body: Color32::from_rgba_premultiplied(0x40, 0x40, 0x40, 0x80),
+        part_body: Color32::from_rgb(0x3a, 0x3a, 0x3a),
+        part_body_line: Color32::from_rgb(0x8a, 0x8a, 0x8a),
         part_text: Color32::from_rgb(0xdd, 0xdd, 0xdd),
         pin_default: Color32::from_rgb(0xcc, 0x44, 0x33), // orange-red
         pin_unconnected: Color32::from_rgb(0x60, 0x60, 0x60),
@@ -290,7 +307,8 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0x79, 0xa8, 0xd8), // soft steel blue border
         board_fill: Color32::from_rgba_premultiplied(0x15, 0x20, 0x30, 0x90),
-        part_body: Color32::from_rgba_premultiplied(0x2c, 0x3c, 0x54, 0x90),
+        part_body: Color32::from_rgb(0x2c, 0x3c, 0x54),
+        part_body_line: Color32::from_rgb(0x79, 0xa8, 0xd8),
         part_text: Color32::from_rgb(0xd0, 0xdf, 0xf0),
         pin_default: Color32::from_rgb(0x4d, 0x90, 0xcd), // pastel soft slate blue
         pin_unconnected: Color32::from_rgb(0x55, 0x64, 0x78),
@@ -337,6 +355,7 @@ pub struct Tokens {
     pub board_outline: Color32,
     pub board_fill: Color32,
     pub part_body: Color32,
+    pub part_body_line: Color32,
     pub pin_default: Color32,
     pub pin_unconnected: Color32,
     pub pin_highlight_cur_side: Color32,
@@ -399,6 +418,7 @@ impl Tokens {
             board_outline: pcb.board_outline,
             board_fill: pcb.board_fill,
             part_body: pcb.part_body,
+            part_body_line: pcb.part_body_line,
             pin_default: pcb.pin_default,
             pin_unconnected: pcb.pin_unconnected,
             pin_highlight_cur_side: pcb.pin_highlight_cur_side,
@@ -518,6 +538,7 @@ impl Tokens {
         board_outline: PcbTokens::CADCRAFT.board_outline,
         board_fill: PcbTokens::CADCRAFT.board_fill,
         part_body: PcbTokens::CADCRAFT.part_body,
+        part_body_line: PcbTokens::CADCRAFT.part_body_line,
         pin_default: PcbTokens::CADCRAFT.pin_default,
         pin_unconnected: PcbTokens::CADCRAFT.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::CADCRAFT.pin_highlight_cur_side,
@@ -557,6 +578,7 @@ impl Tokens {
         board_outline: PcbTokens::LIGHT.board_outline,
         board_fill: PcbTokens::LIGHT.board_fill,
         part_body: PcbTokens::LIGHT.part_body,
+        part_body_line: PcbTokens::LIGHT.part_body_line,
         pin_default: PcbTokens::LIGHT.pin_default,
         pin_unconnected: PcbTokens::LIGHT.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::LIGHT.pin_highlight_cur_side,

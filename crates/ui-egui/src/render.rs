@@ -2,7 +2,7 @@
 
 use std::f32::consts::TAU;
 use egui::epaint::{Mesh, Vertex};
-use egui::{Color32, Pos2};
+use egui::{Color32, Pos2, Vec2};
 use lyon_tessellation::geometry_builder::{BuffersBuilder, VertexBuffers};
 use lyon_tessellation::math::Point as LPoint;
 use lyon_tessellation::path::Path;
@@ -246,23 +246,6 @@ impl Renderer {
         mesh.indices.push(start_idx + 3);
     }
 
-    /// Appends a stroked rectangle (as 4 thick line segments or 8 triangles) directly to `mesh`.
-    #[inline]
-    pub fn append_rect_outline_to_mesh(
-        mesh: &mut Mesh,
-        p1: Pos2, // min_x, min_y
-        p2: Pos2, // max_x, min_y
-        p3: Pos2, // max_x, max_y
-        p4: Pos2, // min_x, max_y
-        half_w: f32,
-        color: Color32,
-    ) {
-        let edges = [(p1, p2), (p2, p3), (p3, p4), (p4, p1)];
-        for (a, b) in edges {
-            Self::append_line_segment_to_mesh(mesh, a, b, half_w, color);
-        }
-    }
-
     /// Appends a thick line segment between two points to `mesh`.
     #[inline]
     pub fn append_line_segment_to_mesh(
@@ -315,6 +298,108 @@ impl Renderer {
         mesh.indices.push(start_idx);
         mesh.indices.push(start_idx + 2);
         mesh.indices.push(start_idx + 3);
+    }
+
+    /// Appends a filled rotated rectangle centred at `center`. `half_u` and `half_v` are the screen-space
+    /// half-extent vectors along the rectangle's two local axes (they need not be axis-aligned).
+    #[inline]
+    pub fn append_rotated_rect_to_mesh(mesh: &mut Mesh, center: Pos2, half_u: Vec2, half_v: Vec2, color: Color32) {
+        let start_idx = mesh.vertices.len() as u32;
+        mesh.vertices.reserve(4);
+        mesh.indices.reserve(6);
+        for pos in [
+            center - half_u - half_v,
+            center + half_u - half_v,
+            center + half_u + half_v,
+            center - half_u + half_v,
+        ] {
+            mesh.vertices.push(Vertex { pos, uv: Pos2::ZERO, color });
+        }
+        mesh.indices.extend_from_slice(&[
+            start_idx,
+            start_idx + 1,
+            start_idx + 2,
+            start_idx,
+            start_idx + 2,
+            start_idx + 3,
+        ]);
+    }
+
+    /// Appends the stroked outline of a rotated rectangle (see [`Self::append_rotated_rect_to_mesh`]).
+    pub fn append_rotated_rect_outline_to_mesh(
+        mesh: &mut Mesh,
+        center: Pos2,
+        half_u: Vec2,
+        half_v: Vec2,
+        half_w: f32,
+        color: Color32,
+    ) {
+        let c = [
+            center - half_u - half_v,
+            center + half_u - half_v,
+            center + half_u + half_v,
+            center - half_u + half_v,
+        ];
+        Self::append_closed_polyline_to_mesh(mesh, &c, half_w, color);
+    }
+
+    /// Appends the edges of a closed polyline (the last point connects back to the first).
+    pub fn append_closed_polyline_to_mesh(mesh: &mut Mesh, points: &[Pos2], half_w: f32, color: Color32) {
+        if points.len() < 2 {
+            return;
+        }
+        mesh.vertices.reserve(points.len() * 4);
+        mesh.indices.reserve(points.len() * 6);
+        for (i, &a) in points.iter().enumerate() {
+            let b = points[(i + 1) % points.len()];
+            Self::append_line_segment_to_mesh(mesh, a, b, half_w, color);
+        }
+    }
+
+    /// Appends a filled simple polygon. Convex quads take a two-triangle fast path; anything else is
+    /// tessellated by lyon with a per-thread tessellator (safe inside rayon folds).
+    pub fn append_polygon_fill_to_mesh(mesh: &mut Mesh, points: &[Pos2], color: Color32) {
+        if points.len() < 3 {
+            return;
+        }
+        if points.len() == 4 && is_convex_quad(points) {
+            let start_idx = mesh.vertices.len() as u32;
+            for &pos in points {
+                mesh.vertices.push(Vertex { pos, uv: Pos2::ZERO, color });
+            }
+            mesh.indices.extend_from_slice(&[
+                start_idx,
+                start_idx + 1,
+                start_idx + 2,
+                start_idx,
+                start_idx + 2,
+                start_idx + 3,
+            ]);
+            return;
+        }
+        thread_local! {
+            static FILL_TESS: std::cell::RefCell<FillTessellator> = std::cell::RefCell::new(FillTessellator::new());
+        }
+        let mut builder = Path::builder();
+        builder.begin(LPoint::new(points[0].x, points[0].y));
+        for p in &points[1..] {
+            builder.line_to(LPoint::new(p.x, p.y));
+        }
+        builder.close();
+        let path = builder.build();
+        let mut buffers: VertexBuffers<LPoint, u32> = VertexBuffers::new();
+        FILL_TESS.with(|tess| {
+            tess.borrow_mut()
+                .tessellate_path(
+                    &path,
+                    &FillOptions::tolerance(0.2),
+                    &mut BuffersBuilder::new(&mut buffers, |vertex: lyon_tessellation::FillVertex| vertex.position()),
+                )
+                .ok();
+        });
+        let start_idx = mesh.vertices.len() as u32;
+        mesh.vertices.extend(buffers.vertices.iter().map(|v| Vertex { pos: Pos2::new(v.x, v.y), uv: Pos2::ZERO, color }));
+        mesh.indices.extend(buffers.indices.iter().map(|i| start_idx + i));
     }
 
     /// Appends multiple line segments into `mesh` using pre-allocated batching.
@@ -426,6 +511,26 @@ impl Renderer {
     }
 }
 
+/// True when the quad's corners turn consistently in one direction (no reflex corner, not self-crossing).
+fn is_convex_quad(p: &[Pos2]) -> bool {
+    let mut sign = 0.0f32;
+    for i in 0..4 {
+        let a = p[i];
+        let b = p[(i + 1) % 4];
+        let c = p[(i + 2) % 4];
+        let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+        if cross.abs() < 1e-6 {
+            continue;
+        }
+        if sign == 0.0 {
+            sign = cross.signum();
+        } else if cross.signum() != sign {
+            return false;
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,5 +600,40 @@ mod tests {
         Renderer::append_circle_outline_to_mesh(&mut empty_mesh, center, 0.0, 2.0, color);
         assert!(empty_mesh.is_empty());
     }
-}
 
+    #[test]
+    fn rotated_rect_has_four_vertices_at_rotated_corners() {
+        let mut mesh = Mesh::default();
+        let c = Pos2::new(10.0, 10.0);
+        Renderer::append_rotated_rect_to_mesh(&mut mesh, c, Vec2::new(0.0, 5.0), Vec2::new(-1.0, 0.0), Color32::WHITE);
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.indices.len(), 6);
+        let xs: Vec<f32> = mesh.vertices.iter().map(|v| v.pos.x).collect();
+        let ys: Vec<f32> = mesh.vertices.iter().map(|v| v.pos.y).collect();
+        assert_eq!(xs.iter().cloned().fold(f32::INFINITY, f32::min), 9.0);
+        assert_eq!(ys.iter().cloned().fold(f32::INFINITY, f32::min), 5.0);
+        assert_eq!(ys.iter().cloned().fold(f32::NEG_INFINITY, f32::max), 15.0);
+    }
+
+    #[test]
+    fn polygon_fill_quad_fast_path_and_concave_tessellation() {
+        let mut quad = Mesh::default();
+        let square = [Pos2::new(0.0, 0.0), Pos2::new(4.0, 0.0), Pos2::new(4.0, 4.0), Pos2::new(0.0, 4.0)];
+        Renderer::append_polygon_fill_to_mesh(&mut quad, &square, Color32::WHITE);
+        assert_eq!((quad.vertices.len(), quad.indices.len()), (4, 6));
+
+        // Concave "L" shape goes through lyon; indices are offset past existing vertices.
+        let l_shape = [
+            Pos2::new(0.0, 0.0),
+            Pos2::new(4.0, 0.0),
+            Pos2::new(4.0, 1.0),
+            Pos2::new(1.0, 1.0),
+            Pos2::new(1.0, 4.0),
+            Pos2::new(0.0, 4.0),
+        ];
+        Renderer::append_polygon_fill_to_mesh(&mut quad, &l_shape, Color32::WHITE);
+        assert!(quad.vertices.len() >= 10);
+        assert_eq!(quad.indices.len() % 3, 0);
+        assert!(quad.indices[6..].iter().all(|&i| (4..quad.vertices.len() as u32).contains(&i)));
+    }
+}
