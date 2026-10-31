@@ -7,8 +7,9 @@ use crate::render::Renderer;
 use crate::theme::Tokens;
 use bvc_core::{Board, Point, Rect, Side};
 use egui::epaint::Mesh;
-use egui::{Color32, FontId, Pos2, Rect as EguiRect, Response, RichText, Sense, Stroke, Ui};
+use egui::{Color32, FontId, Pos2, Rect as EguiRect, Response, RichText, Sense, Shape, Stroke, Ui};
 use rayon::prelude::*;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -235,8 +236,6 @@ pub struct ViewCacheKey {
     pub selected_via: Option<usize>,
     pub selected_net: Option<String>,
     pub selected_part: Option<usize>,
-    pub hovered_pin: Option<usize>,
-    pub hovered_via: Option<usize>,
     pub board_ptr: usize,
     pub show_net_web: bool,
     pub via_display_mode: ViaDisplayMode,
@@ -246,11 +245,51 @@ pub struct ViewCacheKey {
     pub show_pins: bool,
 }
 
+impl ViewCacheKey {
+    /// Key of the cached board meshes for this view, selection and display preferences.
+    ///
+    /// Hover is deliberately not part of the key: the hovered pin or via is drawn by a small
+    /// per-frame overlay (`hover_overlay_mesh`), so moving the mouse never rebuilds the board.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        b: &Board,
+        vp: &Viewport,
+        rect: EguiRect,
+        selected_pin: Option<usize>,
+        selected_via: Option<usize>,
+        selected_part: Option<usize>,
+        selected_net: Option<&str>,
+        prefs: &Preferences,
+    ) -> Self {
+        Self {
+            center: ((vp.center.x * 1000.0) as i64, (vp.center.y * 1000.0) as i64),
+            scale_bits: vp.scale.to_bits(),
+            side: vp.side,
+            rotation: vp.rotation,
+            mirror_x: vp.mirror_x,
+            mirror_y: vp.mirror_y,
+            rect_size: (rect.width().round() as u32, rect.height().round() as u32),
+            selected_pin,
+            selected_via,
+            selected_net: selected_net.map(str::to_owned),
+            selected_part,
+            board_ptr: b as *const Board as usize,
+            show_net_web: prefs.show_net_web,
+            via_display_mode: prefs.via_display_mode,
+            show_opposite_elements: prefs.show_opposite_elements,
+            show_vias: prefs.show_vias,
+            show_unnamed_vias: prefs.show_unnamed_vias,
+            show_pins: prefs.show_pins,
+        }
+    }
+}
+
 pub struct CanvasState {
     pub viewport: Viewport,
     pub hovered_pin: Option<usize>,
     pub hovered_via: Option<usize>,
-    pub cached_meshes: Vec<egui::Mesh>,
+    /// Board meshes for `cached_view_key`, shared with the painter without copying.
+    pub cached_meshes: Vec<Arc<Mesh>>,
     pub cached_view_key: Option<ViewCacheKey>,
     pub context_menu_pin: Option<(usize, Pos2)>,
 }
@@ -655,37 +694,19 @@ pub fn show_canvas(
 
     // Render Board elements
     if let Some(b) = board {
-        let board_ptr = b as *const _ as usize;
-        let current_key = ViewCacheKey {
-            center: ((vp.center.x * 1000.0) as i64, (vp.center.y * 1000.0) as i64),
-            scale_bits: vp.scale.to_bits(),
-            side: vp.side,
-            rotation: vp.rotation,
-            mirror_x: vp.mirror_x,
-            mirror_y: vp.mirror_y,
-            rect_size: (rect.width().round() as u32, rect.height().round() as u32),
-            selected_pin: *selected_pin_idx,
-            selected_via: *selected_via_idx,
-            selected_net: selected_net.clone(),
-            selected_part: *selected_part_idx,
-            hovered_pin: current_hover_pin,
-            hovered_via: current_hover_via,
-            board_ptr,
-            show_net_web: prefs.show_net_web,
-            via_display_mode: prefs.via_display_mode,
-            show_opposite_elements: prefs.show_opposite_elements,
-            show_vias: prefs.show_vias,
-            show_unnamed_vias: prefs.show_unnamed_vias,
-            show_pins: prefs.show_pins,
-        };
+        let current_key = ViewCacheKey::new(
+            b,
+            vp,
+            rect,
+            *selected_pin_idx,
+            *selected_via_idx,
+            *selected_part_idx,
+            selected_net.as_deref(),
+            prefs,
+        );
 
-        if canvas_state.cached_view_key.as_ref() == Some(&current_key) {
-            // Cache hit: immediately emit cached meshes, bypassing all geometry generation and filtering!
-            for mesh in &canvas_state.cached_meshes {
-                painter.add(mesh.clone());
-            }
-        } else {
-            // Cache miss: generate meshes and update cache
+        if canvas_state.cached_view_key.as_ref() != Some(&current_key) {
+            // Cache miss: generate meshes (without hover, drawn below) and update the cache.
             let new_meshes = generate_board_meshes(
                 b,
                 vp,
@@ -695,8 +716,8 @@ pub fn show_canvas(
                 *selected_via_idx,
                 *selected_part_idx,
                 selected_net.as_deref(),
-                current_hover_pin,
-                current_hover_via,
+                None,
+                None,
                 renderer,
                 prefs.show_net_web,
                 prefs.via_display_mode,
@@ -705,13 +726,16 @@ pub fn show_canvas(
                 prefs.show_unnamed_vias,
                 prefs.show_pins,
             );
-
-            for mesh in &new_meshes {
-                painter.add(mesh.clone());
-            }
-
-            canvas_state.cached_meshes = new_meshes;
+            canvas_state.cached_meshes = new_meshes.into_iter().map(Arc::new).collect();
             canvas_state.cached_view_key = Some(current_key);
+        }
+        // Emitting a cached mesh only bumps its reference count.
+        for mesh in &canvas_state.cached_meshes {
+            painter.add(Shape::Mesh(Arc::clone(mesh)));
+        }
+        let hover_mesh = hover_overlay_mesh(b, vp, rect, tokens, current_hover_pin, current_hover_via, *selected_pin_idx);
+        if !hover_mesh.is_empty() {
+            painter.add(hover_mesh);
         }
 
         let margin_mils = (50.0 / vp.scale).max(40.0) as f64;
@@ -1271,6 +1295,39 @@ impl ScreenPad {
             }
         }
     }
+}
+
+/// Highlight of the hovered pin or via, drawn every frame on top of the cached board meshes
+/// so that hovering never invalidates the board mesh cache. The selected pin is skipped: its
+/// ring is drawn by the painter pass.
+pub fn hover_overlay_mesh(
+    b: &Board,
+    vp: &Viewport,
+    rect: EguiRect,
+    tokens: &Tokens,
+    hovered_pin: Option<usize>,
+    hovered_via: Option<usize>,
+    selected_pin: Option<usize>,
+) -> Mesh {
+    let mut mesh = Mesh::default();
+    let screen_origin = vp.world_to_screen(vp.center, rect);
+    let axis_x = vp.world_to_screen(Point::new(vp.center.x + 1.0, vp.center.y), rect) - screen_origin;
+    let axis_y = vp.world_to_screen(Point::new(vp.center.x, vp.center.y + 1.0), rect) - screen_origin;
+    if let Some(pin) = hovered_pin.filter(|&idx| Some(idx) != selected_pin).and_then(|idx| b.pins.get(idx)) {
+        let screen_pos = vp.world_to_screen(pin.pos, rect);
+        if let Some(pad) = ScreenPad::of(pin, vp.scale, axis_x, axis_y, PAD_MARKER_NET_PX) {
+            pad.fill(&mut mesh, screen_pos, tokens.hover);
+        } else {
+            let screen_r = (pin.radius as f32 * vp.scale).clamp(2.0, 40.0);
+            Renderer::append_circle_to_mesh(&mut mesh, screen_pos, screen_r, tokens.hover);
+        }
+    }
+    if let Some(via) = hovered_via.and_then(|idx| b.vias.get(idx)) {
+        let screen_pos = vp.world_to_screen(via.pos, rect);
+        let screen_r = (via.radius as f32 * vp.scale).clamp(2.0, 30.0);
+        Renderer::append_circle_to_mesh(&mut mesh, screen_pos, screen_r, tokens.hover);
+    }
+    mesh
 }
 
 pub fn generate_board_meshes(
@@ -1943,6 +2000,81 @@ mod tests {
         );
         assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.part_body)));
         assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.pin_default)));
+    }
+
+    fn two_pin_board() -> Board {
+        let mut board = Board::new();
+        board.parts.push(bvc_core::Part { name: "R1".into(), ..Default::default() });
+        for (i, x) in [0.0, 100.0].into_iter().enumerate() {
+            board.pins.push(Pin { id: i, part_id: 0, pos: Point::new(x, 0.0), radius: 10.0, net_name: "N1".into(), ..Default::default() });
+        }
+        board.vias.push(Via { pos: Point::new(50.0, 50.0), radius: 8.0, net_name: "N1".into(), id: 0, side: Side::Top });
+        board.rebuild_indices();
+        board
+    }
+
+    /// Idle frames and hovering keep the cache key, so the board meshes are not rebuilt;
+    /// view, selection and display preferences still invalidate it.
+    #[test]
+    fn view_cache_key_is_stable_across_idle_and_hover_frames() {
+        let board = two_pin_board();
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        let prefs = Preferences::default();
+        let key = |vp: &Viewport, pin: Option<usize>, prefs: &Preferences| {
+            ViewCacheKey::new(&board, vp, rect, pin, None, None, None, prefs)
+        };
+        let idle = key(&vp, None, &prefs);
+        // Same view on the next frame (hover state is not an input of the key).
+        assert_eq!(idle, key(&vp, None, &prefs));
+        assert_eq!(idle, key(&vp.clone(), None, &prefs.clone()));
+
+        let mut panned = vp.clone();
+        panned.center.x += 1.0;
+        assert_ne!(idle, key(&panned, None, &prefs));
+        assert_ne!(idle, key(&vp, Some(0), &prefs));
+        let mut no_pins = prefs.clone();
+        no_pins.show_pins = false;
+        assert_ne!(idle, key(&vp, None, &no_pins));
+    }
+
+    /// The hover highlight is a tiny per-frame mesh, and the cached board meshes do not depend on hover.
+    #[test]
+    fn hover_overlay_is_small_and_separate_from_board_meshes() {
+        let board = two_pin_board();
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        let tokens = Tokens::DARK;
+
+        let pin_hover = hover_overlay_mesh(&board, &vp, rect, &tokens, Some(1), None, None);
+        assert!(!pin_hover.is_empty() && pin_hover.vertices.len() <= 32, "{} vertices", pin_hover.vertices.len());
+        assert!(pin_hover.vertices.iter().all(|v| v.color == tokens.hover));
+        let via_hover = hover_overlay_mesh(&board, &vp, rect, &tokens, None, Some(0), None);
+        assert!(!via_hover.is_empty() && via_hover.vertices.len() <= 32);
+        // The selected pin keeps its painter ring only.
+        assert!(hover_overlay_mesh(&board, &vp, rect, &tokens, Some(1), None, Some(1)).is_empty());
+        assert!(hover_overlay_mesh(&board, &vp, rect, &tokens, None, None, None).is_empty());
+    }
+
+    /// Whole-board vertex budget on the GenCAD fixture (skips when absent): filled bodies and
+    /// real pads must stay within a few vertices per pin.
+    #[test]
+    fn fixture_fit_view_stays_within_vertex_budget() {
+        let Some(board) = ms_v375_fixture() else { return };
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(2560.0, 1346.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), rect);
+        let tokens = Tokens::DARK;
+        let mut renderer = Renderer::new();
+        let meshes = generate_board_meshes(
+            &board, &vp, rect, &tokens, None, None, None, None, None, None, &mut renderer,
+            true, ViaDisplayMode::Web, false, true, false, true,
+        );
+        let vertices: usize = meshes.iter().map(|m| m.vertices.len()).sum();
+        assert!(meshes.len() <= 8, "{} meshes", meshes.len());
+        assert!(vertices <= 12 * board.pins.len(), "{vertices} vertices for {} pins", board.pins.len());
     }
 
     /// Loads the MS-V375 GenCAD fixture from `tmp/` (skips when absent).
