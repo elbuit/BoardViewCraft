@@ -29,17 +29,17 @@
 	actions.mirror_x	Spiegeln X [Horizontal] (M)
 	actions.mirror_y	Spiegeln Y [Vertikal] (Shift+M)
 	actions.reset	Ausrichtung zurücksetzen
-	side_panel.net_details	Netz-Details
-	side_panel.part_details	Bauteil-Details
-	side_panel.search	Suche
+	actions.adjust_overlay	Overlay-Foto anpassen
+	side_panel.back_to_search	← Suche
 	side_panel.pins_on_net	Pins im Netz:
 	side_panel.vias_on_net	Vias im Netz:
 	side_panel.search_parts	Bauteile suchen:
 	side_panel.search_nets	Netze suchen:
 	side_panel.side	Seite
 	side_panel.pins	Pins
-	side_panel.overlay	Overlay-Foto
 	overlay.title	Overlay-Foto
+	overlay.done	Fertig
+	overlay.done_calibrating_hint	Zuerst die Pin-Ausrichtung abschließen oder abbrechen
 	overlay.side_top	OBEN
 	overlay.side_bottom	UNTEN
 	overlay.side_both	BEIDE

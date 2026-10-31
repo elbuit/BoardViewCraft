@@ -29,17 +29,17 @@
 	actions.mirror_x	Specchia X [Orizzontale] (M)
 	actions.mirror_y	Specchia Y [Verticale] (Shift+M)
 	actions.reset	Ripristina orientamento
-	side_panel.net_details	Dettagli rete
-	side_panel.part_details	Dettagli componente
-	side_panel.search	Cerca
+	actions.adjust_overlay	Regola foto sovrapposta
+	side_panel.back_to_search	← Cerca
 	side_panel.pins_on_net	Pin sulla rete:
 	side_panel.vias_on_net	Via sulla rete:
 	side_panel.search_parts	Cerca componenti:
 	side_panel.search_nets	Cerca reti:
 	side_panel.side	Lato
 	side_panel.pins	Pin
-	side_panel.overlay	Foto sovrapposta
 	overlay.title	Foto sovrapposta
+	overlay.done	Fatto
+	overlay.done_calibrating_hint	Completa o annulla prima l'allineamento dei pin
 	overlay.side_top	SUPERIORE
 	overlay.side_bottom	INFERIORE
 	overlay.side_both	ENTRAMBI

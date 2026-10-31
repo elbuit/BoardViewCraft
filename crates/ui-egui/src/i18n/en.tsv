@@ -29,17 +29,17 @@
 	actions.mirror_x	Mirror X [Horizontal] (M)
 	actions.mirror_y	Mirror Y [Vertical] (Shift+M)
 	actions.reset	Reset Orientation
-	side_panel.net_details	Net Details
-	side_panel.part_details	Part Details
-	side_panel.search	Search
+	actions.adjust_overlay	Adjust Overlay Photo
+	side_panel.back_to_search	← Search
 	side_panel.pins_on_net	Pins on Net:
 	side_panel.vias_on_net	Vias on Net:
 	side_panel.search_parts	Search Parts:
 	side_panel.search_nets	Search Nets:
 	side_panel.side	Side
 	side_panel.pins	Pins
-	side_panel.overlay	Overlay Photo
 	overlay.title	Overlay Photo
+	overlay.done	Done
+	overlay.done_calibrating_hint	Finish or cancel the pin alignment first
 	overlay.side_top	TOP
 	overlay.side_bottom	BOTTOM
 	overlay.side_both	BOTH
