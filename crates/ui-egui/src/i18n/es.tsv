@@ -134,3 +134,13 @@
 	pdf.prompt_found_msg	Se ha encontrado un esquemático PDF coincidente en la misma carpeta. ¿Deseas abrirlo?
 	pdf.prompt_open	Abrir Esquemático (Enter)
 	pdf.prompt_cancel	Cancelar (Esc)
+	toolbar.about	Acerca de...
+	about.title	Acerca de BoardViewCraft
+	about.description	Visor de boardview para reparación de placas, con referencia cruzada a esquemas PDF.
+	about.version	Versión
+	about.license	Licencia
+	about.platform	Plataforma
+	about.build_profile	Perfil de compilación
+	about.ui_toolkit	Toolkit de interfaz
+	about.pdf_engine	Motor PDF
+	about.close	Cerrar

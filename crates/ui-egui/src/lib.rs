@@ -1,5 +1,6 @@
 //! Main application entry point and window runner for BoardViewCraft.
 
+mod about;
 mod canvas;
 mod i18n;
 mod overlay;
@@ -67,6 +68,7 @@ pub struct BoardViewApp {
     alignment_session: AlignmentSession,
     preferences: Preferences,
     preferences_open: bool,
+    about_open: bool,
     pending_auto_fit: bool,
 
     // Selection state
@@ -97,6 +99,7 @@ impl Default for BoardViewApp {
             alignment_session: AlignmentSession::default(),
             preferences: Preferences::default(),
             preferences_open: false,
+            about_open: false,
             pending_auto_fit: false,
             selected_pin_idx: None,
             selected_via_idx: None,
@@ -483,6 +486,10 @@ impl eframe::App for BoardViewApp {
 
                 if ui.button(i18n::tr(lang, "toolbar.preferences")).clicked() {
                     self.preferences_open = true;
+                }
+
+                if ui.button(i18n::tr(lang, "toolbar.about")).clicked() {
+                    self.about_open = true;
                 }
 
                 ui.separator();
@@ -1077,6 +1084,8 @@ impl eframe::App for BoardViewApp {
                 }
             });
 
+        about::show_about_window(ui.ctx(), &mut self.about_open, &self.tokens, lang);
+
         // Preferences modal window
         let mut prefs_changed = false;
         let mut prefs = self.preferences.clone();
@@ -1129,6 +1138,7 @@ mod focus_tests {
             alignment_session: AlignmentSession::default(),
             preferences: Preferences::default(),
             preferences_open: false,
+            about_open: false,
             pending_auto_fit: false,
             selected_pin_idx: Some(42),
             selected_via_idx: None,

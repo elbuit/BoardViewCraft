@@ -134,3 +134,13 @@
 	pdf.prompt_found_msg	Un schéma PDF correspondant a été trouvé dans le même dossier. Souhaitez-vous l'ouvrir ?
 	pdf.prompt_open	Ouvrir le schéma (Entrée)
 	pdf.prompt_cancel	Annuler (Échap)
+	toolbar.about	À propos...
+	about.title	À propos de BoardViewCraft
+	about.description	Visionneuse boardview pour la réparation de cartes, avec renvoi croisé vers les schémas PDF.
+	about.version	Version
+	about.license	Licence
+	about.platform	Plateforme
+	about.build_profile	Profil de compilation
+	about.ui_toolkit	Toolkit d'interface
+	about.pdf_engine	Moteur PDF
+	about.close	Fermer

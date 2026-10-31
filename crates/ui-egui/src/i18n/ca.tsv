@@ -134,3 +134,13 @@
 	pdf.prompt_found_msg	S'ha trobat un esquemàtic PDF coincident a la mateixa carpeta. Vols obrir-lo?
 	pdf.prompt_open	Obrir Esquemàtic (Enter)
 	pdf.prompt_cancel	Cancel·lar (Esc)
+	toolbar.about	Quant a...
+	about.title	Quant a BoardViewCraft
+	about.description	Visor de boardview per a reparació de plaques, amb referència creuada a esquemes PDF.
+	about.version	Versió
+	about.license	Llicència
+	about.platform	Plataforma
+	about.build_profile	Perfil de compilació
+	about.ui_toolkit	Toolkit d'interfície
+	about.pdf_engine	Motor PDF
+	about.close	Tanca
