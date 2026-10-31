@@ -252,6 +252,7 @@ impl BoardViewApp {
         self.selected_net = None;
         self.pending_auto_fit = false;
         self.canvas_state.cached_meshes.clear();
+        self.canvas_state.mesh_base = None;
         self.canvas_state.cached_view_key = None;
         self.canvas_state.hovered_pin = None;
         self.canvas_state.hovered_via = None;
