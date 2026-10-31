@@ -403,23 +403,30 @@ impl eframe::App for BoardViewApp {
                 ui.heading(RichText::new("BoardViewCraft").strong().color(self.tokens.accent()));
                 ui.separator();
 
-                if ui.button(i18n::tr(lang, "toolbar.open_board")).clicked() {
-                    self.open_file_dialog();
-                }
-
-                // Recent files dropdown
+                // File menu: open, recent boards, preferences
                 let mut file_to_open = None;
-                ui.menu_button(i18n::tr(lang, "toolbar.open_recent"), |ui| {
-                    if self.preferences.recent_files.is_empty() {
-                        ui.label(RichText::new(i18n::tr(lang, "toolbar.no_recent_files")).color(self.tokens.text_dim()));
-                    } else {
-                        for path in &self.preferences.recent_files {
-                            let label = path.file_name().and_then(|n| n.to_str()).unwrap_or("board");
-                            if ui.button(label).on_hover_text(path.display().to_string()).clicked() {
-                                file_to_open = Some(path.clone());
-                                ui.close();
+                ui.menu_button(i18n::tr(lang, "menu.file"), |ui| {
+                    if ui.button(i18n::tr(lang, "toolbar.open_board")).clicked() {
+                        self.open_file_dialog();
+                        ui.close();
+                    }
+                    ui.menu_button(i18n::tr(lang, "toolbar.open_recent"), |ui| {
+                        if self.preferences.recent_files.is_empty() {
+                            ui.label(RichText::new(i18n::tr(lang, "toolbar.no_recent_files")).color(self.tokens.text_dim()));
+                        } else {
+                            for path in &self.preferences.recent_files {
+                                let label = path.file_name().and_then(|n| n.to_str()).unwrap_or("board");
+                                if ui.button(label).on_hover_text(path.display().to_string()).clicked() {
+                                    file_to_open = Some(path.clone());
+                                    ui.close();
+                                }
                             }
                         }
+                    });
+                    ui.separator();
+                    if ui.button(i18n::tr(lang, "toolbar.preferences")).clicked() {
+                        self.preferences_open = true;
+                        ui.close();
                     }
                 });
 
@@ -484,13 +491,66 @@ impl eframe::App for BoardViewApp {
                     }
                 });
 
-                if ui.button(i18n::tr(lang, "toolbar.preferences")).clicked() {
-                    self.preferences_open = true;
-                }
+                // View menu: zoom presets and pin/via visibility
+                ui.menu_button(i18n::tr(lang, "menu.view"), |ui| {
+                    ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
+                        let rect = ui.clip_rect();
+                        if ui.button(i18n::tr(lang, "toolbar.zoom_fit_window")).clicked() {
+                            if let Some(board) = &self.board {
+                                if let Some(bbox) = board.bounding_box {
+                                    self.canvas_state.viewport.fit_to_rect(bbox, rect);
+                                    self.canvas_state.cached_view_key = None;
+                                    ui.ctx().request_repaint();
+                                }
+                            }
+                            ui.close();
+                        }
+                        ui.separator();
+                        if ui.button(i18n::tr(lang, "toolbar.zoom_preset_25")).clicked() {
+                            self.canvas_state.viewport.zoom_preset(0.25, rect);
+                            ui.close();
+                        }
+                        if ui.button(i18n::tr(lang, "toolbar.zoom_preset_50")).clicked() {
+                            self.canvas_state.viewport.zoom_preset(0.50, rect);
+                            ui.close();
+                        }
+                        if ui.button(i18n::tr(lang, "toolbar.zoom_preset_100")).clicked() {
+                            self.canvas_state.viewport.zoom_preset(1.0, rect);
+                            ui.close();
+                        }
+                        if ui.button(i18n::tr(lang, "toolbar.zoom_preset_150")).clicked() {
+                            self.canvas_state.viewport.zoom_preset(1.50, rect);
+                            ui.close();
+                        }
+                        if ui.button(i18n::tr(lang, "toolbar.zoom_preset_200")).clicked() {
+                            self.canvas_state.viewport.zoom_preset(2.0, rect);
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
+                    if ui.checkbox(&mut self.preferences.show_pins, i18n::tr(lang, "toolbar.pins"))
+                        .on_hover_text("Toggle component pin/pad visibility")
+                        .changed()
+                    {
+                        self.canvas_state.cached_view_key = None;
+                        ui.ctx().request_repaint();
+                    }
+                    if ui.checkbox(&mut self.preferences.show_vias, i18n::tr(lang, "toolbar.vias"))
+                        .on_hover_text("Toggle PCB via visibility")
+                        .changed()
+                    {
+                        self.canvas_state.cached_view_key = None;
+                        ui.ctx().request_repaint();
+                    }
+                });
 
-                if ui.button(i18n::tr(lang, "toolbar.about")).clicked() {
-                    self.about_open = true;
-                }
+                // Help menu
+                ui.menu_button(i18n::tr(lang, "menu.help"), |ui| {
+                    if ui.button(i18n::tr(lang, "toolbar.about")).clicked() {
+                        self.about_open = true;
+                        ui.close();
+                    }
+                });
 
                 ui.separator();
 
@@ -506,60 +566,6 @@ impl eframe::App for BoardViewApp {
                 if ui.button(rot_label).on_hover_text("Click or press R to rotate 90° CW").clicked() {
                     self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
                 }
-
-                // Quick pin visibility toggle button
-                let pins_status = if self.preferences.show_pins { "ON" } else { "OFF" };
-                let pins_label = format!("{}: {}", i18n::tr(lang, "toolbar.pins"), pins_status);
-                if ui.button(pins_label).on_hover_text("Toggle component pin/pad visibility").clicked() {
-                    self.preferences.show_pins = !self.preferences.show_pins;
-                    self.canvas_state.cached_view_key = None;
-                    ui.ctx().request_repaint();
-                }
-
-                // Quick via visibility toggle button
-                let vias_status = if self.preferences.show_vias { "ON" } else { "OFF" };
-                let vias_label = format!("{}: {}", i18n::tr(lang, "toolbar.vias"), vias_status);
-                if ui.button(vias_label).on_hover_text("Toggle PCB via visibility").clicked() {
-                    self.preferences.show_vias = !self.preferences.show_vias;
-                    self.canvas_state.cached_view_key = None;
-                    ui.ctx().request_repaint();
-                }
-
-                // Zoom dropdown / presets
-                ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
-                    let rect = ui.clip_rect();
-                    if ui.button(i18n::tr(lang, "toolbar.zoom_fit_window")).clicked() {
-                        if let Some(board) = &self.board {
-                            if let Some(bbox) = board.bounding_box {
-                                self.canvas_state.viewport.fit_to_rect(bbox, rect);
-                                self.canvas_state.cached_view_key = None;
-                                ui.ctx().request_repaint();
-                            }
-                        }
-                        ui.close();
-                    }
-                    ui.separator();
-                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_25")).clicked() {
-                        self.canvas_state.viewport.zoom_preset(0.25, rect);
-                        ui.close();
-                    }
-                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_50")).clicked() {
-                        self.canvas_state.viewport.zoom_preset(0.50, rect);
-                        ui.close();
-                    }
-                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_100")).clicked() {
-                        self.canvas_state.viewport.zoom_preset(1.0, rect);
-                        ui.close();
-                    }
-                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_150")).clicked() {
-                        self.canvas_state.viewport.zoom_preset(1.50, rect);
-                        ui.close();
-                    }
-                    if ui.button(i18n::tr(lang, "toolbar.zoom_preset_200")).clicked() {
-                        self.canvas_state.viewport.zoom_preset(2.0, rect);
-                        ui.close();
-                    }
-                });
 
                 if let Some(name) = &self.filename {
                     ui.separator();

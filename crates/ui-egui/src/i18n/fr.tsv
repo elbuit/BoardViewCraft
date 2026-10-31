@@ -1,5 +1,8 @@
 # BoardViewCraft French catalog
 	app.title	BoardViewCraft - Visionneuse de circuits imprimés en Rust
+	menu.file	Fichier
+	menu.view	Affichage
+	menu.help	Aide
 	toolbar.open_board	Ouvrir le circuit...
 	toolbar.open_recent	Fichiers récents
 	toolbar.no_recent_files	Aucun fichier récent

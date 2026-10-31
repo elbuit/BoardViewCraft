@@ -1,5 +1,8 @@
 # BoardViewCraft German catalog
 	app.title	BoardViewCraft - Board-Viewer in reinem Rust
+	menu.file	Datei
+	menu.view	Ansicht
+	menu.help	Hilfe
 	toolbar.open_board	Platine öffnen...
 	toolbar.open_recent	Zuletzt geöffnete Dateien
 	toolbar.no_recent_files	Keine aktuellen Dateien
