@@ -65,6 +65,7 @@ ask-on-risk. Forecast ~350-500 authored lines.
   - `cargo test -p bvc-ui-egui --release`: 55 passed, 0 failed, 1 ignored.
   - `cargo clippy -p bvc-ui-egui --release`: no new warnings (pdf.rs 1 and lib.rs 15, as on base).
   - `cargo build --release`: success.
+  - Commit: `66b2fb2` perf(pdf): index schematic text in the render pool instead of blocking open.
   - Not reproduced: a slow cross-probe render on this machine (0.15-0.31 s measured). If it persists for the user, capture the zoom level and display scale when it happens.
 
 ## Next step
