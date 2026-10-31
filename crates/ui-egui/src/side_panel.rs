@@ -17,6 +17,9 @@ pub struct SidePanelState {
     /// Part the board view should be centered on, requested by a search click.
     /// Consumed (and cleared) by the app right after `show_side_panel` runs.
     pub focus_part: Option<usize>,
+    /// Part whose details stay on screen while one of its pins, picked from those
+    /// details, is selected. Dropped as soon as a different part (or none) is selected.
+    pub stay_on_part: Option<usize>,
 }
 
 /// The selection-driven view of the side panel. The photo overlay view is not a
@@ -30,9 +33,12 @@ pub enum Tab {
 
 /// The detail view the side panel shows for the current selection: a pin, via or
 /// net shows the net details, a part alone (or an unconnected pin) shows the part
-/// details and an empty selection shows the search.
-pub fn auto_view(part: bool, pin: bool, via: bool, net: bool) -> Tab {
-    if net || via {
+/// details and an empty selection shows the search. `stay_on_part` keeps the part
+/// details while browsing the pins of that part.
+pub fn auto_view(part: bool, pin: bool, via: bool, net: bool, stay_on_part: bool) -> Tab {
+    if part && stay_on_part {
+        Tab::Part
+    } else if net || via {
         Tab::Net
     } else if part || pin {
         Tab::Part
@@ -123,11 +129,15 @@ pub fn show_side_panel(
         return;
     };
 
+    if state.stay_on_part != *selected_part_idx {
+        state.stay_on_part = None;
+    }
     let view = auto_view(
         selected_part_idx.is_some(),
         selected_pin_idx.is_some(),
         selected_via_idx.is_some(),
         selected_net.is_some(),
+        state.stay_on_part.is_some(),
     );
 
     // Detail views get a way back to the search, which clears the selection.
@@ -310,6 +320,7 @@ pub fn show_side_panel(
                                     if response.clicked() {
                                         *selected_pin_idx = Some(pin_idx);
                                         *selected_via_idx = None;
+                                        state.stay_on_part = *selected_part_idx;
                                         *selected_net = if pin.net_name.is_empty() {
                                             None
                                         } else {
@@ -796,26 +807,33 @@ mod tests {
 
     #[test]
     fn test_auto_view_empty_selection_shows_search() {
-        assert_eq!(auto_view(false, false, false, false), Tab::Search);
+        assert_eq!(auto_view(false, false, false, false, false), Tab::Search);
     }
 
     #[test]
     fn test_auto_view_part_only_shows_part() {
-        assert_eq!(auto_view(true, false, false, false), Tab::Part);
+        assert_eq!(auto_view(true, false, false, false, false), Tab::Part);
     }
 
     #[test]
     fn test_auto_view_pin_via_or_net_shows_net() {
-        assert_eq!(auto_view(true, true, false, true), Tab::Net);
-        assert_eq!(auto_view(false, false, true, true), Tab::Net);
-        assert_eq!(auto_view(false, false, false, true), Tab::Net);
-        assert_eq!(auto_view(false, false, true, false), Tab::Net);
+        assert_eq!(auto_view(true, true, false, true, false), Tab::Net);
+        assert_eq!(auto_view(false, false, true, true, false), Tab::Net);
+        assert_eq!(auto_view(false, false, false, true, false), Tab::Net);
+        assert_eq!(auto_view(false, false, true, false, false), Tab::Net);
     }
 
     #[test]
     fn test_auto_view_unconnected_pin_shows_its_part() {
         // A pin without a net has no net details to show; its part is shown instead.
-        assert_eq!(auto_view(true, true, false, false), Tab::Part);
+        assert_eq!(auto_view(true, true, false, false, false), Tab::Part);
+    }
+
+    #[test]
+    fn test_auto_view_stays_on_part_while_browsing_its_pins() {
+        // A pin picked from the part details keeps the part details on screen.
+        assert_eq!(auto_view(true, true, false, true, true), Tab::Part);
+        assert_eq!(auto_view(false, false, false, true, true), Tab::Net);
     }
 
     #[test]

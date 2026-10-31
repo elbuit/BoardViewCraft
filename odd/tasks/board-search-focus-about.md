@@ -23,6 +23,8 @@ User request 2026-10-31. Today the search click (`crates/ui-egui/src/side_panel.
 - [x] T5 — Remove the quick rotate button from the toolbar (keep the TOP/BOTTOM side button) (route: same delegated writer as T6)
 - [x] T6 — Side panel without tabs: show only the active tool, chosen from context: photo overlay alignment -> overlay panel (with a way to finish/leave it); pin/via/net selected -> net/pin details; part only -> part details; nothing selected -> search; a "back to search" control clears the selection (route: delegated writer; side_panel.rs + lib.rs + i18n, design default chosen by orchestrator, user to confirm in GUI)
 
+- [x] T7 — Picking a pin from the part details keeps the part details on screen (`SidePanelState::stay_on_part`, `auto_view` 5th arg); dropped when another part or none is selected (route: inline; user preference 2026-10-31)
+
 ## Acceptance criteria
 - After clicking a search result: only the part is selected (pin/via/net None), viewport center == part bbox center, view side shows the part.
 - About menu entry opens a window with at least version, license, OS/arch, build profile.
@@ -46,3 +48,5 @@ ask-on-risk. Forecast ~200 authored lines.
 - T6: RED observed (3 of 4 new `auto_view` tests failing against a stub returning `Search`), then GREEN. Tab bar removed; `SidePanelState.active_tab` replaced by `overlay_editing: bool`. The panel shows the overlay view while `overlay_editing` or an alignment session is active (with a "Done" button, disabled with a hint while calibrating); otherwise `auto_view(part, pin, via, net)` picks Net (net or via), Part (part, or an unconnected pin) or Search, recomputed every frame. Detail views have a "← Search" button that clears part/pin/via/net. New Actions entry "Adjust Overlay Photo" (enabled when either side has a photo; switches to that side if the current one has none). `Tab::Overlay` variant and the PDF-click `active_tab` assignments removed; canvas `overlay_mode_active` = `overlay_editing`. Keys: removed `side_panel.net_details/part_details/search/overlay`, added `side_panel.back_to_search`, `overlay.done`, `overlay.done_calibrating_hint`, `actions.adjust_overlay` in 6 catalogs (count stays 147).
   - Behaviour change: clicking a pin inside the part details now switches to net details (the rule "pin selected -> net details").
   - `cargo test -p bvc-ui-egui --release`: 70 passed, 0 failed, 1 ignored. clippy per-file ui-egui counts equal to base (side_panel.rs 7, lib.rs 13). `cargo build --release`: Finished. GUI check pending (user to confirm the design).
+- T7: RED observed (auto_view arity, E0061), then GREEN `test_auto_view_stays_on_part_while_browsing_its_pins`.
+  - `cargo test -p bvc-ui-egui --release`: 71 passed, 0 failed, 1 ignored. `cargo build --release`: success. GUI check pending.
