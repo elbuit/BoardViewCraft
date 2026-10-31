@@ -23,7 +23,7 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 
 ## Tasks
 - [x] T1 — Model fields + pad-aware part bbox (route: delegated writer; multi-file)
-- [ ] T2 — GenCAD pads and part outlines (route: same writer)
+- [x] T2 — GenCAD pads and part outlines (route: same writer)
 - [ ] T3 — Renderer: filled bodies, rotated pads, palette (route: same writer)
 
 ## Acceptance criteria
@@ -35,7 +35,17 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - Branch `feat/trace-style-board-render` created from `0d78513` (stacked on feat/board-search-focus-about).
 
 ### T1 evidence
+- Commit: `f89edac` feat(core): carry pad geometry and part outlines in the board model.
 - `PadShape`, `Pin::{shape,width,height,rotation_deg}`, `Part::{outline,rotation_deg}`; `Pin`/`Part`/`Point`/`Side`/`PartType` derive `Default`; all struct literals got `..Default::default()` (incl. test-only sites in `bvc-core/src/lib.rs` and `spatial.rs`, user-approved).
 - `board::compute_part_bounds`: outline bounds, else union of rotated pad extents (port of trace `padExtent`), sizeless pads keep the 6-mil margin (other formats unchanged).
 - Test-first exception: new function, so RED not observed separately; `rebuild_indices_uses_pad_aware_bounds` would have produced +/-6 on the base.
 - `cargo test --release -p bvc-core --lib board::tests`: 7 passed. `cargo test --workspace --release`: all ok (71 passed, 1 ignored in ui-egui). Clippy per-file warning counts identical to base `0d78513`.
+
+### T2 evidence
+- New `parser/gencad_geometry.rs` (port of trace `transform`, `geometry`, `outerContour`, MIT notice); `gencad.rs` parses `$PADS`, stack pads (layer/rot/mirror), shape artwork, and resolves pin -> padstack -> pad with trace's layer selection and transform chain (stack pad -> shape pin -> component).
+- Exact RECTANGULAR/SQUARE pads keep local size plus the placed angle; ROUND+CIRCLE pads get diameter; others (FINGER, multi-path) use the placed axis-aligned bounds (as trace). Sizeless pads keep radius 5 and no size.
+- Part outline = outer artwork contour, else trace fallback (body bounds + 0.2 mm rectangle); part bbox = body points (artwork + pad rects) as in trace. Fixture has no shape artwork, so all outlines are the fallback rectangle.
+- RED observed first: `tests/gencad_pads.rs` 3 of 4 failed before the parser change (positions test passed). GREEN after: 4/4.
+- Fixture stats: 7974 pins, 96 sizeless; rect rotations 0/90/180/270 (+ a few 135/225); CN1 fingers 27.559 x 153.937 mil.
+- Deviations: pin position stays the transformed shape PIN position (trace uses the pad geometry centre; equal for centred pads, < 0.001 mil off on the fixture); `$ARTWORKS` references are not expanded (trace does not either); `$BOARD` outline unchanged (out of scope); lenient parsing (bad rows skipped, trace fails).
+- `cargo test --workspace --release`: all ok. Clippy per-file counts identical to base.
