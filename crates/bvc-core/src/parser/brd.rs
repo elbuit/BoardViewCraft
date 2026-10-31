@@ -102,6 +102,7 @@ impl BrdParser {
                         p2: Point::ZERO,
                         pin_indices: Vec::new(),
                         bounding_box: None,
+                        ..Default::default()
                     });
                     parts_map.insert(name, part_id);
                 }
@@ -139,6 +140,7 @@ impl BrdParser {
                             pos: Point::new(x, y),
                             side,
                             radius: 12.0,
+                            ..Default::default()
                         });
                     }
                 }
@@ -229,6 +231,7 @@ impl BrdParser {
                         p2: Point::ZERO,
                         pin_indices: Vec::new(),
                         bounding_box: None,
+                        ..Default::default()
                     });
                 }
             }

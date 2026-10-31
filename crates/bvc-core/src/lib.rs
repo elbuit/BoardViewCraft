@@ -313,6 +313,7 @@ N_VIA 10.0 22.0 0 1 0
             side: Side::Top,
             net_name: "NEW_NET".into(),
             radius: 10.0,
+            ..Default::default()
         });
         board.rebuild_indices();
 

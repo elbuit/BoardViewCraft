@@ -111,6 +111,7 @@ impl BdvParser {
                         p2: Point::ZERO,
                         pin_indices: Vec::new(),
                         bounding_box: None,
+                        ..Default::default()
                     });
                 }
                 continue;
@@ -159,6 +160,7 @@ impl BdvParser {
                         pos: Point::new(x_raw * 1000.0, y_raw * 1000.0),
                         side: cur_side,
                         radius: 12.0,
+                        ..Default::default()
                     });
                     continue;
                 }

@@ -601,6 +601,7 @@ impl FormatParser for GenCadParser {
                 p2: comp.place,
                 pin_indices: Vec::new(),
                 bounding_box: None,
+                ..Default::default()
             });
 
             // Calculate pins
@@ -663,6 +664,7 @@ impl FormatParser for GenCadParser {
                         side: pin_side,
                         net_name,
                         radius: 5.0,
+                        ..Default::default()
                     });
                 }
             }

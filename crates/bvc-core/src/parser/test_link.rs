@@ -184,6 +184,7 @@ impl TestLinkEngine {
                 p2: Point::ZERO,
                 pin_indices: Vec::new(),
                 bounding_box: None,
+                ..Default::default()
             });
         }
 
@@ -408,6 +409,7 @@ impl TestLinkEngine {
                 pos: Point::new(x, y),
                 side,
                 radius: 12.0,
+                ..Default::default()
             });
         }
 

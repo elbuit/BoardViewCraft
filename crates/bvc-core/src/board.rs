@@ -19,6 +19,40 @@ pub struct Board {
     pub spatial_grid: SpatialGrid,
 }
 
+/// Margin (mils) around a pin centre whose pad has no known physical size.
+const SIZELESS_PAD_MARGIN: f64 = 6.0;
+
+/// Bounding box of a part: its outline when it has one, otherwise the union of its pads' rotated
+/// physical extents (pads without a size contribute their centre plus [`SIZELESS_PAD_MARGIN`]).
+///
+/// Portions adapted from TRACE Boardviewer (MIT), Copyright (c) 2026 TRACE Boardviewer contributors
+/// (component bounds in `src/lib/formats/common.ts`).
+pub fn compute_part_bounds(part: &Part, pins: &[Pin]) -> Option<Rect> {
+    if part.outline.len() >= 3 {
+        return Rect::from_points(&part.outline);
+    }
+    let mut bounds: Option<Rect> = None;
+    for pin in part.pin_indices.iter().filter_map(|&idx| pins.get(idx)) {
+        let (hx, hy) = pin.pad_half_extents().unwrap_or((SIZELESS_PAD_MARGIN, SIZELESS_PAD_MARGIN));
+        let r = Rect {
+            min_x: pin.pos.x - hx,
+            min_y: pin.pos.y - hy,
+            max_x: pin.pos.x + hx,
+            max_y: pin.pos.y + hy,
+        };
+        bounds = Some(match bounds {
+            None => r,
+            Some(b) => Rect {
+                min_x: b.min_x.min(r.min_x),
+                min_y: b.min_y.min(r.min_y),
+                max_x: b.max_x.max(r.max_x),
+                max_y: b.max_y.max(r.max_y),
+            },
+        });
+    }
+    bounds.filter(|b| b.min_x.is_finite() && b.max_x.is_finite() && b.min_y.is_finite() && b.max_y.is_finite())
+}
+
 impl Board {
     pub fn new() -> Self {
         Self::default()
@@ -65,39 +99,11 @@ impl Board {
         }
 
         // Precompute part bounding boxes if not already defined by the file format (e.g. TVW bx1/by1/bx2/by2)
-        const PART_MARGIN: f64 = 6.0;
         for part in &mut self.parts {
             if part.bounding_box.is_some() {
                 continue;
             }
-            if part.pin_indices.is_empty() {
-                part.bounding_box = None;
-                continue;
-            }
-            let mut pmin_x = f64::INFINITY;
-            let mut pmax_x = f64::NEG_INFINITY;
-            let mut pmin_y = f64::INFINITY;
-            let mut pmax_y = f64::NEG_INFINITY;
-
-            for &p_idx in &part.pin_indices {
-                if let Some(pin) = self.pins.get(p_idx) {
-                    if pin.pos.x < pmin_x { pmin_x = pin.pos.x; }
-                    if pin.pos.x > pmax_x { pmax_x = pin.pos.x; }
-                    if pin.pos.y < pmin_y { pmin_y = pin.pos.y; }
-                    if pin.pos.y > pmax_y { pmax_y = pin.pos.y; }
-                }
-            }
-
-            if pmin_x.is_finite() {
-                part.bounding_box = Some(Rect {
-                    min_x: pmin_x - PART_MARGIN,
-                    max_x: pmax_x + PART_MARGIN,
-                    min_y: pmin_y - PART_MARGIN,
-                    max_y: pmax_y + PART_MARGIN,
-                });
-            } else {
-                part.bounding_box = None;
-            }
+            part.bounding_box = compute_part_bounds(part, &self.pins);
         }
 
         // Compute board bounding box
@@ -268,5 +274,99 @@ impl Board {
     /// Returns a fast O(1) bitset membership checker for the specified net name.
     pub fn net_membership(&self, name: &str) -> NetMembership {
         NetMembership::from_net(self.pins.len(), self.vias.len(), self.get_net(name))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::PadShape;
+
+    fn pin(idx: usize, x: f64, y: f64) -> Pin {
+        Pin { id: idx, pos: Point::new(x, y), radius: 5.0, ..Default::default() }
+    }
+
+    fn part_with(pins: &[Pin]) -> Part {
+        Part { pin_indices: (0..pins.len()).collect(), ..Default::default() }
+    }
+
+    fn assert_rect(r: Rect, min_x: f64, min_y: f64, max_x: f64, max_y: f64) {
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(
+            close(r.min_x, min_x) && close(r.min_y, min_y) && close(r.max_x, max_x) && close(r.max_y, max_y),
+            "got {r:?}, expected ({min_x}, {min_y}, {max_x}, {max_y})"
+        );
+    }
+
+    #[test]
+    fn sizeless_pads_keep_the_fixed_margin() {
+        let pins = vec![pin(0, 0.0, 0.0), pin(1, 100.0, 50.0)];
+        let r = compute_part_bounds(&part_with(&pins), &pins).unwrap();
+        assert_rect(r, -6.0, -6.0, 106.0, 56.0);
+    }
+
+    #[test]
+    fn sized_pads_contribute_their_rotated_extent() {
+        let mut a = pin(0, 0.0, 0.0);
+        a.shape = PadShape::Rect;
+        a.width = Some(10.0);
+        a.height = Some(40.0);
+        let mut b = a.clone();
+        b.pos = Point::new(100.0, 0.0);
+        b.rotation_deg = 90.0;
+        let pins = vec![a, b];
+        let r = compute_part_bounds(&part_with(&pins), &pins).unwrap();
+        // a: half (5, 20); b rotated 90 degrees: half (20, 5).
+        assert_rect(r, -5.0, -20.0, 120.0, 20.0);
+    }
+
+    #[test]
+    fn rotated_square_pad_uses_its_enclosing_box() {
+        let mut a = pin(0, 0.0, 0.0);
+        a.shape = PadShape::Square;
+        a.width = Some(10.0);
+        a.height = Some(10.0);
+        a.rotation_deg = 45.0;
+        let pins = vec![a];
+        let r = compute_part_bounds(&part_with(&pins), &pins).unwrap();
+        let h = 5.0 * std::f64::consts::SQRT_2;
+        assert_rect(r, -h, -h, h, h);
+    }
+
+    #[test]
+    fn mixed_sized_and_sizeless_pads() {
+        let mut a = pin(0, 0.0, 0.0);
+        a.width = Some(30.0);
+        a.height = Some(30.0);
+        let pins = vec![a, pin(1, 100.0, 0.0)];
+        let r = compute_part_bounds(&part_with(&pins), &pins).unwrap();
+        assert_rect(r, -15.0, -15.0, 106.0, 15.0);
+    }
+
+    #[test]
+    fn outline_takes_precedence_over_pads() {
+        let pins = vec![pin(0, 0.0, 0.0)];
+        let mut part = part_with(&pins);
+        part.outline = vec![Point::new(-50.0, -10.0), Point::new(50.0, -10.0), Point::new(50.0, 30.0), Point::new(-50.0, 30.0)];
+        let r = compute_part_bounds(&part, &pins).unwrap();
+        assert_rect(r, -50.0, -10.0, 50.0, 30.0);
+    }
+
+    #[test]
+    fn part_without_pins_or_outline_has_no_bounds() {
+        assert!(compute_part_bounds(&Part::default(), &[]).is_none());
+    }
+
+    #[test]
+    fn rebuild_indices_uses_pad_aware_bounds() {
+        let mut a = pin(0, 0.0, 0.0);
+        a.width = Some(20.0);
+        a.height = Some(60.0);
+        a.shape = PadShape::Rect;
+        let mut board = Board::new();
+        board.parts.push(Part::default());
+        board.pins.push(a);
+        board.rebuild_indices();
+        assert_rect(board.parts[0].bounding_box.unwrap(), -10.0, -30.0, 10.0, 30.0);
     }
 }

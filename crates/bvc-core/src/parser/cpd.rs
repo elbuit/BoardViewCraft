@@ -74,6 +74,7 @@ impl CpdParser {
                                 p2: Point::ZERO,
                                 pin_indices: Vec::new(),
                                 bounding_box: None,
+                                ..Default::default()
                             });
                             parts_map.insert(refdes, part_id);
                         }
@@ -120,6 +121,7 @@ impl CpdParser {
                                 p2: Point::ZERO,
                                 pin_indices: Vec::new(),
                                 bounding_box: None,
+                                ..Default::default()
                             });
                             parts_map.insert(refdes.to_string(), id);
                             id
@@ -135,6 +137,7 @@ impl CpdParser {
                             pos: Point::new(x, y),
                             side,
                             radius: 12.0,
+                            ..Default::default()
                         });
                     }
                 }

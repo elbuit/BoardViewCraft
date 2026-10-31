@@ -849,6 +849,7 @@ mod tests {
             p2: Point::ZERO,
             bounding_box: None,
             pin_indices: vec![0],
+            ..Default::default()
         });
         board.pins.push(Pin {
             id: 0,
@@ -858,6 +859,7 @@ mod tests {
             pos: Point::new(10.5, 20.25),
             radius: 15.0,
             side: Side::Top,
+            ..Default::default()
         });
         board.rebuild_indices();
 
@@ -879,6 +881,7 @@ mod tests {
             p2: Point::ZERO,
             bounding_box: None,
             pin_indices: vec![0],
+            ..Default::default()
         };
         board.parts.push(part.clone());
         board.pins.push(Pin {
@@ -889,6 +892,7 @@ mod tests {
             pos: Point::new(5.0, 5.0),
             radius: 10.0,
             side: Side::Bottom,
+            ..Default::default()
         });
         board.rebuild_indices();
 
@@ -910,6 +914,7 @@ mod tests {
             p2: Point::ZERO,
             bounding_box: bbox,
             pin_indices: vec![0],
+            ..Default::default()
         });
         board.pins.push(Pin {
             id: 0,
@@ -919,6 +924,7 @@ mod tests {
             pos: Point::new(3.0, 4.0),
             radius: 1.0,
             side,
+            ..Default::default()
         });
         board.rebuild_indices();
         board
