@@ -5,6 +5,7 @@
 	menu.help	Aide
 	toolbar.open_board	Ouvrir le circuit...
 	toolbar.open_recent	Fichiers récents
+	toolbar.close_board	Fermer le circuit
 	toolbar.no_recent_files	Aucun fichier récent
 	toolbar.actions	Actions
 	toolbar.preferences	Préférences...

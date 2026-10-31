@@ -72,6 +72,7 @@ ask-on-risk. Forecast ~900-1300 authored lines (> 400 budget: chain strategy to 
 - Numbers (maximized, before -> after): side panel 10.1-17.1 -> 0.54-0.69 ms/frame; frame CPU (`cpu_usage`) idle 18.4 -> 2.9 ms, hover 13.7-18.0 -> 2.0-3.0 ms, pan 19.0-20.0 -> 3.7-6.6 ms; wall interval 17-34 -> 16.7 ms (vsync-bound 60 fps); hover rebuilds 22-42 -> 0 per 80 frames. Pan still rebuilds (1.2-3.1 ms) and needs no world-space cache at this cost.
 - Tests (no wall-clock thresholds): `view_cache_key_is_stable_across_idle_and_hover_frames`, `hover_overlay_is_small_and_separate_from_board_meshes`, `fixture_fit_view_stays_within_vertex_budget` (<= 12 vertices per pin, <= 8 meshes), `search_filters_parts_and_nets_case_insensitively`, `search_cache_recomputes_only_on_change`. Test-first exception: the slowness is a frame-time property found by GUI measurement; the regression tests encode the fix's invariants and were written with it.
 - `cargo test --workspace --release`: all ok (ui-egui 82 passed, 1 ignored). Clippy per-file counts for ui-egui identical to `d8db4f0` (canvas 22, lib 13, side_panel 7).
+- T4 commit: `a504ad8` perf(ui): virtualise search lists and keep hover out of the mesh cache.
 
 ## Next step
 Manual GUI check on `tmp/MS-V375 REV 7.0.cad` (CN1 PCIe fingers, filled bodies, larger hover rings from real pad radii). Remaining plan steps (part-kind colours, KiCad/TVW pads, label backings, selection glow) await user decision.

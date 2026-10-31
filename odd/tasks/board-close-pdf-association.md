@@ -14,7 +14,7 @@ User request 2026-10-31. Today opening another board keeps the previous board's 
 - Branch: same as `feat/trace-style-board-render` (stacked work, local only).
 
 ## Tasks
-- [ ] T1 — File > Close (route: delegated writer, after trace-style T4)
+- [x] T1 — File > Close (route: delegated writer, after trace-style T4)
 - [ ] T2 — Per-board PDF association and auto-close/auto-open (route: same writer)
 
 ## Acceptance criteria
@@ -23,3 +23,9 @@ User request 2026-10-31. Today opening another board keeps the previous board's 
 - Preferences remain backward compatible (serde default); tests for the association logic.
 
 ## Progress
+### T1 evidence
+- File menu: "Close Board" (`toolbar.close_board`, 6 catalogs, key-count test 147 -> 148), disabled without a board, calls `BoardViewApp::close_board`.
+- `close_board` clears board, filename, pin/via/part/net selection, pending auto-fit, canvas mesh cache/hover/context menu, side panel overlay-editing/focus/stay-on-part and search cache (filter texts kept), both photo overlays and the alignment session (they are aligned to the closed board; decision beyond spec), closes the PDF (`PdfSchematicViewer::close` = reset to default, dropping the render pool) and the pending schematic prompt; status "Closed <name>.".
+- Test-first exception: new entry point, RED would be a compile error; test `close_board_returns_to_the_no_board_state` added with it.
+- `cargo test --release -p bvc-ui-egui`: 83 passed, 1 ignored.
+- Not verified: the menu entry in the running GUI (no interactive screen session).

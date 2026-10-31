@@ -5,6 +5,7 @@
 	menu.help	Help
 	toolbar.open_board	Open Board...
 	toolbar.open_recent	Open Recent
+	toolbar.close_board	Close Board
 	toolbar.no_recent_files	No recent files
 	toolbar.actions	Actions
 	toolbar.preferences	Preferences...
