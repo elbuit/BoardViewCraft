@@ -10,6 +10,9 @@
 //! - Dedicated high-priority rendering for requested/navigated pages.
 //! - Exact device scale (1 texel per device pixel) keeping vector graphics and text razor-sharp.
 //! - Tiled rendering past `tiles::TILE_THRESHOLD`: a low-res backdrop plus only the visible tiles.
+//! - Instant page jumps: low-res previews of every page (search-result pages first) prefetched in
+//!   the background, sharp rasters of visited pages kept within a byte budget, and background work
+//!   held while a page the viewer jumped to has no raster yet.
 //! - Multi-hit selection and navigation list support.
 
 use egui::{pos2, vec2, Color32, ColorImage, Pos2, Rect, TextureHandle, TextureOptions, Vec2};
@@ -66,6 +69,24 @@ const RESULTS_PER_FRAME: usize = 8;
 /// The tag of a text-layer request (as pdfcraft's canvas tags them).
 const TEXT_TAG: u64 = 1 << 62;
 
+/// The tag bit of a page preview (pdfcraft's thumbnails), so it never matches a page raster.
+const PREVIEW_TAG: u64 = 1 << 61;
+
+/// Longest device-pixel side of a page preview: shown at once when the viewer jumps to a page
+/// whose sharp raster is not cached, until the sharp one arrives.
+pub const PREVIEW_SIDE: f32 = 640.0;
+
+/// Byte allowance of cached page previews (RGBA8); search-result pages are admitted first.
+pub const PREVIEW_BYTES: usize = 64 * 1024 * 1024;
+
+/// Preview requests queued at once (each costs about a page interpret).
+const PREVIEW_BATCH: usize = 8;
+
+/// Byte allowance and count of cached sharp page rasters, as pdfcraft's `PAGE_BYTES` and
+/// `MAX_CACHED_PAGES`: pages turned away from stay cached, nearest the current page first.
+pub const PAGE_BYTES: usize = 128 * 1024 * 1024;
+const MAX_CACHED_PAGES: usize = 24;
+
 /// Work counters of the viewer's render loop (diagnostics and regression tests).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ViewerStats {
@@ -89,6 +110,34 @@ fn text_request(page_0: usize) -> RenderRequest {
 
 fn pixels_request(page_0: usize, scale: f32, tile: Option<Tile>, preview: bool) -> RenderRequest {
     RenderRequest { page: page_0, kind: RequestKind::Pixels, tile, scale, tag: scale_tag(scale), preview }
+}
+
+/// Scale of the preview of a page `pts` (width, height in PDF points): [`PREVIEW_SIDE`] long.
+fn preview_scale(pts: (f32, f32)) -> f32 {
+    PREVIEW_SIDE / pts.0.max(pts.1).max(1.0)
+}
+
+fn preview_request(page_0: usize, pts: (f32, f32)) -> RenderRequest {
+    let scale = preview_scale(pts);
+    RenderRequest { page: page_0, kind: RequestKind::Pixels, tile: None, scale, tag: PREVIEW_TAG | scale_tag(scale), preview: true }
+}
+
+/// The pages of `order` (most wanted first) that fit `budget` bytes and `max_count` entries,
+/// `bytes(page)` being each one's size. Pages that do not fit are skipped, not the rest.
+pub fn admit_by_budget(order: &[usize], bytes: impl Fn(usize) -> usize, budget: usize, max_count: usize) -> Vec<usize> {
+    let mut used = 0usize;
+    let mut admitted = Vec::new();
+    for &p in order {
+        if admitted.len() >= max_count {
+            break;
+        }
+        let b = bytes(p);
+        if used.saturating_add(b) <= budget {
+            used += b;
+            admitted.push(p);
+        }
+    }
+    admitted
 }
 
 /// Embedded schematic viewer matching pdfcraft's canvas engine architecture.
@@ -123,6 +172,9 @@ pub struct PdfSchematicViewer {
 
     // Whole-page rasters (or backdrops of tiled pages) cached by page number (1-based)
     page_textures: HashMap<usize, CachedPageTexture>,
+
+    // Low-res previews by page number (1-based), prefetched in the background
+    previews: HashMap<usize, CachedPageTexture>,
 
     // Tiles of the current page when it is too large to rasterize whole
     tiles: tiles::TileCache<TextureHandle>,
@@ -166,6 +218,7 @@ impl Default for PdfSchematicViewer {
             text_slots: 1,
             search_jump_pending: false,
             page_textures: HashMap::new(),
+            previews: HashMap::new(),
             tiles: tiles::TileCache::default(),
             render_pool: None,
             last_queue: Vec::new(),
@@ -202,6 +255,7 @@ impl PdfSchematicViewer {
         self.current_page = 1;
         self.doc_info = Some(info);
         self.page_textures.clear();
+        self.previews.clear();
         self.tiles.clear();
         self.last_queue.clear();
         self.failed_pages.clear();
@@ -304,7 +358,12 @@ impl PdfSchematicViewer {
             self.last_observed_scale = wanted;
             self.last_scale_change_time = now;
         }
-        let settled = self.force_settle || self.settled_scale <= 0.0 || now - self.last_scale_change_time > SETTLE_SECS;
+        // Nothing to wait for when the scale is the settled one: a jump to a page of another size
+        // settles at once (force_settle), and its tiles must stay queued on the next frames.
+        let settled = self.force_settle
+            || self.settled_scale <= 0.0
+            || (wanted - self.settled_scale).abs() <= wanted * 1e-4
+            || now - self.last_scale_change_time > SETTLE_SECS;
         if settled {
             self.settled_scale = wanted;
             self.force_settle = false;
@@ -327,8 +386,12 @@ impl PdfSchematicViewer {
         let page_ok = self.page_textures.get(&page).is_some_and(|t| {
             t.tag == scale_tag(page_scale) || (tiled && tiles::tag_scale(t.tag) >= page_scale)
         });
-        if !page_ok && !self.failed_pages.contains(&page) {
-            queue.push(pixels_request(page - 1, page_scale, None, tiled));
+        let page_req = (!page_ok && !self.failed_pages.contains(&page)).then(|| pixels_request(page - 1, page_scale, None, tiled));
+        // With a preview on screen the visible tiles come first: each costs a fraction of the
+        // whole-page backdrop (they clip the interpret) and together they cover the viewport.
+        let tiles_first = tiled && self.previews.contains_key(&page);
+        if !tiles_first {
+            queue.extend(page_req);
         }
 
         // 2. Tiles intersecting the viewport, nearest its centre first.
@@ -350,6 +413,9 @@ impl PdfSchematicViewer {
                 }
             }
         }
+        if tiles_first {
+            queue.extend(page_req);
+        }
         self.tiles.evict(page, tag, &visible_keys);
 
         // 3. Prefetch the adjacent pages as they would be drawn at this scale.
@@ -365,16 +431,26 @@ impl PdfSchematicViewer {
                 queue.push(pixels_request(n - 1, n_scale, None, n_tiled));
             }
         }
-        self.page_textures.retain(|p, _| p.abs_diff(page) <= 1);
+        self.retain_page_textures(page);
 
-        // 4. Text layers still to index, the current page first, behind every raster.
-        queue.extend(
-            (0..self.total_pages)
-                .map(|k| (page - 1 + k) % self.total_pages)
-                .filter(|p| !self.page_texts.contains_key(p) && !self.text_failed.contains(p))
-                .take(self.text_slots)
-                .map(text_request),
-        );
+        // 4. Background work, held while the current page has no raster at all (a jump), as
+        //    pdfcraft holds thumbnails and text: every worker goes to the page being looked at.
+        let hold = !self.page_textures.contains_key(&page) && !self.failed_pages.contains(&page);
+        let (result_previews, other_previews) = self.plan_previews();
+        if !hold {
+            // Previews of the search-result pages first (a match navigation jumps there), then
+            // the text layers still to index, the current page first, then the other previews.
+            queue.extend(result_previews.iter().take(PREVIEW_BATCH).copied());
+            queue.extend(
+                (0..self.total_pages)
+                    .map(|k| (page - 1 + k) % self.total_pages)
+                    .filter(|p| !self.page_texts.contains_key(p) && !self.text_failed.contains(p))
+                    .take(self.text_slots)
+                    .map(text_request),
+            );
+            let room = PREVIEW_BATCH.saturating_sub(result_previews.len());
+            queue.extend(other_previews.iter().take(room).copied());
+        }
 
         // Replacing the queue cancels in-flight renders that are no longer wanted.
         if let Some(pool) = &self.render_pool
@@ -389,6 +465,57 @@ impl PdfSchematicViewer {
         }
 
         self.paint(painter, page_rect, viewport, pts, tag, tiled, ppp)
+    }
+
+    /// Keeps the current page and its neighbours, then the pages turned away from, nearest the
+    /// current page first, within [`PAGE_BYTES`] and [`MAX_CACHED_PAGES`] (as pdfcraft does), so
+    /// returning to a visited page (or match) shows its sharp raster at once.
+    fn retain_page_textures(&mut self, page: usize) {
+        let mut order: Vec<usize> = self.page_textures.keys().copied().collect();
+        order.sort_by_key(|p| (p.abs_diff(page) > 1, p.abs_diff(page), *p));
+        let bytes = |p: usize| self.page_textures.get(&p).map_or(0, |t| tiles::rgba_bytes(t.handle.size()[0], t.handle.size()[1]));
+        let kept: HashSet<usize> = admit_by_budget(&order, bytes, PAGE_BYTES, MAX_CACHED_PAGES).into_iter().collect();
+        self.page_textures.retain(|p, _| kept.contains(p) || p.abs_diff(page) <= 1);
+    }
+
+    /// Pages (1-based) whose preview is admitted, most wanted first: the search-result pages in
+    /// result order, then every page by distance from the current one, within [`PREVIEW_BYTES`].
+    pub fn preview_order(&self) -> Vec<usize> {
+        let mut order: Vec<usize> = Vec::new();
+        for hit in &self.search_results {
+            if !order.contains(&hit.page_number) {
+                order.push(hit.page_number);
+            }
+        }
+        let cur = self.current_page;
+        let mut rest: Vec<usize> = (1..=self.total_pages).filter(|p| !order.contains(p)).collect();
+        rest.sort_by_key(|p| (p.abs_diff(cur), *p));
+        order.extend(rest);
+        let bytes = |p: usize| {
+            let s = self.page_size_pts(p);
+            let sc = preview_scale((s.x, s.y));
+            tiles::rgba_bytes(device_pixels(s.x.max(1.0), sc) as usize, device_pixels(s.y.max(1.0), sc) as usize)
+        };
+        admit_by_budget(&order, bytes, PREVIEW_BYTES, usize::MAX)
+    }
+
+    /// Drops previews no longer admitted; returns the missing previews of search-result pages and
+    /// of the other admitted pages, each most wanted first.
+    fn plan_previews(&mut self) -> (Vec<RenderRequest>, Vec<RenderRequest>) {
+        let admitted = self.preview_order();
+        let keep: HashSet<usize> = admitted.iter().copied().collect();
+        self.previews.retain(|p, _| keep.contains(p));
+        let results: HashSet<usize> = self.search_results.iter().map(|o| o.page_number).collect();
+        let (mut hits, mut others) = (Vec::new(), Vec::new());
+        for p in admitted {
+            if self.previews.contains_key(&p) || self.failed_pages.contains(&p) {
+                continue;
+            }
+            let s = self.page_size_pts(p);
+            let req = preview_request(p - 1, (s.x, s.y));
+            if results.contains(&p) { hits.push(req) } else { others.push(req) }
+        }
+        (hits, others)
     }
 
     /// Converts a bounded batch of finished renders into textures. Results that are no longer
@@ -434,7 +561,8 @@ impl PdfSchematicViewer {
                 }
                 None => {
                     let handle = ctx.load_texture(format!("pdf_p{page_1}_t{tag}"), image, TextureOptions::LINEAR);
-                    self.page_textures.insert(page_1, CachedPageTexture { handle, tag });
+                    let cache = if tag & PREVIEW_TAG != 0 { &mut self.previews } else { &mut self.page_textures };
+                    cache.insert(page_1, CachedPageTexture { handle, tag });
                 }
             }
         }
@@ -490,7 +618,8 @@ impl PdfSchematicViewer {
     ) -> bool {
         let full_uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
         let mut painted = false;
-        if let Some(t) = self.page_textures.get(&self.current_page) {
+        // The sharp raster (or backdrop), else the low-res preview until it arrives.
+        if let Some(t) = self.page_textures.get(&self.current_page).or_else(|| self.previews.get(&self.current_page)) {
             painter.image(t.handle.id(), page_rect, full_uv, Color32::WHITE);
             painted = true;
         }
@@ -736,8 +865,9 @@ mod tests {
         }
     }
 
-    /// Opening must not extract text: the first paint queues the visible page first and only a
-    /// bounded number of text layers behind it, all through the pool's one shared parser.
+    /// Opening must not extract text: the first paint queues only the visible page (background
+    /// work waits for it), then a bounded number of text layers behind the rasters, all through
+    /// the pool's one shared parser.
     #[test]
     fn test_open_defers_text_and_queues_visible_page_first() {
         let Some((mut viewer, sim)) = open_fixture() else { return };
@@ -749,6 +879,11 @@ mod tests {
         let queue = viewer.last_queue.clone();
         let first = queue.first().expect("visible page queued");
         assert_eq!((first.page, first.kind), (0, RequestKind::Pixels));
+        assert!(queue.iter().all(|r| r.kind == RequestKind::Pixels && r.tag & PREVIEW_TAG == 0), "{queue:?}");
+
+        // Once the page is on screen, the background work follows.
+        sim.wait_until(&mut viewer, |v| v.page_textures.contains_key(&1));
+        let queue = viewer.last_queue.clone();
         let texts: Vec<_> = queue.iter().filter(|r| r.kind == RequestKind::Text).collect();
         assert!(!texts.is_empty() && texts.len() <= viewer.text_slots, "{} text requests", texts.len());
         assert_eq!(texts[0].page, 0, "the current page's text is indexed first");
@@ -766,8 +901,8 @@ mod tests {
         assert_eq!(viewer.page_texts.len(), viewer.total_pages);
         assert_eq!(pool.parser_builds, 1, "{pool:?}");
         assert_eq!(pool.text_interpretations as usize, viewer.total_pages, "{pool:?}");
-        // Page 1 and its prefetched neighbour, once each.
-        assert!(pool.page_interpretations <= 2, "{pool:?}");
+        // Page 1 and its prefetched neighbour, plus at most one preview per page.
+        assert!(pool.page_interpretations as usize <= 2 + viewer.total_pages, "{pool:?}");
         assert_eq!(viewer.stats().results_dropped, 0);
     }
 
@@ -784,18 +919,113 @@ mod tests {
         assert!(hit.text.contains("U12"));
     }
 
+    #[test]
+    fn test_admit_by_budget_skips_what_does_not_fit() {
+        let sizes = [(1usize, 40usize), (2, 70), (3, 30), (4, 20)];
+        let bytes = |p: usize| sizes.iter().find(|s| s.0 == p).unwrap().1;
+        assert_eq!(admit_by_budget(&[1, 2, 3, 4], bytes, 100, usize::MAX), vec![1, 3, 4]);
+        assert_eq!(admit_by_budget(&[2, 1, 3, 4], bytes, 100, 2), vec![2, 3]);
+        assert!(admit_by_budget(&[1], bytes, 10, 5).is_empty());
+    }
+
+    /// Opens the fixture with every text layer indexed and every preview rendered.
+    fn idle_fixture(ppp: f32) -> Option<(PdfSchematicViewer, FrameSim)> {
+        let (mut viewer, _) = open_fixture()?;
+        let sim = FrameSim::new(Rect::from_min_size(pos2(0.0, 60.0), vec2(860.0, 900.0)), ppp);
+        sim.index_all_text(&mut viewer);
+        sim.wait_until(&mut viewer, |v| v.last_queue.is_empty());
+        Some((viewer, sim))
+    }
+
+    /// Every page gets a preview in the background (this document fits the allowance), and the
+    /// search-result pages come first in the preview order.
+    #[test]
+    fn test_previews_prefetched_with_result_pages_first() {
+        let Some((mut viewer, _sim)) = idle_fixture(1.0) else { return };
+        assert_eq!(viewer.previews.len(), viewer.total_pages);
+        viewer.perform_instant_search("U12");
+        let mut pages: Vec<usize> = viewer.search_results.iter().map(|o| o.page_number).collect();
+        pages.dedup();
+        assert!(pages.len() > 1 && !pages.contains(&1), "{pages:?}");
+        assert_eq!(viewer.preview_order()[..pages.len()], pages[..]);
+    }
+
+    /// A jump to a page with no sharp raster shows its preview on the very frame of the jump,
+    /// and every worker goes to the target page: no text or preview is queued until it arrives.
+    #[test]
+    fn test_jump_paints_preview_at_once_and_holds_background_work() {
+        let Some((mut viewer, sim)) = idle_fixture(1.0) else { return };
+        assert!(viewer.cross_probe("U12"));
+        let target = viewer.current_page;
+        assert!(!viewer.page_textures.contains_key(&target), "target page not cached before the jump");
+        assert!(sim.frame(&mut viewer), "the preview is painted on the jump frame");
+        let queue = viewer.last_queue.clone();
+        assert_eq!(queue.first().map(|r| (r.page, r.kind)), Some((target - 1, RequestKind::Pixels)));
+        assert!(
+            queue.iter().all(|r| r.kind == RequestKind::Pixels && r.tag & PREVIEW_TAG == 0 && r.page.abs_diff(target - 1) <= 1),
+            "{queue:?}"
+        );
+    }
+
+    /// A page visited earlier keeps its sharp raster: returning to it paints at once, unqueued.
+    #[test]
+    fn test_visited_page_keeps_sharp_raster() {
+        let Some((mut viewer, sim)) = idle_fixture(1.0) else { return };
+        viewer.perform_instant_search("U12");
+        let last = viewer.search_results.len() - 1;
+        viewer.select_match(0);
+        let first_page = viewer.current_page;
+        sim.wait_until(&mut viewer, |v| v.last_queue.is_empty());
+        viewer.select_match(last);
+        assert!(viewer.current_page.abs_diff(first_page) > 1, "results far apart");
+        sim.wait_until(&mut viewer, |v| v.last_queue.is_empty());
+        viewer.select_match(0);
+        assert!(viewer.page_textures.contains_key(&first_page), "visited page still cached");
+        assert!(sim.frame(&mut viewer));
+        assert!(viewer.last_queue.iter().all(|r| r.page != first_page - 1), "{:?}", viewer.last_queue);
+    }
+
+    /// A cross-probe that raises the zoom into tiles settles at once, and its tiles stay queued on
+    /// the next frame instead of being cancelled until the settle timer runs out.
+    #[test]
+    fn test_cross_probe_into_tiles_keeps_tiles_queued() {
+        let Some((mut viewer, sim)) = idle_fixture(2.0) else { return };
+        assert!(viewer.cross_probe("U12"));
+        let target = viewer.current_page;
+        assert!(sim.frame(&mut viewer), "the preview is painted on the jump frame");
+        let first = viewer.last_queue.clone();
+        let tiles: Vec<_> = first.iter().filter(|r| r.page == target - 1 && r.tile.is_some()).copied().collect();
+        assert!(!tiles.is_empty(), "zoom 3 at ppp 2 is tiled: {first:?}");
+        // With a preview on screen the visible tiles precede the whole-page backdrop.
+        let backdrop = first.iter().position(|r| r.page == target - 1 && r.tile.is_none());
+        let first_tile = first.iter().position(|r| r.tile.is_some()).unwrap();
+        assert!(backdrop.is_none_or(|b| first_tile < b), "{first:?}");
+        sim.frame(&mut viewer);
+        for r in tiles {
+            let key = tiles::TileKey::new(target, r.tag, r.tile.unwrap());
+            assert!(viewer.last_queue.contains(&r) || viewer.tiles.contains(&key), "{r:?} dropped");
+        }
+    }
+
     /// Drives the viewer like the PDF panel in `lib.rs` does: a `panel` rect, the page fitted at
     /// 95% and scaled by `zoom`, centred on the selected match when one is pending.
+    /// One frame-driven fixture test at a time: each opens a pool of almost every core and renders
+    /// the whole document in the background, and overlapping them in a debug build could push a
+    /// page past the pool's stuck-render watchdog.
+    static FIXTURE_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     struct FrameSim {
         ctx: egui::Context,
         panel: Rect,
         ppp: f32,
         start: std::time::Instant,
+        _serial: std::sync::MutexGuard<'static, ()>,
     }
 
     impl FrameSim {
         fn new(panel: Rect, ppp: f32) -> Self {
-            Self { ctx: egui::Context::default(), panel, ppp, start: std::time::Instant::now() }
+            let serial = FIXTURE_SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            Self { ctx: egui::Context::default(), panel, ppp, start: std::time::Instant::now(), _serial: serial }
         }
 
         /// One frame; returns whether the page painted anything.
@@ -839,6 +1069,19 @@ mod tests {
             }
             // Let the last refresh settle the queue.
             self.frame(viewer);
+        }
+
+        /// Runs frames until `done` (generous bound: not a timing check).
+        fn wait_until(&self, viewer: &mut PdfSchematicViewer, done: impl Fn(&PdfSchematicViewer) -> bool) {
+            let t0 = std::time::Instant::now();
+            loop {
+                self.frame(viewer);
+                if done(viewer) {
+                    return;
+                }
+                assert!(t0.elapsed() < std::time::Duration::from_secs(120), "viewer stalled");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
         }
 
         /// Runs ~60 Hz frames until the queue drains (or `limit`); returns (first paint, drained).
