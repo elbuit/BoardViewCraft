@@ -1,5 +1,6 @@
 //! User preferences and settings dialog.
 
+use crate::board_tabs::{BoardTab, BothLayout};
 use crate::i18n::{self, Language, LanguagePref};
 use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
@@ -80,6 +81,12 @@ pub struct Preferences {
     /// Each board's schematic PDF, most recently used first (at most `MAX_BOARD_SCHEMATICS`).
     #[serde(default)]
     pub board_schematics: Vec<BoardSchematic>,
+    /// Central-area tab shown last (Top, Bottom, Both or PDF).
+    #[serde(default)]
+    pub board_tab: BoardTab,
+    /// Arrangement of the two sides in the Both tab.
+    #[serde(default)]
+    pub both_layout: BothLayout,
 }
 
 impl Default for Preferences {
@@ -101,6 +108,8 @@ impl Default for Preferences {
             show_pins: true,
             recent_files: Vec::new(),
             board_schematics: Vec::new(),
+            board_tab: BoardTab::Top,
+            both_layout: BothLayout::Auto,
         }
     }
 }
@@ -622,6 +631,8 @@ mod tests {
                 board: PathBuf::from("/path/to/board.cad"),
                 pdf: PathBuf::from("/path/to/board.pdf"),
             }],
+            board_tab: BoardTab::Pdf,
+            both_layout: BothLayout::Vertical,
         };
 
         let json = serde_json::to_string(&prefs).expect("Serialize to JSON");
@@ -720,6 +731,20 @@ mod tests {
         value.as_object_mut().unwrap().remove("board_schematics");
         let prefs: Preferences = serde_json::from_value(value).expect("old preferences still load");
         assert!(prefs.board_schematics.is_empty());
+    }
+
+    #[test]
+    fn board_tab_and_layout_default_and_round_trip() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.remove("board_tab");
+        object.remove("both_layout");
+        let prefs: Preferences = serde_json::from_value(value).expect("old preferences still load");
+        assert_eq!((prefs.board_tab, prefs.both_layout), (BoardTab::Top, BothLayout::Auto));
+
+        let saved = Preferences { board_tab: BoardTab::Both, both_layout: BothLayout::Horizontal, ..Preferences::default() };
+        let loaded: Preferences = serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+        assert_eq!((loaded.board_tab, loaded.both_layout), (BoardTab::Both, BothLayout::Horizontal));
     }
 
     #[test]

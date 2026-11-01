@@ -16,10 +16,16 @@
 	toolbar.zoom_preset_100	100%
 	toolbar.zoom_preset_150	150%
 	toolbar.zoom_preset_200	200%
-	toolbar.view_top	Capa: SUPERIOR
-	toolbar.view_bottom	Capa: INFERIOR
-	toolbar.view_both	Capa: AMBAS
-	toolbar.view_side_hover	Cara de la placa a mostrar (Espacio alterna superior/inferior)
+	tabs.top	Superior
+	tabs.bottom	Inferior
+	tabs.both	Ambas
+	tabs.pdf	Esquemático PDF
+	tabs.hover	Pestañas de vista de la placa (Espacio alterna Superior/Inferior)
+	layout.label	Disposición:
+	layout.auto	Auto
+	layout.vertical	Vertical (superior arriba, inferior abajo)
+	layout.horizontal	Horizontal (superior a la izquierda, inferior a la derecha)
+	layout.hover	Disposición de las dos caras; Auto las apila cuando la placa girada es más ancha que alta
 	toolbar.pins	Pines
 	toolbar.vias	Vías
 	toolbar.load_photo	Cargar Foto Superpuesta...
@@ -124,7 +130,8 @@
 	context_menu.copy_pin_info	Copiar detalles del pin
 	pdf.title	Esquemático PDF
 	pdf.open	Abrir Esquemático PDF...
-	pdf.hide	Ocultar Esquemático PDF
+	pdf.show	Mostrar Esquemático PDF
+	pdf.no_document	No hay ningún esquemático PDF abierto.
 	pdf.close	Cerrar Esquemático PDF
 	pdf.page_prev	Página anterior
 	pdf.page_next	Página siguiente
