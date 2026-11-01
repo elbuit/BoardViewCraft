@@ -123,6 +123,25 @@
 	prefs.show_vias	Show Vias & Nails
 	prefs.show_unnamed_vias	Show Unnamed Vias & Pads
 	prefs.close	Close
+	prefs.shortcuts	Keyboard shortcuts
+	prefs.shortcut_press_key	Press a key… (Esc cancels)
+	prefs.shortcut_capture_hover	Click, then press the new key combination
+	prefs.shortcut_reset	Reset
+	prefs.shortcut_reset_all	Reset all shortcuts
+	prefs.shortcut_conflict	Already used by: {action}
+	shortcut.rotate_cw	Rotate 90° clockwise
+	shortcut.rotate_ccw	Rotate 90° counter-clockwise
+	shortcut.flip_side	Switch Top/Bottom side
+	shortcut.mirror_x	Mirror X (horizontal)
+	shortcut.mirror_y	Mirror Y (vertical)
+	shortcut.fit_view	Fit board to view
+	shortcut.zoom_in	Zoom in
+	shortcut.zoom_out	Zoom out
+	shortcut.pan_up	Pan up
+	shortcut.pan_down	Pan down
+	shortcut.pan_left	Pan left
+	shortcut.pan_right	Pan right
+	shortcut.toggle_preferences	Open/close Preferences
 	context_menu.pin_title	Pin Information
 	context_menu.net	Net:
 	context_menu.side	Side:

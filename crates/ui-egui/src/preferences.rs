@@ -2,7 +2,7 @@
 
 use crate::board_tabs::{BoardTab, BothLayout};
 use crate::i18n::{self, Language, LanguagePref};
-use crate::keymap::Keymap;
+use crate::keymap::{Action, CaptureOutcome, Keymap};
 use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
 use serde::{Deserialize, Serialize};
@@ -262,6 +262,77 @@ impl Preferences {
     }
 }
 
+/// State of the Keyboard shortcuts section, kept in egui temporary memory between frames.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ShortcutCapture {
+    /// Action waiting for its new key press.
+    capturing: Option<Action>,
+    /// Row action whose last capture or reset was refused, and the action already using the key.
+    conflict: Option<(Action, Action)>,
+}
+
+impl ShortcutCapture {
+    fn start(action: Action) -> Self {
+        Self { capturing: Some(action), conflict: None }
+    }
+
+    /// Applies one key press; returns the next state and whether the keymap changed.
+    fn press(self, keymap: &mut Keymap, key: egui::Key, mods: egui::Modifiers) -> (Self, bool) {
+        let Some(action) = self.capturing else { return (self, false) };
+        match keymap.apply_capture(action, key, mods) {
+            CaptureOutcome::Assigned => (Self::default(), true),
+            CaptureOutcome::Cancelled => (Self::default(), false),
+            CaptureOutcome::Conflict(other) => (Self { capturing: None, conflict: Some((action, other)) }, false),
+            CaptureOutcome::Ignored => (self, false),
+        }
+    }
+}
+
+fn shortcut_capture_id() -> egui::Id {
+    egui::Id::unique("prefs_shortcut_capture")
+}
+
+fn shortcut_capture(ctx: &Context) -> ShortcutCapture {
+    ctx.data(|d| d.get_temp(shortcut_capture_id())).unwrap_or_default()
+}
+
+fn set_shortcut_capture(ctx: &Context, state: ShortcutCapture) {
+    ctx.data_mut(|d| d.insert_temp(shortcut_capture_id(), state));
+}
+
+/// Feeds this frame's key presses to an active shortcut capture of the Preferences window.
+///
+/// Call it once per frame before any hotkey handling: while capturing, every key press is
+/// consumed so neither the board shortcuts, the Preferences toggle nor the window's Esc-to-close
+/// react to it. Returns whether `keymap` changed.
+pub fn capture_shortcut_keys(ctx: &Context, keymap: &mut Keymap) -> bool {
+    let mut state = shortcut_capture(ctx);
+    if state.capturing.is_none() {
+        return false;
+    }
+    let presses: Vec<(egui::Key, egui::Modifiers)> = ctx.input_mut(|i| {
+        let mut presses = Vec::new();
+        i.events.retain(|event| match event {
+            egui::Event::Key { key, pressed, repeat, modifiers, .. } => {
+                if *pressed && !*repeat {
+                    presses.push((*key, *modifiers));
+                }
+                false
+            }
+            _ => true,
+        });
+        presses
+    });
+    let mut changed = false;
+    for (key, mods) in presses {
+        let (next, assigned) = state.press(keymap, key, mods);
+        state = next;
+        changed |= assigned;
+    }
+    set_shortcut_capture(ctx, state);
+    changed
+}
+
 /// Displays the preferences window dialog.
 /// Returns `true` if any preference was changed this frame.
 pub fn show_preferences_window(
@@ -276,9 +347,11 @@ pub fn show_preferences_window(
 
     let mut changed = false;
 
-    // Check Escape key to close
+    // Check Escape key to close. While a shortcut is being captured, `capture_shortcut_keys`
+    // has already consumed this frame's Esc (it cancels the capture instead).
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         *open = false;
+        set_shortcut_capture(ctx, ShortcutCapture::default());
         return false;
     }
 
@@ -290,311 +363,327 @@ pub fn show_preferences_window(
         .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
         .resizable(true)
         .min_size(Vec2::new(420.0, 320.0))
-        .default_size(Vec2::new(440.0, 360.0))
+        .default_size(Vec2::new(460.0, 520.0))
         .show(ctx, |ui| {
             let lang = prefs.ui_language();
             ui.add_space(4.0);
-
-            // Language Selector: Auto (system) first, then each language by its own name.
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(i18n::tr(lang, "prefs.language")).strong().color(tokens.text()));
-                let auto_label = i18n::tr(lang, "prefs.language_auto");
-                let selected = match prefs.language {
-                    LanguagePref::Auto => auto_label,
-                    LanguagePref::Explicit(l) => l.display_name(),
-                };
-                egui::ComboBox::from_id_salt("language_combo")
-                    .selected_text(selected)
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_value(&mut prefs.language, LanguagePref::Auto, auto_label).clicked() {
-                            changed = true;
-                        }
-                        for l in Language::ALL {
-                            if ui
-                                .selectable_value(&mut prefs.language, LanguagePref::Explicit(l), l.display_name())
-                                .clicked()
-                            {
-                                changed = true;
-                            }
-                        }
-                    });
-            });
-
-            ui.add_space(8.0);
-            ui.heading(RichText::new(i18n::tr(lang, "prefs.appearance")).color(tokens.text()));
-            ui.separator();
-
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(i18n::tr(lang, "prefs.app_theme")).strong().color(tokens.text()));
-                egui::ComboBox::from_id_salt("app_theme_combo")
-                    .selected_text(prefs.app_theme.display_name())
-                    .show_ui(ui, |ui| {
-                        for theme in AppTheme::ALL {
-                            if ui
-                                .selectable_value(&mut prefs.app_theme, theme, theme.display_name())
-                                .clicked()
-                            {
-                                changed = true;
-                            }
-                        }
-                    });
-            });
-
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(i18n::tr(lang, "prefs.pcb_theme")).strong().color(tokens.text()));
-                let current_pcb_theme = prefs.pcb_theme;
-                egui::ComboBox::from_id_salt("pcb_theme_combo")
-                    .selected_text(prefs.pcb_theme.display_name())
-                    .show_ui(ui, |ui| {
-                        for theme in PcbTheme::ALL {
-                            if ui
-                                .selectable_value(&mut prefs.pcb_theme, theme, theme.display_name())
-                                .clicked()
-                            {
-                                changed = true;
-                                if theme == PcbTheme::Custom {
-                                    // Seed custom tokens from the previously active theme if not already customized
-                                    if prefs.custom_pcb_tokens.is_none() {
-                                        let seed = if current_pcb_theme != PcbTheme::Custom {
-                                            current_pcb_theme.tokens()
-                                        } else {
-                                            PcbTokens::CADCRAFT
-                                        };
-                                        prefs.custom_pcb_tokens = Some(seed);
-                                    }
-                                }
-                            }
-                        }
-                    });
-            });
-
-            // If Custom PCB theme is selected, expose color pickers and name
-            if prefs.pcb_theme == PcbTheme::Custom {
-                let custom = prefs.custom_pcb_tokens.get_or_insert_with(|| PcbTokens::CADCRAFT);
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(i18n::tr(lang, "prefs.custom_theme_name")).color(tokens.text()));
-                    let name = prefs.custom_pcb_theme_name.get_or_insert_with(|| "Custom".to_string());
-                    if ui.text_edit_singleline(name).changed() {
-                        changed = true;
-                    }
-                });
-                ui.add_space(4.0);
-                ui.label(RichText::new(i18n::tr(lang, "prefs.custom_colors")).strong().color(tokens.accent()));
-                egui::Grid::new("custom_pcb_colors_grid")
-                    .num_columns(2)
-                    .spacing([12.0, 4.0])
-                    .show(ui, |ui| {
-                        ui.label(i18n::tr(lang, "prefs.color_canvas"));
-                        let mut c = custom.canvas.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.canvas = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_board_outline"));
-                        let mut c = custom.board_outline.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.board_outline = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_board_fill"));
-                        let mut c = custom.board_fill.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.board_fill = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_part_body"));
-                        let mut c = custom.part_body.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.part_body = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_part_text"));
-                        let mut c = custom.part_text.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.part_text = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_pin_default"));
-                        let mut c = custom.pin_default.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.pin_default = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_pin_unconnected"));
-                        let mut c = custom.pin_unconnected.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.pin_unconnected = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_pin_cur_side"));
-                        let mut c = custom.pin_highlight_cur_side.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.pin_highlight_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_pin_opp_side"));
-                        let mut c = custom.pin_highlight_opp_side.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.pin_highlight_opp_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_via_cur_side"));
-                        let mut c = custom.via_cur_side.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.via_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_via_highlight"));
-                        let mut c = custom.via_highlight.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.via_highlight = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-
-                        ui.label(i18n::tr(lang, "prefs.color_net_web"));
-                        let mut c = custom.net_web.to_array();
-                        if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                            custom.net_web = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                            changed = true;
-                        }
-                        ui.end_row();
-                    });
-            }
-
-            ui.add_space(12.0);
-            ui.heading(RichText::new(i18n::tr(lang, "prefs.visualization")).color(tokens.text()));
-            ui.separator();
-
-            if ui
-                .checkbox(
-                    &mut prefs.show_net_web,
-                    RichText::new(i18n::tr(lang, "prefs.show_net_web")).color(tokens.text()),
-                )
-                .on_hover_text("Draw connecting spiderweb lines between pins and vias on the selected net.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            if prefs.show_net_web {
-                ui.horizontal(|ui| {
-                    ui.add_space(16.0);
-                    ui.label(RichText::new(i18n::tr(lang, "prefs.via_display_mode")).color(tokens.text()));
-                    egui::ComboBox::from_id_salt("via_display_mode_combo")
-                        .selected_text(prefs.via_display_mode.display_name(lang))
-                        .show_ui(ui, |ui| {
-                            for mode in ViaDisplayMode::ALL {
-                                if ui
-                                    .selectable_value(&mut prefs.via_display_mode, mode, mode.display_name(lang))
-                                    .clicked()
-                                {
+            // The body scrolls; the Close row below stays visible.
+            let footer = ui.spacing().interact_size.y + 24.0;
+            egui::ScrollArea::vertical()
+                .max_height((ui.available_height() - footer).max(80.0))
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    // Language Selector: Auto (system) first, then each language by its own name.
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(i18n::tr(lang, "prefs.language")).strong().color(tokens.text()));
+                        let auto_label = i18n::tr(lang, "prefs.language_auto");
+                        let selected = match prefs.language {
+                            LanguagePref::Auto => auto_label,
+                            LanguagePref::Explicit(l) => l.display_name(),
+                        };
+                        egui::ComboBox::from_id_salt("language_combo")
+                            .selected_text(selected)
+                            .show_ui(ui, |ui| {
+                                if ui.selectable_value(&mut prefs.language, LanguagePref::Auto, auto_label).clicked() {
                                     changed = true;
                                 }
+                                for l in Language::ALL {
+                                    if ui
+                                        .selectable_value(&mut prefs.language, LanguagePref::Explicit(l), l.display_name())
+                                        .clicked()
+                                    {
+                                        changed = true;
+                                    }
+                                }
+                            });
+                    });
+
+                    ui.add_space(8.0);
+                    ui.heading(RichText::new(i18n::tr(lang, "prefs.appearance")).color(tokens.text()));
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(i18n::tr(lang, "prefs.app_theme")).strong().color(tokens.text()));
+                        egui::ComboBox::from_id_salt("app_theme_combo")
+                            .selected_text(prefs.app_theme.display_name())
+                            .show_ui(ui, |ui| {
+                                for theme in AppTheme::ALL {
+                                    if ui
+                                        .selectable_value(&mut prefs.app_theme, theme, theme.display_name())
+                                        .clicked()
+                                    {
+                                        changed = true;
+                                    }
+                                }
+                            });
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(i18n::tr(lang, "prefs.pcb_theme")).strong().color(tokens.text()));
+                        let current_pcb_theme = prefs.pcb_theme;
+                        egui::ComboBox::from_id_salt("pcb_theme_combo")
+                            .selected_text(prefs.pcb_theme.display_name())
+                            .show_ui(ui, |ui| {
+                                for theme in PcbTheme::ALL {
+                                    if ui
+                                        .selectable_value(&mut prefs.pcb_theme, theme, theme.display_name())
+                                        .clicked()
+                                    {
+                                        changed = true;
+                                        if theme == PcbTheme::Custom {
+                                            // Seed custom tokens from the previously active theme if not already customized
+                                            if prefs.custom_pcb_tokens.is_none() {
+                                                let seed = if current_pcb_theme != PcbTheme::Custom {
+                                                    current_pcb_theme.tokens()
+                                                } else {
+                                                    PcbTokens::CADCRAFT
+                                                };
+                                                prefs.custom_pcb_tokens = Some(seed);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                    });
+
+                    // If Custom PCB theme is selected, expose color pickers and name
+                    if prefs.pcb_theme == PcbTheme::Custom {
+                        let custom = prefs.custom_pcb_tokens.get_or_insert_with(|| PcbTokens::CADCRAFT);
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(i18n::tr(lang, "prefs.custom_theme_name")).color(tokens.text()));
+                            let name = prefs.custom_pcb_theme_name.get_or_insert_with(|| "Custom".to_string());
+                            if ui.text_edit_singleline(name).changed() {
+                                changed = true;
                             }
                         });
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(i18n::tr(lang, "prefs.custom_colors")).strong().color(tokens.accent()));
+                        egui::Grid::new("custom_pcb_colors_grid")
+                            .num_columns(2)
+                            .spacing([12.0, 4.0])
+                            .show(ui, |ui| {
+                                ui.label(i18n::tr(lang, "prefs.color_canvas"));
+                                let mut c = custom.canvas.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.canvas = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_board_outline"));
+                                let mut c = custom.board_outline.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.board_outline = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_board_fill"));
+                                let mut c = custom.board_fill.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.board_fill = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_part_body"));
+                                let mut c = custom.part_body.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.part_body = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_part_text"));
+                                let mut c = custom.part_text.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.part_text = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_pin_default"));
+                                let mut c = custom.pin_default.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.pin_default = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_pin_unconnected"));
+                                let mut c = custom.pin_unconnected.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.pin_unconnected = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_pin_cur_side"));
+                                let mut c = custom.pin_highlight_cur_side.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.pin_highlight_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_pin_opp_side"));
+                                let mut c = custom.pin_highlight_opp_side.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.pin_highlight_opp_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_via_cur_side"));
+                                let mut c = custom.via_cur_side.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.via_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_via_highlight"));
+                                let mut c = custom.via_highlight.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.via_highlight = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_net_web"));
+                                let mut c = custom.net_web.to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    custom.net_web = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                    changed = true;
+                                }
+                                ui.end_row();
+                            });
+                    }
+
+                    ui.add_space(12.0);
+                    ui.heading(RichText::new(i18n::tr(lang, "prefs.visualization")).color(tokens.text()));
+                    ui.separator();
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.show_net_web,
+                            RichText::new(i18n::tr(lang, "prefs.show_net_web")).color(tokens.text()),
+                        )
+                        .on_hover_text("Draw connecting spiderweb lines between pins and vias on the selected net.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if prefs.show_net_web {
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.label(RichText::new(i18n::tr(lang, "prefs.via_display_mode")).color(tokens.text()));
+                            egui::ComboBox::from_id_salt("via_display_mode_combo")
+                                .selected_text(prefs.via_display_mode.display_name(lang))
+                                .show_ui(ui, |ui| {
+                                    for mode in ViaDisplayMode::ALL {
+                                        if ui
+                                            .selectable_value(&mut prefs.via_display_mode, mode, mode.display_name(lang))
+                                            .clicked()
+                                        {
+                                            changed = true;
+                                        }
+                                    }
+                                });
+                        });
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.show_part_labels,
+                            RichText::new(i18n::tr(lang, "prefs.show_part_labels")).color(tokens.text()),
+                        )
+                        .on_hover_text("Render part name labels on components when zoomed in.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.show_pin_annotations,
+                            RichText::new(i18n::tr(lang, "prefs.show_pin_annotations")).color(tokens.text()),
+                        )
+                        .on_hover_text("Render pin numbers and descriptions when zooming into components.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.high_density_lod,
+                            RichText::new(i18n::tr(lang, "prefs.adaptive_lod")).color(tokens.text()),
+                        )
+                        .on_hover_text("Simplify circles to quads/points on dense nets and high zoom outs for 60+ FPS performance.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.show_opposite_elements,
+                            RichText::new(i18n::tr(lang, "prefs.show_opposite")).color(tokens.text()),
+                        )
+                        .on_hover_text("When enabled, dimmed pins and vias on the reverse side of the board are visible.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.show_pins,
+                            RichText::new(i18n::tr(lang, "prefs.show_pins")).color(tokens.text()),
+                        )
+                        .on_hover_text("Render component pins and pads on the board.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.show_vias,
+                            RichText::new(i18n::tr(lang, "prefs.show_vias")).color(tokens.text()),
+                        )
+                        .on_hover_text("Render PCB vias and test probe nails on the board.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.show_unnamed_vias,
+                            RichText::new(i18n::tr(lang, "prefs.show_unnamed_vias")).color(tokens.text()),
+                        )
+                        .on_hover_text("When disabled, vias and test pads with empty net names are hidden to reduce clutter.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    ui.add_space(12.0);
+                    egui::CollapsingHeader::new(
+                        RichText::new(i18n::tr(lang, "prefs.shortcuts")).heading().color(tokens.text()),
+                    )
+                    .id_salt("prefs_shortcuts")
+                    .show(ui, |ui| {
+                        if show_shortcuts_section(ui, &mut prefs.keymap, lang, tokens) {
+                            changed = true;
+                        }
+                    });
                 });
-            }
 
-            if ui
-                .checkbox(
-                    &mut prefs.show_part_labels,
-                    RichText::new(i18n::tr(lang, "prefs.show_part_labels")).color(tokens.text()),
-                )
-                .on_hover_text("Render part name labels on components when zoomed in.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            if ui
-                .checkbox(
-                    &mut prefs.show_pin_annotations,
-                    RichText::new(i18n::tr(lang, "prefs.show_pin_annotations")).color(tokens.text()),
-                )
-                .on_hover_text("Render pin numbers and descriptions when zooming into components.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            if ui
-                .checkbox(
-                    &mut prefs.high_density_lod,
-                    RichText::new(i18n::tr(lang, "prefs.adaptive_lod")).color(tokens.text()),
-                )
-                .on_hover_text("Simplify circles to quads/points on dense nets and high zoom outs for 60+ FPS performance.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            if ui
-                .checkbox(
-                    &mut prefs.show_opposite_elements,
-                    RichText::new(i18n::tr(lang, "prefs.show_opposite")).color(tokens.text()),
-                )
-                .on_hover_text("When enabled, dimmed pins and vias on the reverse side of the board are visible.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            if ui
-                .checkbox(
-                    &mut prefs.show_pins,
-                    RichText::new(i18n::tr(lang, "prefs.show_pins")).color(tokens.text()),
-                )
-                .on_hover_text("Render component pins and pads on the board.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            if ui
-                .checkbox(
-                    &mut prefs.show_vias,
-                    RichText::new(i18n::tr(lang, "prefs.show_vias")).color(tokens.text()),
-                )
-                .on_hover_text("Render PCB vias and test probe nails on the board.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            if ui
-                .checkbox(
-                    &mut prefs.show_unnamed_vias,
-                    RichText::new(i18n::tr(lang, "prefs.show_unnamed_vias")).color(tokens.text()),
-                )
-                .on_hover_text("When disabled, vias and test pads with empty net names are hidden to reduce clutter.")
-                .changed()
-            {
-                changed = true;
-            }
-
-            ui.add_space(16.0);
             ui.separator();
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(i18n::tr(lang, "prefs.close")).clicked() {
@@ -605,8 +694,59 @@ pub fn show_preferences_window(
 
     if !is_open || close_requested {
         *open = false;
+        set_shortcut_capture(ctx, ShortcutCapture::default());
     }
 
+    changed
+}
+
+/// Keyboard shortcuts section: one row per action with its binding (click to capture a new
+/// one) and a reset button, the conflict message of the refused row, and "Reset all".
+/// Returns whether the keymap changed.
+fn show_shortcuts_section(ui: &mut egui::Ui, keymap: &mut Keymap, lang: Language, tokens: &Tokens) -> bool {
+    let mut state = shortcut_capture(ui.ctx());
+    let mut changed = false;
+    let error = ui.visuals().error_fg_color;
+    egui::Grid::new("shortcuts_grid").num_columns(3).spacing([12.0, 4.0]).show(ui, |ui| {
+        for action in Action::ALL {
+            ui.label(RichText::new(i18n::tr(lang, action.i18n_key())).color(tokens.text()));
+            let capturing = state.capturing == Some(action);
+            let text = if capturing { i18n::tr(lang, "prefs.shortcut_press_key").to_string() } else { keymap.display(action) };
+            let button = ui
+                .add(egui::Button::new(text).selected(capturing))
+                .on_hover_text(i18n::tr(lang, "prefs.shortcut_capture_hover"));
+            if button.clicked() {
+                state = if capturing { ShortcutCapture::default() } else { ShortcutCapture::start(action) };
+                // A focused button would also "click" on Space/Enter, the keys being captured.
+                button.surrender_focus();
+            }
+            let reset = egui::Button::new(i18n::tr(lang, "prefs.shortcut_reset"));
+            if ui.add_enabled(!keymap.is_default(action), reset).clicked() {
+                state = match keymap.try_reset(action) {
+                    Ok(()) => {
+                        changed = true;
+                        ShortcutCapture::default()
+                    }
+                    Err(other) => ShortcutCapture { capturing: None, conflict: Some((action, other)) },
+                };
+            }
+            ui.end_row();
+            if let Some((_, other)) = state.conflict.filter(|&(row, _)| row == action) {
+                ui.label("");
+                let message = i18n::tr(lang, "prefs.shortcut_conflict").replace("{action}", i18n::tr(lang, other.i18n_key()));
+                ui.label(RichText::new(message).color(error));
+                ui.end_row();
+            }
+        }
+    });
+    ui.add_space(6.0);
+    let all_default = Action::ALL.iter().all(|&action| keymap.is_default(action));
+    if ui.add_enabled(!all_default, egui::Button::new(i18n::tr(lang, "prefs.shortcut_reset_all"))).clicked() {
+        keymap.reset_all();
+        state = ShortcutCapture::default();
+        changed = true;
+    }
+    set_shortcut_capture(ui.ctx(), state);
     changed
 }
 
@@ -864,5 +1004,84 @@ mod tests {
         auto.save_atomic_to(&file).unwrap();
         assert_eq!(Preferences::load_from(&file).language, LanguagePref::Auto);
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    fn press_event(key: egui::Key, modifiers: egui::Modifiers) -> egui::Event {
+        egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }
+    }
+
+    /// Runs one frame with `events` (each press followed by its release, so the next frame's
+    /// press is not a repeat), feeding them to [`capture_shortcut_keys`]; returns whether the
+    /// keymap changed, and whether the Preferences toggle and Esc were still visible afterwards.
+    fn capture_frame(
+        ctx: &Context,
+        keymap: &mut Keymap,
+        mut events: Vec<egui::Event>,
+    ) -> (bool, bool, bool) {
+        let releases: Vec<egui::Event> = events
+            .iter()
+            .filter_map(|event| match event {
+                egui::Event::Key { key, modifiers, .. } => {
+                    Some(egui::Event::Key { key: *key, physical_key: None, pressed: false, repeat: false, modifiers: *modifiers })
+                }
+                _ => None,
+            })
+            .collect();
+        events.extend(releases);
+        let raw = egui::RawInput { events, ..Default::default() };
+        let mut out = (false, false, false);
+        let mut output = ctx.run_ui(raw, |ui| {
+            let changed = capture_shortcut_keys(ui.ctx(), keymap);
+            let toggle = ui.input(|i| keymap.pressed(Action::TogglePreferences, i));
+            let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            out = (changed, toggle, esc);
+        });
+        output.textures_delta.clear();
+        out
+    }
+
+    #[test]
+    fn shortcut_capture_state_transitions() {
+        use egui::{Key, Modifiers};
+        let mut km = Keymap::default();
+        let capturing = ShortcutCapture::start(Action::FitView);
+        assert_eq!(capturing.press(&mut km, Key::Enter, Modifiers::NONE), (capturing, false));
+        let (state, changed) = capturing.press(&mut km, Key::R, Modifiers::NONE);
+        assert_eq!(state, ShortcutCapture { capturing: None, conflict: Some((Action::FitView, Action::RotateCw)) });
+        assert!(!changed);
+        // A new capture clears the conflict message; Esc cancels.
+        let capturing = ShortcutCapture::start(Action::FitView);
+        assert_eq!(capturing.press(&mut km, Key::Escape, Modifiers::NONE), (ShortcutCapture::default(), false));
+        assert_eq!(capturing.press(&mut km, Key::G, Modifiers::NONE), (ShortcutCapture::default(), true));
+        assert_eq!(km.display(Action::FitView), "G");
+        // Without an active capture presses are ignored.
+        assert_eq!(ShortcutCapture::default().press(&mut km, Key::H, Modifiers::NONE), (ShortcutCapture::default(), false));
+    }
+
+    #[test]
+    fn capture_consumes_presses_so_hotkeys_and_esc_do_not_fire() {
+        use egui::{Key, Modifiers};
+        let ctx = Context::default();
+        let mut km = Keymap::default();
+
+        // Not capturing: nothing is consumed.
+        let toggle = press_event(Key::Comma, Modifiers::COMMAND);
+        assert_eq!(capture_frame(&ctx, &mut km, vec![toggle.clone()]), (false, true, false));
+
+        // Capturing Rotate CW: Ctrl/Cmd+, conflicts and must not toggle Preferences.
+        set_shortcut_capture(&ctx, ShortcutCapture::start(Action::RotateCw));
+        assert_eq!(capture_frame(&ctx, &mut km, vec![toggle]), (false, false, false));
+        assert_eq!(shortcut_capture(&ctx).conflict, Some((Action::RotateCw, Action::TogglePreferences)));
+
+        // Esc cancels the capture and is not seen by the window's Esc-to-close.
+        set_shortcut_capture(&ctx, ShortcutCapture::start(Action::RotateCw));
+        assert_eq!(capture_frame(&ctx, &mut km, vec![press_event(Key::Escape, Modifiers::NONE)]), (false, false, false));
+        assert_eq!(shortcut_capture(&ctx), ShortcutCapture::default());
+
+        // A free key is assigned.
+        set_shortcut_capture(&ctx, ShortcutCapture::start(Action::RotateCw));
+        assert_eq!(capture_frame(&ctx, &mut km, vec![press_event(Key::T, Modifiers::NONE)]).0, true);
+        assert_eq!(km.display(Action::RotateCw), "T");
+        assert_eq!(shortcut_capture(&ctx), ShortcutCapture::default());
     }
 }

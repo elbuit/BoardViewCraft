@@ -269,13 +269,21 @@ mod tests {
     #[test]
     fn test_every_catalog_has_all_keys() {
         let en_cat = get_catalog("en");
-        assert_eq!(en_cat.len(), 158);
+        assert_eq!(en_cat.len(), 177);
         for lang in &["es", "ca", "fr", "de", "it"] {
             let cat = get_catalog(lang);
-            assert_eq!(cat.len(), 158, "Catalog {lang} missing entries");
+            assert_eq!(cat.len(), 177, "Catalog {lang} missing entries");
             for key in en_cat.keys() {
                 assert!(cat.contains_key(key), "Catalog {lang} missing key: {key}");
             }
+        }
+    }
+
+    #[test]
+    fn every_shortcut_action_has_an_english_label() {
+        let en_cat = get_catalog("en");
+        for action in crate::keymap::Action::ALL {
+            assert!(en_cat.contains_key(action.i18n_key()), "missing {}", action.i18n_key());
         }
     }
 

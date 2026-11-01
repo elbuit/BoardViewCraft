@@ -123,6 +123,25 @@
 	prefs.show_vias	Afficher les vias et points de test
 	prefs.show_unnamed_vias	Afficher les vias et pastilles sans nom
 	prefs.close	Fermer
+	prefs.shortcuts	Raccourcis clavier
+	prefs.shortcut_press_key	Appuyez sur une touche… (Échap pour annuler)
+	prefs.shortcut_capture_hover	Cliquez, puis appuyez sur la nouvelle combinaison de touches
+	prefs.shortcut_reset	Réinitialiser
+	prefs.shortcut_reset_all	Réinitialiser tous les raccourcis
+	prefs.shortcut_conflict	Déjà utilisé par : {action}
+	shortcut.rotate_cw	Pivoter de 90° dans le sens horaire
+	shortcut.rotate_ccw	Pivoter de 90° dans le sens antihoraire
+	shortcut.flip_side	Basculer entre dessus et dessous
+	shortcut.mirror_x	Miroir X (horizontal)
+	shortcut.mirror_y	Miroir Y (vertical)
+	shortcut.fit_view	Ajuster le circuit à la vue
+	shortcut.zoom_in	Zoom avant
+	shortcut.zoom_out	Zoom arrière
+	shortcut.pan_up	Défiler vers le haut
+	shortcut.pan_down	Défiler vers le bas
+	shortcut.pan_left	Défiler vers la gauche
+	shortcut.pan_right	Défiler vers la droite
+	shortcut.toggle_preferences	Ouvrir/fermer les Préférences
 	context_menu.pin_title	Informations sur la broche
 	context_menu.net	Réseau :
 	context_menu.side	Côté :

@@ -92,7 +92,7 @@ cargo test --workspace --release
 | `M` | Mirror X (Horizontal) |
 | `Shift + M` | Mirror Y (Vertical) |
 | `Esc` | Clear selection / Reset flight lines |
-| `Ctrl + ,` | Open Preferences |
+| `Ctrl + ,` (`Cmd + ,` on macOS) | Open / close Preferences |
 | `Scroll` | Zoom into cursor position (2.5× per wheel notch) |
 | `Drag` | Pan canvas |
 | Arrow keys / `+` / `-` | Pan / zoom the active board view (last hovered or clicked) |
@@ -100,7 +100,9 @@ cargo test --workspace --release
 | `PageUp` / `PageDown`, `←` / `→` | Previous / next PDF page |
 | `+` / `-` | Zoom PDF page |
 
-Board shortcuts are ignored while a text field has focus.
+Board shortcuts are ignored while a text field has focus or Preferences is open, and match their modifiers exactly (`R` does not fire on `Shift + R`).
+
+The defaults above for fit, Top/Bottom switch, rotate, mirror, board pan/zoom (arrow keys, `+` / `=`, `-`) and Preferences can be rebound in **Preferences → Keyboard shortcuts** (click a shortcut, press the new key; `Esc` cancels). A key already used by another action is refused. `Esc` / `Enter` and the PDF tab keys stay fixed.
 
 ---
 
