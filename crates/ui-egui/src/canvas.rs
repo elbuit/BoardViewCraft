@@ -579,6 +579,13 @@ impl BoardCanvases {
     }
 }
 
+/// Whether a canvas takes keyboard/wheel input and keeps its pin menu this frame: the active
+/// canvas, or one clicked right now (the caller only marks it active after it is drawn, and a
+/// touch or pen click has no hover frame before it).
+fn canvas_takes_input(is_active: bool, clicked: bool, secondary_clicked: bool) -> bool {
+    is_active || clicked || secondary_clicked
+}
+
 /// Draws and handles one board canvas in `rect`. Only the active canvas (`is_active`) takes
 /// keyboard pan/zoom, the overlay wheel and shows the pin context menu, so two canvases on
 /// screen never react to the same key twice.
@@ -604,6 +611,7 @@ pub fn show_canvas(
     let canvas_id = egui::Id::unique(("board_canvas", canvas_state.viewport.side));
     let response = ui.interact(rect, canvas_id, Sense::click_and_drag());
     ui.advance_cursor_after_rect(rect);
+    let is_active = canvas_takes_input(is_active, response.clicked(), response.secondary_clicked());
     let painter = ui.painter_at(rect);
 
     // Background fill
@@ -2711,6 +2719,16 @@ mod tests {
             println!("fixture mesh build [{label}]: median {:?}, min {:?}, {vertices} vertices", times[5], times[0]);
             assert!(vertices > 0);
         }
+    }
+
+    /// A click on a canvas that is not active yet (touch or pen: no hover frame before it)
+    /// makes it take the input that frame, so a right-click menu is not closed at once.
+    #[test]
+    fn a_clicked_canvas_takes_input_before_it_is_active() {
+        assert!(canvas_takes_input(true, false, false));
+        assert!(!canvas_takes_input(false, false, false));
+        assert!(canvas_takes_input(false, true, false));
+        assert!(canvas_takes_input(false, false, true));
     }
 
     #[test]
