@@ -616,7 +616,8 @@ pub fn show_canvas(
     // and calibration session is NOT actively capturing clicks.
     let is_alt_down = ui.input(|i| i.modifiers.alt);
     let active_slot = overlay_manager.slot_for_side(vp.side);
-    let is_calibrating = alignment_session.is_active();
+    // Alignment clicks belong to the canvas of the side being aligned only.
+    let is_calibrating = alignment_session.is_active() && alignment_session.side.is_none_or(|s| s == vp.side);
     let is_overlay_interacting = !is_calibrating && (is_alt_down || overlay_mode_active) && active_slot.is_loaded() && !active_slot.locked;
 
     if is_overlay_interacting {

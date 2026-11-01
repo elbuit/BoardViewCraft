@@ -368,9 +368,10 @@ impl BoardViewApp {
         self.canvases.active = side;
     }
 
-    /// Side the overlay photo tools work on: the active canvas.
+    /// Side the overlay photo tools work on: the side being aligned while a pin alignment runs
+    /// (hovering the other canvas in Both must not retarget it), otherwise the active canvas.
     fn overlay_side(&self) -> Side {
-        self.canvases.active
+        self.alignment_session.side.filter(|_| self.alignment_session.is_active()).unwrap_or(self.canvases.active)
     }
 
     /// Fits every canvas drawn in the last frame to its own rectangle (`fallback` for the active
@@ -1277,6 +1278,20 @@ mod tab_tests {
         // A part visible on the shown side does not switch.
         assert!(app.focus_part(1, true));
         assert_eq!(app.tab, BoardTab::Bottom);
+    }
+
+    /// A photo alignment stays on the side it started on: hovering the other canvas in Both
+    /// must not retarget Escape/Enter or the side panel to the other side's photo.
+    #[test]
+    fn alignment_session_keeps_its_side_when_the_active_canvas_changes() {
+        let mut app = app_on(BoardTab::Both);
+        app.canvases.active = Side::Top;
+        let snap = app.overlay_manager.slot_for_side(Side::Top).snapshot();
+        app.alignment_session.start(snap, Side::Top);
+        app.canvases.active = Side::Bottom;
+        assert_eq!(app.overlay_side(), Side::Top);
+        app.alignment_session.cancel();
+        assert_eq!(app.overlay_side(), Side::Bottom, "back to the active canvas once finished");
     }
 
     #[test]

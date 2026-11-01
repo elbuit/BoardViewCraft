@@ -529,7 +529,7 @@ pub fn show_overlay_panel(
     if !alignment_session.is_active() {
         if ui.button(format!("🎯 {}", i18n::tr(lang, "overlay.align_pins"))).clicked() {
             let snap = slot.snapshot();
-            alignment_session.start(snap);
+            alignment_session.start(snap, current_side);
         }
     } else {
         ui.group(|ui| {

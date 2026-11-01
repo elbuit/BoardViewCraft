@@ -4,7 +4,7 @@
 //! least-squares similarity transform solver, error reporting, residuals, RMSE,
 //! and interactive calibration session state management.
 
-use bvc_core::Point;
+use bvc_core::{Point, Side};
 use egui::Vec2;
 use thiserror::Error;
 
@@ -101,6 +101,8 @@ pub struct AlignmentSession {
     pub snapshot: Option<OverlaySnapshot>,
     pub auto_lock_on_apply: bool,
     pub hovered_candidate_pin: Option<usize>,
+    /// Board side whose photo is being aligned (`None` while idle).
+    pub side: Option<Side>,
 }
 
 impl Default for AlignmentSession {
@@ -112,6 +114,7 @@ impl Default for AlignmentSession {
             snapshot: None,
             auto_lock_on_apply: true,
             hovered_candidate_pin: None,
+            side: None,
         }
     }
 }
@@ -406,8 +409,9 @@ pub fn solve_alignment(
 
 impl AlignmentSession {
     /// Starts a new calibration session, capturing current overlay snapshot.
-    pub fn start(&mut self, snapshot: OverlaySnapshot) {
+    pub fn start(&mut self, snapshot: OverlaySnapshot, side: Side) {
         self.snapshot = Some(snapshot);
+        self.side = Some(side);
         self.pairs.clear();
         self.live_result = None;
         self.state = AlignmentState::SelectingCadPin { pair_index: 0 };
@@ -421,6 +425,7 @@ impl AlignmentSession {
         self.pairs.clear();
         self.live_result = None;
         self.hovered_candidate_pin = None;
+        self.side = None;
         snapshot
     }
 
@@ -706,7 +711,7 @@ mod tests {
             locked: false,
         };
 
-        session.start(snapshot);
+        session.start(snapshot, Side::Top);
         assert!(session.is_active());
         assert_eq!(session.state, AlignmentState::SelectingCadPin { pair_index: 0 });
 
