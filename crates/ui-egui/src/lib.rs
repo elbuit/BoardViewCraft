@@ -545,7 +545,7 @@ impl BoardViewApp {
                 &mut self.renderer,
                 &self.preferences,
             );
-            if !is_active && (response.hovered() || response.clicked() || response.secondary_clicked()) {
+            if !is_active && canvas::activates_canvas(response.clicked(), response.secondary_clicked(), response.drag_started()) {
                 self.canvases.active = side;
             }
         }

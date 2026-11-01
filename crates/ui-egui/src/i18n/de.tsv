@@ -58,7 +58,7 @@
 	overlay.locked	Gesperrt
 	overlay.unlocked	Entsperrt
 	overlay.visible	Sichtbar
-	overlay.opacity	Deckkraft:
+	overlay.opacity	Deckkraft der Platine:
 	overlay.position	Position
 	overlay.size	Abmessungen
 	overlay.zoom	Zoom / Skalierung

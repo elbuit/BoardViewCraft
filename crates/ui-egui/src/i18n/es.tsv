@@ -58,7 +58,7 @@
 	overlay.locked	Bloqueado
 	overlay.unlocked	Desbloqueado
 	overlay.visible	Visible
-	overlay.opacity	Opacidad:
+	overlay.opacity	Opacidad de la placa:
 	overlay.position	Posición
 	overlay.size	Dimensiones
 	overlay.zoom	Zoom / Escala

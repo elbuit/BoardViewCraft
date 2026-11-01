@@ -58,7 +58,7 @@
 	overlay.locked	Bloccato
 	overlay.unlocked	Sbloccato
 	overlay.visible	Visibile
-	overlay.opacity	Opacità:
+	overlay.opacity	Opacità della scheda:
 	overlay.position	Posizione
 	overlay.size	Dimensioni
 	overlay.zoom	Zoom / Scala
