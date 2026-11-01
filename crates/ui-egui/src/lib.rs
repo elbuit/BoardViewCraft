@@ -481,7 +481,7 @@ impl eframe::App for BoardViewApp {
             }
         }
 
-        let lang = self.preferences.language;
+        let lang = self.preferences.ui_language();
 
         // Cadcraft top toolbar
         Panel::top("top_bar").show(ui, |ui: &mut Ui| {
@@ -731,7 +731,7 @@ impl eframe::App for BoardViewApp {
                     cur_rotation_rad,
                     cur_sx,
                     cur_sy,
-                    self.preferences.language,
+                    self.preferences.ui_language(),
                     &mut on_load_photo,
                 );
             });

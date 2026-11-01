@@ -16,7 +16,7 @@ User request 2026-11-01. Today the side button only flips Top/Bottom, and the UI
 
 ## Tasks
 - [x] T1 — Side dropdown Top/Bottom/Both (route: delegated writer; lib.rs + canvas tests + 6 i18n catalogs)
-- [ ] T2 — System language detection with Auto preference (route: same delegated writer; i18n.rs + preferences.rs + Cargo.toml + catalogs)
+- [x] T2 — System language detection with Auto preference (route: same delegated writer; i18n.rs + preferences.rs + Cargo.toml + catalogs)
 
 ## Acceptance criteria
 - Choosing Both shows parts, pins and vias of both sides, unmirrored; hit-testing finds elements of either side.
@@ -28,4 +28,5 @@ ask-on-risk. Forecast ~350 authored lines.
 
 ## Progress
 - Branch created from `73e0380`. Exploration done (side model, overlay, i18n, pdfcraft detection).
-- T1 done: toolbar toggle replaced by a ComboBox (`SIDE_CHOICES` Top/Bottom/Both, `side_label`), new keys `toolbar.view_both` and `toolbar.view_side_hover` in all 6 catalogs (key count 148 -> 150). Tests: canvas round-trip loop now covers `Side::Both`, new `test_both_side_is_unmirrored_like_top`, new `side_selector_tests`. RED: lib tests failed to compile (missing `SIDE_CHOICES`/`side_label`). GREEN: `cargo test -p bvc-ui-egui --release` 105 passed / 2 ignored; bvc-core 44 passed; clippy warning count 147 before and after. Commit: see T1 commit `feat(ui): add Top/Bottom/Both side selector`.
+- T1 done: toolbar toggle replaced by a ComboBox (`SIDE_CHOICES` Top/Bottom/Both, `side_label`), new keys `toolbar.view_both` and `toolbar.view_side_hover` in all 6 catalogs (key count 148 -> 150). Tests: canvas round-trip loop now covers `Side::Both`, new `test_both_side_is_unmirrored_like_top`, new `side_selector_tests`. RED: lib tests failed to compile (missing `SIDE_CHOICES`/`side_label`). GREEN: `cargo test -p bvc-ui-egui --release` 105 passed / 2 ignored; bvc-core 44 passed; clippy warning count 147 before and after. Commit: `c3c5d0b`.
+- T2 done: `i18n::LanguagePref { Auto (default), Explicit(Language) }` serialized as `"auto"` or the variant name (codes accepted, unknown -> Auto); `resolve()` falls back to cached `system_lang()` (English under `cfg(test)`). Ported pdfcraft `candidates`/`lang_from_tag`/`detect_system_lang` (LC_ALL/LC_MESSAGES/LANG, macOS `defaults`, Windows `sys-locale 0.3` as `cfg(windows)` dep)/`language_override`/`first_supported`; added `Language::from_code`. `Preferences::ui_language()` used by lib.rs/canvas.rs; picker gets `prefs.language_auto` (6 catalogs, 151 keys). Preferences file version bumped to 2; v1 files load, v1 `English` migrates to Auto, other languages kept. RED: 44 compile errors (missing `LanguagePref`, `lang_from_tag`, `from_code`, ...). GREEN: `cargo test -p bvc-ui-egui --release` 115 passed / 2 ignored; bvc-core 44 passed; clippy warning count 147 before and after; `cargo build --release` ok. Commit: T2 commit `feat(i18n): detect system language with Auto preference` (hash in the follow-up docs commit / git log).

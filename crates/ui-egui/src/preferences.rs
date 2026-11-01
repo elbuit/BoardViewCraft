@@ -1,6 +1,6 @@
 //! User preferences and settings dialog.
 
-use crate::i18n::{self, Language};
+use crate::i18n::{self, Language, LanguagePref};
 use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
 use serde::{Deserialize, Serialize};
@@ -51,7 +51,9 @@ pub struct BoardSchematic {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Preferences {
-    pub language: Language,
+    /// Auto follows the system locale; resolve it with [`Preferences::ui_language`].
+    #[serde(default)]
+    pub language: LanguagePref,
     #[serde(default)]
     pub app_theme: AppTheme,
     #[serde(default)]
@@ -83,7 +85,7 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            language: Language::English,
+            language: LanguagePref::Auto,
             app_theme: AppTheme::Dark,
             pcb_theme: PcbTheme::Cadcraft,
             custom_pcb_tokens: None,
@@ -123,7 +125,16 @@ pub fn default_config_path() -> PathBuf {
         .join("preferences.json")
 }
 
+/// Version written by [`Preferences::save_atomic_to`]. Version 1 forced English as the default
+/// language; version 2 adds Auto (system language).
+const PREFERENCES_VERSION: u64 = 2;
+
 impl Preferences {
+    /// The language the UI uses this frame (Auto resolved to the system language).
+    pub fn ui_language(&self) -> Language {
+        self.language.resolve()
+    }
+
     pub fn load() -> Self {
         Self::load_from(&default_config_path())
     }
@@ -180,14 +191,19 @@ impl Preferences {
         }
         let value: Value = serde_json::from_slice(&bytes)
             .map_err(|error| format!("{}: invalid preferences JSON: {error}", path.display()))?;
-        if value.get("version").and_then(Value::as_u64) != Some(1) {
+        let version = value.get("version").and_then(Value::as_u64);
+        if !matches!(version, Some(1..=PREFERENCES_VERSION)) {
             return Err(format!("{}: unsupported preferences version", path.display()));
         }
         let prefs_val = value
             .get("preferences")
             .ok_or_else(|| format!("{}: missing preferences object", path.display()))?;
-        let prefs: Preferences = serde_json::from_value(prefs_val.clone())
+        let mut prefs: Preferences = serde_json::from_value(prefs_val.clone())
             .map_err(|error| format!("{}: invalid preferences payload: {error}", path.display()))?;
+        // Version 1 had no Auto and saved the forced English default: follow the system instead.
+        if version == Some(1) && prefs.language == LanguagePref::Explicit(Language::English) {
+            prefs.language = LanguagePref::Auto;
+        }
         Ok(Some(prefs))
     }
 
@@ -197,7 +213,7 @@ impl Preferences {
 
     pub fn save_atomic_to(&self, path: &Path) -> Result<(), String> {
         let json_value = serde_json::json!({
-            "version": 1,
+            "version": PREFERENCES_VERSION,
             "preferences": self,
         });
         let bytes = serde_json::to_vec_pretty(&json_value).map_err(|e| e.to_string())?;
@@ -262,17 +278,28 @@ pub fn show_preferences_window(
         .min_size(Vec2::new(420.0, 320.0))
         .default_size(Vec2::new(440.0, 360.0))
         .show(ctx, |ui| {
-            let lang = prefs.language;
+            let lang = prefs.ui_language();
             ui.add_space(4.0);
 
-            // Language Selector
+            // Language Selector: Auto (system) first, then each language by its own name.
             ui.horizontal(|ui| {
                 ui.label(RichText::new(i18n::tr(lang, "prefs.language")).strong().color(tokens.text()));
+                let auto_label = i18n::tr(lang, "prefs.language_auto");
+                let selected = match prefs.language {
+                    LanguagePref::Auto => auto_label,
+                    LanguagePref::Explicit(l) => l.display_name(),
+                };
                 egui::ComboBox::from_id_salt("language_combo")
-                    .selected_text(prefs.language.display_name())
+                    .selected_text(selected)
                     .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut prefs.language, LanguagePref::Auto, auto_label).clicked() {
+                            changed = true;
+                        }
                         for l in Language::ALL {
-                            if ui.selectable_value(&mut prefs.language, l, l.display_name()).clicked() {
+                            if ui
+                                .selectable_value(&mut prefs.language, LanguagePref::Explicit(l), l.display_name())
+                                .clicked()
+                            {
                                 changed = true;
                             }
                         }
@@ -580,7 +607,7 @@ mod tests {
             pcb_theme: PcbTheme::Custom,
             custom_pcb_tokens: Some(PcbTokens::CADCRAFT),
             custom_pcb_theme_name: Some("My Custom PCB".to_string()),
-            language: Language::Catalan,
+            language: LanguagePref::Explicit(Language::Catalan),
             show_net_web: false,
             via_display_mode: ViaDisplayMode::Radial,
             show_part_labels: true,
@@ -664,7 +691,7 @@ mod tests {
         let config_file = temp_dir.join("preferences.json");
 
         let mut prefs = Preferences::default();
-        prefs.language = Language::Spanish;
+        prefs.language = LanguagePref::Explicit(Language::Spanish);
         prefs.show_net_web = false;
         prefs.via_display_mode = ViaDisplayMode::Radial;
         prefs.app_theme = AppTheme::Light;
@@ -739,5 +766,57 @@ mod tests {
         prefs.add_recent_file(PathBuf::from("/board_10.cad"));
         assert_eq!(prefs.recent_files.len(), 10);
         assert_eq!(prefs.recent_files[0], PathBuf::from("/board_10.cad"));
+    }
+
+    #[test]
+    fn test_default_language_is_auto() {
+        assert_eq!(Preferences::default().language, LanguagePref::Auto);
+    }
+
+    fn load_json(json: &serde_json::Value) -> Preferences {
+        let dir = std::env::temp_dir().join(format!(
+            "bvc_test_prefs_lang_{}_{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("preferences.json");
+        fs::write(&file, serde_json::to_vec(json).unwrap()).unwrap();
+        let prefs = Preferences::read_file(&file).expect("valid preferences").expect("file exists");
+        let _ = fs::remove_dir_all(&dir);
+        prefs
+    }
+
+    fn v1_payload(language: &str) -> serde_json::Value {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value["language"] = serde_json::Value::String(language.to_string());
+        serde_json::json!({ "version": 1, "preferences": value })
+    }
+
+    #[test]
+    fn test_v1_english_migrates_to_auto() {
+        assert_eq!(load_json(&v1_payload("English")).language, LanguagePref::Auto);
+    }
+
+    #[test]
+    fn test_v1_explicit_language_is_kept() {
+        assert_eq!(load_json(&v1_payload("Spanish")).language, LanguagePref::Explicit(Language::Spanish));
+    }
+
+    #[test]
+    fn test_v2_explicit_english_is_kept_and_saved_as_v2() {
+        let temp_dir = std::env::temp_dir().join(format!("bvc_test_prefs_v2_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let file = temp_dir.join("preferences.json");
+        let prefs = Preferences { language: LanguagePref::Explicit(Language::English), ..Preferences::default() };
+        prefs.save_atomic_to(&file).unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
+        assert_eq!(saved["version"], 2);
+        assert_eq!(Preferences::load_from(&file), prefs);
+        let auto = Preferences::default();
+        auto.save_atomic_to(&file).unwrap();
+        assert_eq!(Preferences::load_from(&file).language, LanguagePref::Auto);
+        let _ = fs::remove_dir_all(&temp_dir);
     }
 }

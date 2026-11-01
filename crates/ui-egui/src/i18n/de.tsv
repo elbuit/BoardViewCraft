@@ -86,6 +86,7 @@
 	overlay.align_status_min_points	Wählen Sie mindestens 2 Pin-Paare, um die Ausrichtung zu berechnen.
 	prefs.title	Einstellungen
 	prefs.language	Sprache:
+	prefs.language_auto	Automatisch (System)
 	prefs.appearance	Erscheinungsbild & Designs
 	prefs.app_theme	Anwendungs-Design:
 	prefs.pcb_theme	PCB-Design:

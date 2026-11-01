@@ -19,3 +19,7 @@ image = { workspace = true }
 flate2 = { workspace = true }
 pdfcraft-render = { workspace = true }
 bytemuck = { version = "1", features = ["extern_crate_alloc"] }
+
+[target.'cfg(windows)'.dependencies]
+# Auto interface language: the Windows display language, without starting a process.
+sys-locale = "0.3"
