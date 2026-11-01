@@ -18,6 +18,8 @@
 	toolbar.zoom_preset_200	200%
 	toolbar.view_top	View: TOP
 	toolbar.view_bottom	View: BOTTOM
+	toolbar.view_both	View: BOTH
+	toolbar.view_side_hover	Board side to display (Space flips Top/Bottom)
 	toolbar.pins	Pins
 	toolbar.vias	Vias
 	toolbar.load_photo	Load Overlay Photo...

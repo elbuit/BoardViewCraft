@@ -2491,6 +2491,21 @@ mod tests {
     }
 
     #[test]
+    fn test_both_side_is_unmirrored_like_top() {
+        for &mirror_x in &[false, true] {
+            for &mirror_y in &[false, true] {
+                let vp = |side| Viewport { side, mirror_x, mirror_y, ..Viewport::default() };
+                assert_eq!(
+                    vp(Side::Both).effective_factors(),
+                    vp(Side::Top).effective_factors(),
+                    "Both must render like Top (mx={mirror_x}, my={mirror_y})"
+                );
+                assert_ne!(vp(Side::Both).effective_factors().0, vp(Side::Bottom).effective_factors().0);
+            }
+        }
+    }
+
+    #[test]
     fn test_viewport_bijective_invariance() {
         let canvas_rect = EguiRect::from_min_size(Pos2::new(100.0, 50.0), egui::vec2(1280.0, 800.0));
         let sample_points = [
@@ -2506,7 +2521,7 @@ mod tests {
             Rotation::Deg180,
             Rotation::Deg270,
         ];
-        let sides = [Side::Top, Side::Bottom];
+        let sides = [Side::Top, Side::Bottom, Side::Both];
         let mirrors = [false, true];
 
         for &rotation in &rotations {

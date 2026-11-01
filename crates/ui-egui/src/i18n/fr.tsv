@@ -18,6 +18,8 @@
 	toolbar.zoom_preset_200	200%
 	toolbar.view_top	Vue : DESSUS
 	toolbar.view_bottom	Vue : DESSOUS
+	toolbar.view_both	Vue : LES DEUX
+	toolbar.view_side_hover	Face de la carte à afficher (Espace bascule dessus/dessous)
 	toolbar.pins	Broches
 	toolbar.vias	Vias
 	toolbar.load_photo	Charger une photo superposée...

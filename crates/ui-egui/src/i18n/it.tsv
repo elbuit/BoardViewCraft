@@ -18,6 +18,8 @@
 	toolbar.zoom_preset_200	200%
 	toolbar.view_top	Vista: SUPERIORE
 	toolbar.view_bottom	Vista: INFERIORE
+	toolbar.view_both	Vista: ENTRAMBI
+	toolbar.view_side_hover	Lato della scheda da mostrare (Spazio alterna superiore/inferiore)
 	toolbar.pins	Pin
 	toolbar.vias	Via
 	toolbar.load_photo	Carica foto sovrapposta...

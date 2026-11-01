@@ -18,6 +18,8 @@
 	toolbar.zoom_preset_200	200%
 	toolbar.view_top	Capa: SUPERIOR
 	toolbar.view_bottom	Capa: INFERIOR
+	toolbar.view_both	Capa: AMBAS
+	toolbar.view_side_hover	Cara de la placa a mostrar (Espacio alterna superior/inferior)
 	toolbar.pins	Pines
 	toolbar.vias	Vías
 	toolbar.load_photo	Cargar Foto Superpuesta...
