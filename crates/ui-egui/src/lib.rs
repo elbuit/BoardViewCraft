@@ -23,6 +23,18 @@ use theme::{AppTheme, Tokens};
 use egui::{CentralPanel, Color32, Panel, Pos2, Rect, RichText, Ui};
 use std::sync::Arc;
 
+/// Board sides offered by the toolbar side selector, in display order.
+const SIDE_CHOICES: [Side; 3] = [Side::Top, Side::Bottom, Side::Both];
+
+/// Translated toolbar label for a board side.
+fn side_label(lang: i18n::Language, side: Side) -> &'static str {
+    match side {
+        Side::Top => i18n::tr(lang, "toolbar.view_top"),
+        Side::Bottom => i18n::tr(lang, "toolbar.view_bottom"),
+        Side::Both => i18n::tr(lang, "toolbar.view_both"),
+    }
+}
+
 
 /// Searches for a co-located PDF schematic file matching the given boardview file path.
 /// Checks `<stem>.pdf`, `<stem>.PDF`, and falls back to a case-insensitive directory scan.
@@ -649,12 +661,18 @@ impl eframe::App for BoardViewApp {
 
                 ui.separator();
 
-                // Quick flip side button
-                let is_top = self.canvas_state.viewport.side == Side::Top;
-                let toggle_label = if is_top { i18n::tr(lang, "toolbar.view_top") } else { i18n::tr(lang, "toolbar.view_bottom") };
-                if ui.button(toggle_label).on_hover_text("Click or press Space to flip board side").clicked() {
-                    self.canvas_state.viewport.side = if is_top { Side::Bottom } else { Side::Top };
-                }
+                // Board side selector (Top / Bottom / Both). The side is part of
+                // the view cache key, so assigning it re-renders the board.
+                let current_side = self.canvas_state.viewport.side;
+                egui::ComboBox::from_id_salt("board_side_selector")
+                    .selected_text(side_label(lang, current_side))
+                    .show_ui(ui, |ui: &mut Ui| {
+                        for side in SIDE_CHOICES {
+                            ui.selectable_value(&mut self.canvas_state.viewport.side, side, side_label(lang, side));
+                        }
+                    })
+                    .response
+                    .on_hover_text(i18n::tr(lang, "toolbar.view_side_hover"));
 
                 if let Some(name) = &self.filename {
                     ui.separator();
@@ -1348,5 +1366,29 @@ mod focus_tests {
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+}
+
+#[cfg(test)]
+mod side_selector_tests {
+    use super::*;
+
+    #[test]
+    fn test_side_selector_offers_all_three_sides() {
+        assert_eq!(SIDE_CHOICES, [Side::Top, Side::Bottom, Side::Both]);
+    }
+
+    #[test]
+    fn test_side_label_is_translated_for_every_side() {
+        let lang = i18n::Language::English;
+        assert_eq!(side_label(lang, Side::Top), "View: TOP");
+        assert_eq!(side_label(lang, Side::Bottom), "View: BOTTOM");
+        assert_eq!(side_label(lang, Side::Both), "View: BOTH");
+        for &l in &i18n::Language::ALL {
+            for side in SIDE_CHOICES {
+                assert_ne!(side_label(l, side), "toolbar.view_both");
+            }
+            assert_ne!(i18n::tr(l, "toolbar.view_side_hover"), "toolbar.view_side_hover");
+        }
     }
 }

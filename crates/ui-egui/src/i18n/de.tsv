@@ -18,6 +18,8 @@
 	toolbar.zoom_preset_200	200%
 	toolbar.view_top	Ansicht: OBEN
 	toolbar.view_bottom	Ansicht: UNTEN
+	toolbar.view_both	Ansicht: BEIDE
+	toolbar.view_side_hover	Anzuzeigende Platinenseite (Leertaste wechselt oben/unten)
 	toolbar.pins	Pins
 	toolbar.vias	Vias
 	toolbar.load_photo	Overlay-Foto laden...
