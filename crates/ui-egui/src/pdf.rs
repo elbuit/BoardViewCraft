@@ -49,6 +49,22 @@ impl SchematicIndex {
     }
 }
 
+/// Matches of a query across `pages` pages as (page index, glyph range), in page order.
+/// `find(page, whole_words)` returns a page's matches. Whole-word matches win across the whole
+/// document, so "C212" never lists "BC212" or "MC212" while an exact "C212" exists anywhere;
+/// substring matches are used only when no page has a whole-word match (returned flag `true`).
+fn document_matches(pages: usize, mut find: impl FnMut(usize, bool) -> Vec<Range<usize>>) -> (Vec<(usize, Range<usize>)>, bool) {
+    let mut collect = |whole: bool| -> Vec<(usize, Range<usize>)> {
+        (0..pages).flat_map(|p| find(p, whole).into_iter().map(move |r| (p, r))).collect()
+    };
+    let exact = collect(true);
+    if exact.is_empty() {
+        (collect(false), true)
+    } else {
+        (exact, false)
+    }
+}
+
 /// The request tag for a raster at `scale`: equal tags mean the same scale (to 1/65536).
 pub fn scale_tag(scale: f32) -> u64 {
     (f64::from(scale) * 65536.0).round() as u64
@@ -188,6 +204,9 @@ pub struct PdfSchematicViewer {
     // jump to its first hit once one is indexed
     search_jump_pending: bool,
 
+    // The current results are substring matches because no indexed page had a whole-word match
+    search_is_fallback: bool,
+
     // Whole-page rasters (or backdrops of tiled pages) cached by page number (1-based)
     page_textures: HashMap<usize, CachedPageTexture>,
 
@@ -237,6 +256,7 @@ impl Default for PdfSchematicViewer {
             text_failed: HashSet::new(),
             text_slots: 1,
             search_jump_pending: false,
+            search_is_fallback: false,
             page_textures: HashMap::new(),
             previews: HashMap::new(),
             tiles: tiles::TileCache::default(),
@@ -287,6 +307,7 @@ impl PdfSchematicViewer {
         self.page_texts.clear();
         self.text_failed.clear();
         self.search_jump_pending = false;
+        self.search_is_fallback = false;
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
         self.is_open = true;
@@ -620,8 +641,13 @@ impl PdfSchematicViewer {
             .get(self.selected_result_idx)
             .map(|o| (o.page_number, o.glyph_range.clone()));
         let query = self.active_search.clone();
+        let was_fallback = self.search_is_fallback;
         self.perform_instant_search(&query);
-        if let Some(idx) = selected.and_then(|(page, range)| {
+        if was_fallback && !self.search_is_fallback && !self.search_results.is_empty() {
+            // A whole-word match just got indexed: the substring hit shown so far is dropped.
+            self.search_jump_pending = false;
+            self.select_match(0);
+        } else if let Some(idx) = selected.and_then(|(page, range)| {
             self.search_results.iter().position(|o| o.page_number == page && o.glyph_range == range)
         }) {
             self.selected_result_idx = idx;
@@ -686,19 +712,18 @@ impl PdfSchematicViewer {
         self.active_search = trimmed.to_string();
         let mut results = Vec::new();
 
-        // Search across all pages in document order
-        for p_idx in 0..self.total_pages {
+        // Whole-word matches across the indexed pages ("U12", never "BU12"); substrings only
+        // when no indexed page has a whole-word match.
+        let texts = &self.page_texts;
+        let (matches, fallback) = document_matches(self.total_pages, |p, whole| {
+            texts.get(&p).map(|t| t.find_opts(trimmed, false, whole)).unwrap_or_default()
+        });
+        self.search_is_fallback = fallback;
+
+        for (p_idx, range) in matches {
             let Some(text) = self.page_texts.get(&p_idx) else { continue };
             let page_1 = p_idx + 1;
-
-            // 1. Try whole-word search first (matches exact component reference e.g. "U12")
-            let mut matches = text.find_opts(trimmed, false, true);
-            // 2. If no whole-word match found, fall back to substring search
-            if matches.is_empty() {
-                matches = text.find_opts(trimmed, false, false);
-            }
-
-            for range in matches {
+            {
                 let glyph_indices: Vec<usize> = range.clone().collect();
                 let rects = text.glyph_rects(&glyph_indices);
                 if let Some(first_rect) = rects.first() {
@@ -945,6 +970,34 @@ mod tests {
 
         assert!(!viewer.search("   "));
         assert!(viewer.search_results.is_empty() && viewer.active_search.is_empty());
+    }
+
+    /// Pages as (whole-word hits, substring hits) for `document_matches`.
+    fn finder(pages: &[(Vec<Range<usize>>, Vec<Range<usize>>)]) -> impl FnMut(usize, bool) -> Vec<Range<usize>> + '_ {
+        move |p, whole| if whole { pages[p].0.clone() } else { pages[p].1.clone() }
+    }
+
+    /// "C212" found as a whole word anywhere drops "BC212"/"MC212" substring hits on every page,
+    /// including pages with no exact match.
+    #[test]
+    fn test_document_matches_prefers_whole_words_across_pages() {
+        let pages = vec![
+            (vec![], vec![3..7]),           // only "BC212"
+            (vec![10..14], vec![10..14, 20..24]), // "C212" and "MC212"
+            (vec![], vec![]),
+        ];
+        let (hits, fallback) = document_matches(pages.len(), finder(&pages));
+        assert_eq!(hits, vec![(1, 10..14)]);
+        assert!(!fallback);
+    }
+
+    /// With no whole-word hit in the whole document, substring hits are returned.
+    #[test]
+    fn test_document_matches_falls_back_to_substrings() {
+        let pages = vec![(vec![], vec![3..7]), (vec![], vec![]), (vec![], vec![1..5, 8..12])];
+        let (hits, fallback) = document_matches(pages.len(), finder(&pages));
+        assert_eq!(hits, vec![(0, 3..7), (2, 1..5), (2, 8..12)]);
+        assert!(fallback);
     }
 
     #[test]
