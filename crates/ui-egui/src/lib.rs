@@ -11,8 +11,8 @@ mod render;
 mod side_panel;
 mod theme;
 
-use bvc_core::{Board, ParserRegistry, Side};
-use canvas::{CanvasState, show_canvas};
+use bvc_core::{Board, ParserRegistry, Point, Side};
+use canvas::{BoardCanvases, show_canvas};
 use overlay::OverlayManager;
 use overlay_align::AlignmentSession;
 use preferences::{Preferences, show_preferences_window};
@@ -79,7 +79,12 @@ pub struct BoardViewApp {
     parser_registry: Arc<ParserRegistry>,
     tokens: Tokens,
     renderer: Renderer,
-    canvas_state: CanvasState,
+    /// One board view per side (own pan, zoom and mesh cache; shared rotation and mirroring).
+    canvases: BoardCanvases,
+    /// Sides shown in the central area: `Top`, `Bottom` or `Both` (side by side).
+    shown_side: Side,
+    /// Screen rectangle of each canvas drawn in the last frame, for fitting to the real size.
+    canvas_rects: Vec<(Side, Rect)>,
     side_panel_state: SidePanelState,
     overlay_manager: OverlayManager,
     alignment_session: AlignmentSession,
@@ -112,7 +117,9 @@ impl Default for BoardViewApp {
             parser_registry: Arc::new(ParserRegistry::default()),
             tokens: Tokens::DARK,
             renderer: Renderer::new(),
-            canvas_state: CanvasState::default(),
+            canvases: BoardCanvases::default(),
+            shown_side: Side::Top,
+            canvas_rects: Vec::new(),
             side_panel_state: SidePanelState::default(),
             overlay_manager: OverlayManager::default(),
             alignment_session: AlignmentSession::default(),
@@ -189,7 +196,7 @@ impl BoardViewApp {
 
         // Center view and request auto-fit to window on next render frame
         if let Some(bbox) = board.bounding_box {
-            self.canvas_state.viewport.center = bbox.center();
+            self.canvases.center_all(bbox.center());
             self.pending_auto_fit = true;
         }
 
@@ -263,12 +270,7 @@ impl BoardViewApp {
         self.selected_part_idx = None;
         self.selected_net = None;
         self.pending_auto_fit = false;
-        self.canvas_state.cached_meshes.clear();
-        self.canvas_state.mesh_base = None;
-        self.canvas_state.cached_view_key = None;
-        self.canvas_state.hovered_pin = None;
-        self.canvas_state.hovered_via = None;
-        self.canvas_state.context_menu_pin = None;
+        self.canvases.clear_board();
         self.side_panel_state.overlay_editing = false;
         self.side_panel_state.focus_part = None;
         self.side_panel_state.stay_on_part = None;
@@ -338,8 +340,123 @@ impl BoardViewApp {
             self.open_schematic(&path);
         }
     }
+
+    /// Sides whose canvases are on screen.
+    fn visible_sides(&self) -> Vec<Side> {
+        match self.shown_side {
+            Side::Both => vec![Side::Top, Side::Bottom],
+            side => vec![side],
+        }
+    }
+
+    /// Shows `side` (`Both` shows the two canvases) and keeps the active canvas visible.
+    fn show_side(&mut self, side: Side) {
+        self.shown_side = side;
+        if !self.visible_sides().contains(&self.canvases.active) {
+            self.canvases.active = if side == Side::Bottom { Side::Bottom } else { Side::Top };
+        }
+    }
+
+    /// Side the overlay photo tools work on: the active canvas.
+    fn overlay_side(&self) -> Side {
+        self.canvases.active
+    }
+
+    /// Fits every canvas drawn in the last frame to its own rectangle (`fallback` for the active
+    /// canvas before any was drawn). Returns whether a board was fitted.
+    fn fit_shown_canvases(&mut self, fallback: Rect) -> bool {
+        let Some(bbox) = self.board.as_ref().and_then(|b| b.bounding_box) else {
+            return false;
+        };
+        if self.canvas_rects.is_empty() {
+            self.canvases.active_mut().viewport.fit_to_rect(bbox, fallback);
+        }
+        for &(side, rect) in &self.canvas_rects {
+            self.canvases.side_mut(side).viewport.fit_to_rect(bbox, rect);
+        }
+        true
+    }
+
+    /// Centers the board view on `center`, an item visible on `item_side`: the shown canvases
+    /// that can show it are centered. When none can, the canvases of the item's side are
+    /// centered, and with `switch_side` the view switches to that side first.
+    fn focus_point(&mut self, center: Point, item_side: Side, switch_side: bool) {
+        let mut targets: Vec<Side> = self.visible_sides().into_iter().filter(|&s| item_side.visible_on(s)).collect();
+        if targets.is_empty() {
+            targets = [Side::Top, Side::Bottom].into_iter().filter(|&s| item_side.visible_on(s)).collect();
+            if switch_side && let Some(&side) = targets.first() {
+                self.show_side(side);
+                targets.truncate(1);
+            }
+        }
+        for side in targets {
+            self.canvases.side_mut(side).viewport.center = center;
+        }
+    }
+
+    /// Centers the board view on part `part_id` (see `focus_point`). Returns whether it exists.
+    fn focus_part(&mut self, part_id: usize, switch_side: bool) -> bool {
+        let Some(board) = &self.board else { return false };
+        let Some(part_side) = board.parts.get(part_id).map(|p| p.side) else { return false };
+        let Some((center, _)) = side_panel::part_focus_target(board, part_id, Side::Both) else { return false };
+        self.focus_point(center, part_side, switch_side);
+        true
+    }
 }
 
+/// Where a schematic click moves the board view.
+enum Focus {
+    Part(usize),
+    Point(Point, Side),
+}
+
+impl BoardViewApp {
+    /// Draws the canvas of each `(side, rect)`, tracks the active canvas (last hovered or
+    /// clicked) and applies a pending auto-fit to the real canvas rectangles.
+    fn show_board_canvases(&mut self, ui: &mut Ui, rects: &[(Side, Rect)]) {
+        let overlay_mode_active = self.side_panel_state.overlay_editing;
+        for &(side, rect) in rects {
+            let is_active = self.canvases.active == side;
+            let response = show_canvas(
+                ui,
+                rect,
+                is_active,
+                &self.tokens,
+                self.board.as_ref(),
+                self.canvases.side_mut(side),
+                &mut self.overlay_manager,
+                &mut self.alignment_session,
+                overlay_mode_active,
+                &mut self.selected_pin_idx,
+                &mut self.selected_via_idx,
+                &mut self.selected_part_idx,
+                &mut self.selected_net,
+                &mut self.renderer,
+                &self.preferences,
+            );
+            if !is_active && (response.hovered() || response.clicked() || response.secondary_clicked()) {
+                self.canvases.active = side;
+            }
+        }
+        self.canvas_rects = rects.to_vec();
+
+        if self.pending_auto_fit
+            && let Some(&(_, first)) = rects.first()
+            && first.width() > 10.0
+            && first.height() > 10.0
+        {
+            if let Some(bbox) = self.board.as_ref().and_then(|b| b.bounding_box) {
+                // Hidden sides get the first rectangle until they are shown and fitted again.
+                for side in [Side::Top, Side::Bottom] {
+                    let rect = rects.iter().find(|(s, _)| *s == side).map_or(first, |&(_, r)| r);
+                    self.canvases.side_mut(side).viewport.fit_to_rect(bbox, rect);
+                }
+                ui.ctx().request_repaint();
+            }
+            self.pending_auto_fit = false;
+        }
+    }
+}
 
 impl eframe::App for BoardViewApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -357,7 +474,7 @@ impl eframe::App for BoardViewApp {
                     match ext.as_str() {
                         "png" | "jpg" | "jpeg" | "webp" | "bmp" => {
                             if let Ok(bytes) = std::fs::read(path) {
-                                let cur_side = self.canvas_state.viewport.side;
+                                let cur_side = self.overlay_side();
                                 let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
                                 let slot = self.overlay_manager.slot_for_side(cur_side);
                                 if let Err(err) = slot.load_from_bytes(ui.ctx(), path, &bytes, bbox) {
@@ -406,7 +523,7 @@ impl eframe::App for BoardViewApp {
                     // Release focus from text fields if Escape is pressed while typing
                     ui.memory_mut(|m| m.stop_text_input());
                 } else if self.alignment_session.is_active() {
-                    let cur_side = self.canvas_state.viewport.side;
+                    let cur_side = self.overlay_side();
                     let slot = self.overlay_manager.slot_for_side(cur_side);
                     if let Some(snap) = self.alignment_session.cancel() {
                         slot.restore_snapshot(snap);
@@ -418,17 +535,18 @@ impl eframe::App for BoardViewApp {
                     self.selected_part_idx = None;
                     self.selected_net = None;
                     self.status_msg = "Selection cleared.".to_string();
-                    self.canvas_state.cached_view_key = None;
+                    self.canvases.invalidate_caches();
                     ui.ctx().request_repaint();
                 }
             }
 
             if enter_pressed && self.alignment_session.is_active() {
                 if let Some(Ok(ref res)) = self.alignment_session.live_result {
-                    let cur_side = self.canvas_state.viewport.side;
+                    let cur_side = self.overlay_side();
                     let slot = self.overlay_manager.slot_for_side(cur_side);
-                    let cur_rotation_rad = self.canvas_state.viewport.rotation.angle_rad();
-                    let (cur_sx, cur_sy) = self.canvas_state.viewport.effective_factors();
+                    let viewport = &self.canvases.side(cur_side).viewport;
+                    let cur_rotation_rad = viewport.rotation.angle_rad();
+                    let (cur_sx, cur_sy) = viewport.effective_factors();
                     slot.apply_alignment_result(
                         res,
                         self.alignment_session.auto_lock_on_apply,
@@ -444,39 +562,28 @@ impl eframe::App for BoardViewApp {
 
             if !wants_kb {
                 if r_pressed {
-                    self.canvas_state.viewport.rotation = if shift_down {
-                        self.canvas_state.viewport.rotation.rotate_ccw()
+                    if shift_down {
+                        self.canvases.rotate_ccw();
                     } else {
-                        self.canvas_state.viewport.rotation.rotate_cw()
-                    };
+                        self.canvases.rotate_cw();
+                    }
                 }
 
                 if space_pressed {
-                    self.canvas_state.viewport.side = if self.canvas_state.viewport.side == Side::Top {
-                        Side::Bottom
-                    } else {
-                        Side::Top
-                    };
+                    self.show_side(if self.shown_side == Side::Top { Side::Bottom } else { Side::Top });
                 }
 
                 if m_pressed {
                     if shift_down {
-                        self.canvas_state.viewport.mirror_y = !self.canvas_state.viewport.mirror_y;
+                        self.canvases.toggle_mirror_y();
                     } else {
-                        self.canvas_state.viewport.mirror_x = !self.canvas_state.viewport.mirror_x;
+                        self.canvases.toggle_mirror_x();
                     }
                 }
 
-                if f_pressed {
-                    if let Some(board) = &self.board {
-                        if let Some(bbox) = board.bounding_box {
-                            let rect = ui.clip_rect();
-                            self.canvas_state.viewport.fit_to_rect(bbox, rect);
-                            self.canvas_state.cached_view_key = None;
-                            ui.ctx().request_repaint();
-                            self.status_msg = "Viewport fitted to PCB bounds (F)".to_string();
-                        }
-                    }
+                if f_pressed && self.fit_shown_canvases(ui.clip_rect()) {
+                    ui.ctx().request_repaint();
+                    self.status_msg = "Viewport fitted to PCB bounds (F)".to_string();
                 }
             }
         }
@@ -532,7 +639,7 @@ impl eframe::App for BoardViewApp {
                 // Actions Menu dropdown
                 ui.menu_button(i18n::tr(lang, "toolbar.actions"), |ui| {
                     if ui.button(i18n::tr(lang, "toolbar.load_photo")).clicked() {
-                        let cur_side = self.canvas_state.viewport.side;
+                        let cur_side = self.overlay_side();
                         self.open_photo_dialog(ui.ctx(), cur_side);
                         ui.close();
                     }
@@ -540,10 +647,11 @@ impl eframe::App for BoardViewApp {
                     let any_overlay = self.overlay_manager.top.is_loaded() || self.overlay_manager.bottom.is_loaded();
                     if ui.add_enabled(any_overlay, egui::Button::new(i18n::tr(lang, "actions.adjust_overlay"))).clicked() {
                         // Show a side that has a photo when the current one has none.
-                        let cur_side = self.canvas_state.viewport.side;
+                        let cur_side = self.overlay_side();
                         if !self.overlay_manager.slot_for_side_ref(cur_side).is_loaded() {
-                            self.canvas_state.viewport.side =
-                                if self.overlay_manager.top.is_loaded() { Side::Top } else { Side::Bottom };
+                            let side = if self.overlay_manager.top.is_loaded() { Side::Top } else { Side::Bottom };
+                            self.show_side(side);
+                            self.canvases.active = side;
                         }
                         self.side_panel_state.overlay_editing = true;
                         ui.close();
@@ -563,37 +671,35 @@ impl eframe::App for BoardViewApp {
                     }
                     ui.separator();
                     if ui.button(i18n::tr(lang, "actions.rotate_cw")).clicked() {
-                        self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_cw();
+                        self.canvases.rotate_cw();
                         ui.close();
                     }
                     if ui.button(i18n::tr(lang, "actions.rotate_ccw")).clicked() {
-                        self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_ccw();
+                        self.canvases.rotate_ccw();
                         ui.close();
                     }
                     if ui.button(i18n::tr(lang, "actions.rotate_180")).clicked() {
-                        self.canvas_state.viewport.rotation = self.canvas_state.viewport.rotation.rotate_180();
+                        self.canvases.rotate_180();
                         ui.close();
                     }
                     ui.separator();
-                    let is_top = self.canvas_state.viewport.side == Side::Top;
+                    let is_top = self.shown_side == Side::Top;
                     if ui.button(if is_top { i18n::tr(lang, "actions.flip_bottom") } else { i18n::tr(lang, "actions.flip_top") }).clicked() {
-                        self.canvas_state.viewport.side = if is_top { Side::Bottom } else { Side::Top };
+                        self.show_side(if is_top { Side::Bottom } else { Side::Top });
                         ui.close();
                     }
-                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_x"), if self.canvas_state.viewport.mirror_x { "ON" } else { "OFF" })).clicked() {
-                        self.canvas_state.viewport.mirror_x = !self.canvas_state.viewport.mirror_x;
+                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_x"), if self.canvases.mirror_x() { "ON" } else { "OFF" })).clicked() {
+                        self.canvases.toggle_mirror_x();
                         ui.close();
                     }
-                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_y"), if self.canvas_state.viewport.mirror_y { "ON" } else { "OFF" })).clicked() {
-                        self.canvas_state.viewport.mirror_y = !self.canvas_state.viewport.mirror_y;
+                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_y"), if self.canvases.mirror_y() { "ON" } else { "OFF" })).clicked() {
+                        self.canvases.toggle_mirror_y();
                         ui.close();
                     }
                     ui.separator();
                     if ui.button(i18n::tr(lang, "actions.reset")).clicked() {
-                        self.canvas_state.viewport.rotation = canvas::Rotation::Deg0;
-                        self.canvas_state.viewport.mirror_x = false;
-                        self.canvas_state.viewport.mirror_y = false;
-                        self.canvas_state.viewport.side = Side::Top;
+                        self.canvases.reset_orientation();
+                        self.show_side(Side::Top);
                         ui.close();
                     }
                 });
@@ -603,34 +709,30 @@ impl eframe::App for BoardViewApp {
                     ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
                         let rect = ui.clip_rect();
                         if ui.button(i18n::tr(lang, "toolbar.zoom_fit_window")).clicked() {
-                            if let Some(board) = &self.board {
-                                if let Some(bbox) = board.bounding_box {
-                                    self.canvas_state.viewport.fit_to_rect(bbox, rect);
-                                    self.canvas_state.cached_view_key = None;
-                                    ui.ctx().request_repaint();
-                                }
+                            if self.fit_shown_canvases(rect) {
+                                ui.ctx().request_repaint();
                             }
                             ui.close();
                         }
                         ui.separator();
                         if ui.button(i18n::tr(lang, "toolbar.zoom_preset_25")).clicked() {
-                            self.canvas_state.viewport.zoom_preset(0.25, rect);
+                            self.canvases.active_mut().viewport.zoom_preset(0.25, rect);
                             ui.close();
                         }
                         if ui.button(i18n::tr(lang, "toolbar.zoom_preset_50")).clicked() {
-                            self.canvas_state.viewport.zoom_preset(0.50, rect);
+                            self.canvases.active_mut().viewport.zoom_preset(0.50, rect);
                             ui.close();
                         }
                         if ui.button(i18n::tr(lang, "toolbar.zoom_preset_100")).clicked() {
-                            self.canvas_state.viewport.zoom_preset(1.0, rect);
+                            self.canvases.active_mut().viewport.zoom_preset(1.0, rect);
                             ui.close();
                         }
                         if ui.button(i18n::tr(lang, "toolbar.zoom_preset_150")).clicked() {
-                            self.canvas_state.viewport.zoom_preset(1.50, rect);
+                            self.canvases.active_mut().viewport.zoom_preset(1.50, rect);
                             ui.close();
                         }
                         if ui.button(i18n::tr(lang, "toolbar.zoom_preset_200")).clicked() {
-                            self.canvas_state.viewport.zoom_preset(2.0, rect);
+                            self.canvases.active_mut().viewport.zoom_preset(2.0, rect);
                             ui.close();
                         }
                     });
@@ -639,14 +741,14 @@ impl eframe::App for BoardViewApp {
                         .on_hover_text("Toggle component pin/pad visibility")
                         .changed()
                     {
-                        self.canvas_state.cached_view_key = None;
+                        self.canvases.invalidate_caches();
                         ui.ctx().request_repaint();
                     }
                     if ui.checkbox(&mut self.preferences.show_vias, i18n::tr(lang, "toolbar.vias"))
                         .on_hover_text("Toggle PCB via visibility")
                         .changed()
                     {
-                        self.canvas_state.cached_view_key = None;
+                        self.canvases.invalidate_caches();
                         ui.ctx().request_repaint();
                     }
                 });
@@ -663,16 +765,19 @@ impl eframe::App for BoardViewApp {
 
                 // Board side selector (Top / Bottom / Both). The side is part of
                 // the view cache key, so assigning it re-renders the board.
-                let current_side = self.canvas_state.viewport.side;
+                let mut shown = self.shown_side;
                 egui::ComboBox::from_id_salt("board_side_selector")
-                    .selected_text(side_label(lang, current_side))
+                    .selected_text(side_label(lang, shown))
                     .show_ui(ui, |ui: &mut Ui| {
                         for side in SIDE_CHOICES {
-                            ui.selectable_value(&mut self.canvas_state.viewport.side, side, side_label(lang, side));
+                            ui.selectable_value(&mut shown, side, side_label(lang, side));
                         }
                     })
                     .response
                     .on_hover_text(i18n::tr(lang, "toolbar.view_side_hover"));
+                if shown != self.shown_side {
+                    self.show_side(shown);
+                }
 
                 if let Some(name) = &self.filename {
                     ui.separator();
@@ -689,19 +794,19 @@ impl eframe::App for BoardViewApp {
                 ui.label(RichText::new(&self.status_msg).color(self.tokens.status_bar_text()));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut Ui| {
-                    let side_str = match self.canvas_state.viewport.side {
+                    let side_str = match self.shown_side {
                         Side::Top => "TOP",
                         Side::Bottom => "BOTTOM",
                         Side::Both => "BOTH",
                     };
-                    let rot_str = self.canvas_state.viewport.rotation.display_str();
-                    let mirror_str = match (self.canvas_state.viewport.mirror_x, self.canvas_state.viewport.mirror_y) {
+                    let rot_str = self.canvases.rotation().display_str();
+                    let mirror_str = match (self.canvases.mirror_x(), self.canvases.mirror_y()) {
                         (true, true) => " [Mirror XY]",
                         (true, false) => " [Mirror X]",
                         (false, true) => " [Mirror Y]",
                         (false, false) => "",
                     };
-                    ui.label(RichText::new(format!("[{side_str} | Rot: {rot_str}{mirror_str}] Scale: {:.4}", self.canvas_state.viewport.scale)).color(self.tokens.text_dim()));
+                    ui.label(RichText::new(format!("[{side_str} | Rot: {rot_str}{mirror_str}] Scale: {:.4}", self.canvases.active_state().viewport.scale)).color(self.tokens.text_dim()));
                 });
             });
             ui.add_space(2.0);
@@ -709,8 +814,9 @@ impl eframe::App for BoardViewApp {
 
         // Right side details / search panel
         let mut on_load_photo: Option<Side> = None;
-        let cur_rotation_rad = self.canvas_state.viewport.rotation.angle_rad();
-        let (cur_sx, cur_sy) = self.canvas_state.viewport.effective_factors();
+        let overlay_side = self.overlay_side();
+        let cur_rotation_rad = self.canvases.rotation().angle_rad();
+        let (cur_sx, cur_sy) = self.canvases.side(overlay_side).viewport.effective_factors();
         Panel::right("side_panel")
             .resizable(true)
             .default_size(320.0)
@@ -727,7 +833,7 @@ impl eframe::App for BoardViewApp {
                     &mut self.selected_via_idx,
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
-                    self.canvas_state.viewport.side,
+                    overlay_side,
                     cur_rotation_rad,
                     cur_sx,
                     cur_sy,
@@ -741,15 +847,10 @@ impl eframe::App for BoardViewApp {
         }
 
         // Center the board view on a part picked in the side panel search,
-        // flipping the view side when the part is not visible on the current one.
+        // switching the view side when the part is not visible on the shown one.
         if let Some(part_id) = self.side_panel_state.focus_part.take()
-            && let Some(board) = &self.board
-            && let Some((center, side)) =
-                side_panel::part_focus_target(board, part_id, self.canvas_state.viewport.side)
+            && self.focus_part(part_id, true)
         {
-            self.canvas_state.viewport.center = center;
-            self.canvas_state.viewport.side = side;
-            self.canvas_state.cached_view_key = None;
             ui.ctx().request_repaint();
         }
 
@@ -1027,6 +1128,7 @@ impl eframe::App for BoardViewApp {
                                     let clicked_pdf_pt = Pos2::new(pdf_pt_x, pdf_pt_y);
 
                                     let clicked_token = self.pdf_viewer.find_token_at(self.pdf_viewer.current_page, clicked_pdf_pt);
+                                    let mut focus = None;
 
                                     if let Some(occ) = clicked_token {
                                         let token_raw = occ.text.trim();
@@ -1043,16 +1145,8 @@ impl eframe::App for BoardViewApp {
                                                 // Already shown in the PDF: don't cross-probe it back to its first hit
                                                 self.pdf_viewer.probed_part = Some(part.id);
 
-                                                // Center the board on the part, flipping the view side if needed
-                                                if let Some((center, side)) =
-                                                    side_panel::part_focus_target(board, part.id, self.canvas_state.viewport.side)
-                                                {
-                                                    self.canvas_state.viewport.center = center;
-                                                    self.canvas_state.viewport.side = side;
-                                                }
-
-                                                self.canvas_state.cached_view_key = None;
                                                 self.status_msg = format!("Selected part {} from schematic PDF", part.name);
+                                                focus = Some(Focus::Part(part.id));
                                                 ui.ctx().request_repaint();
                                             }
                                             // 2. Try matching net name (e.g. PP3V3_S5, GND, +12V)
@@ -1063,14 +1157,21 @@ impl eframe::App for BoardViewApp {
                                                 self.selected_part_idx = self.selected_pin_idx.and_then(|p_idx| board.pins.get(p_idx)).map(|p| p.part_id);
 
                                                 if let Some(first_pin) = self.selected_pin_idx.and_then(|idx| board.pins.get(idx)) {
-                                                    self.canvas_state.viewport.center = first_pin.pos;
+                                                    focus = Some(Focus::Point(first_pin.pos, first_pin.side));
                                                 }
 
-                                                self.canvas_state.cached_view_key = None;
                                                 self.status_msg = format!("Selected net {} ({} pins) from schematic PDF", net.name, net.pin_indices.len());
                                                 ui.ctx().request_repaint();
                                             }
                                         }
+                                    }
+                                    // Center the board on the hit, switching the view side if needed
+                                    match focus {
+                                        Some(Focus::Part(part_id)) => {
+                                            self.focus_part(part_id, true);
+                                        }
+                                        Some(Focus::Point(center, side)) => self.focus_point(center, side, true),
+                                        None => {}
                                     }
                                 }
                             }
@@ -1153,36 +1254,15 @@ impl eframe::App for BoardViewApp {
         CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
             .show(ui, |ui: &mut Ui| {
-                let overlay_mode_active = self.side_panel_state.overlay_editing;
-                let response = show_canvas(
-                    ui,
-                    &self.tokens,
-                    self.board.as_ref(),
-                    &mut self.canvas_state,
-                    &mut self.overlay_manager,
-                    &mut self.alignment_session,
-                    overlay_mode_active,
-                    &mut self.selected_pin_idx,
-                    &mut self.selected_via_idx,
-                    &mut self.selected_part_idx,
-                    &mut self.selected_net,
-                    &mut self.renderer,
-                    &self.preferences,
-                );
-
-                if self.pending_auto_fit {
-                    let rect = response.rect;
-                    if rect.width() > 10.0 && rect.height() > 10.0 {
-                        if let Some(board) = &self.board {
-                            if let Some(bbox) = board.bounding_box {
-                                self.canvas_state.viewport.fit_to_rect(bbox, rect);
-                                self.canvas_state.cached_view_key = None;
-                                ui.ctx().request_repaint();
-                            }
-                        }
-                        self.pending_auto_fit = false;
+                let area = ui.available_rect_before_wrap();
+                let rects = match self.shown_side {
+                    Side::Both => {
+                        let (left, right) = area.split_left_right_at_fraction(0.5);
+                        vec![(Side::Top, left.shrink2(egui::vec2(2.0, 0.0))), (Side::Bottom, right.shrink2(egui::vec2(2.0, 0.0)))]
                     }
-                }
+                    side => vec![(side, area)],
+                };
+                self.show_board_canvases(ui, &rects);
             });
 
         about::show_about_window(ui.ctx(), &mut self.about_open, &self.tokens, lang);
@@ -1212,8 +1292,8 @@ impl eframe::App for BoardViewApp {
                 let is_light = prefs.app_theme == AppTheme::Light;
                 ui.ctx().set_visuals(self.tokens.egui_visuals(is_light));
             }
-            // Invalidate canvas mesh cache
-            self.canvas_state.cached_view_key = None;
+            // Invalidate canvas mesh caches
+            self.canvases.invalidate_caches();
             self.preferences = prefs;
             let _ = self.preferences.save_atomic();
         }
@@ -1233,7 +1313,9 @@ mod focus_tests {
             parser_registry: Arc::new(ParserRegistry::new()),
             tokens: Tokens::default(),
             renderer: Renderer::default(),
-            canvas_state: CanvasState::default(),
+            canvases: BoardCanvases::default(),
+            shown_side: Side::Top,
+            canvas_rects: Vec::new(),
             side_panel_state: SidePanelState::default(),
             overlay_manager: OverlayManager::default(),
             alignment_session: AlignmentSession::default(),
@@ -1285,7 +1367,7 @@ mod focus_tests {
         assert_eq!(app.side_panel_state.filter_part, "U1", "search filters are kept");
         assert!(!app.pdf_viewer.is_open && app.pdf_viewer.path.is_none());
         assert!(app.pending_schematic_prompt.is_none());
-        assert!(app.canvas_state.cached_view_key.is_none());
+        assert!(app.canvases.top.cached_view_key.is_none() && app.canvases.bottom.cached_view_key.is_none());
         assert_eq!(app.status(), "Closed MS-V375.cad.");
     }
 
