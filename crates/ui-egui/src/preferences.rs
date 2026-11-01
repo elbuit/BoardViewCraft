@@ -2,6 +2,7 @@
 
 use crate::board_tabs::{BoardTab, BothLayout};
 use crate::i18n::{self, Language, LanguagePref};
+use crate::keymap::Keymap;
 use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
 use serde::{Deserialize, Serialize};
@@ -87,6 +88,9 @@ pub struct Preferences {
     /// Arrangement of the two sides in the Both tab.
     #[serde(default)]
     pub both_layout: BothLayout,
+    /// Keyboard shortcuts; missing or invalid entries fall back to the default keys.
+    #[serde(default)]
+    pub keymap: Keymap,
 }
 
 impl Default for Preferences {
@@ -110,6 +114,7 @@ impl Default for Preferences {
             board_schematics: Vec::new(),
             board_tab: BoardTab::Top,
             both_layout: BothLayout::Auto,
+            keymap: Keymap::default(),
         }
     }
 }
@@ -633,6 +638,7 @@ mod tests {
             }],
             board_tab: BoardTab::Pdf,
             both_layout: BothLayout::Vertical,
+            keymap: Keymap::default(),
         };
 
         let json = serde_json::to_string(&prefs).expect("Serialize to JSON");
@@ -731,6 +737,21 @@ mod tests {
         value.as_object_mut().unwrap().remove("board_schematics");
         let prefs: Preferences = serde_json::from_value(value).expect("old preferences still load");
         assert!(prefs.board_schematics.is_empty());
+    }
+
+    #[test]
+    fn keymap_defaults_when_missing_and_round_trips_rebinds() {
+        use crate::keymap::{Action, Binding, Mods};
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value.as_object_mut().unwrap().remove("keymap");
+        let prefs: Preferences = serde_json::from_value(value).expect("old preferences still load");
+        assert_eq!(prefs.keymap, Keymap::default());
+
+        let mut saved = Preferences::default();
+        saved.keymap.set(Action::FitView, Binding::new(egui::Key::G, Mods::SHIFT));
+        let loaded: Preferences = serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
+        assert_eq!(loaded.keymap.bindings(Action::FitView), &[Binding::new(egui::Key::G, Mods::SHIFT)]);
+        assert_eq!(loaded, saved);
     }
 
     #[test]

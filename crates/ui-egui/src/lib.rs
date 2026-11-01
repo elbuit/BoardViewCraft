@@ -4,6 +4,7 @@ mod about;
 mod board_tabs;
 mod canvas;
 mod i18n;
+pub mod keymap;
 mod overlay;
 pub mod overlay_align;
 pub mod pdf;
