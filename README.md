@@ -2,7 +2,7 @@
 
 > High-performance, modern, pure Rust viewer for hardware repair and PCB inspection.
 
-BoardViewCraft is an open-source boardview inspection application built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It is designed to provide fluid navigation, clear part and pad rendering, and intuitive diagnostics for dense multi-layer PCB designs, with the board schematic PDF side by side.
+BoardViewCraft is an open-source boardview inspection application built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It is designed to provide fluid navigation, clear part and pad rendering, and intuitive diagnostics for dense multi-layer PCB designs, with the board schematic PDF one tab away.
 
 ---
 
@@ -10,11 +10,13 @@ BoardViewCraft is an open-source boardview inspection application built from the
 
 - **Fast Canvas**: Parallel spatial grid queries (`Rayon`) and tessellated meshes (`Lyon`). Cached meshes are re-mapped while zooming and panning, so navigation stays smooth even on boards with tens of thousands of pins and vias.
 - **Readable Board Rendering**: Filled part bodies, component outlines, and real pad shapes (round, rectangular, rotated) read from GenCAD `$PADS` data, so connectors such as PCIe edge fingers look like the physical board.
+- **Board Tabs**: **Top**, **Bottom**, **Both** and **PDF** tabs. **Both** shows the top and bottom sides as two separate views, stacked or side by side (**Auto** picks stacked for boards wider than tall and side by side otherwise). Only the active tab is drawn, and each side keeps its own cached meshes, so switching tabs is instant.
 - **Bijective Coordinates**: Pan, zoom, flip (TOP/BOTTOM), rotate (90° / 180°), and horizontal/vertical mirror with consistent coordinate mapping.
 - **Component Search**: Search parts and nets from the side panel. Picking a result selects only that part and centers it on the board.
 - **Schematic PDF Viewer**:
   - Tiled rendering of zoomed pages, background text indexing, and page previews for instant jumps.
-  - Text search box inside the PDF panel (`Enter` jumps to the next hit).
+  - Shown in its own **PDF** tab; text keeps being indexed while another tab is active.
+  - Text search box inside the PDF tab (`Enter` jumps to the next hit).
   - Cross-probing: selecting a part on the board finds it in the schematic, and clicking a part in the PDF selects it on the board.
   - Each board remembers its own schematic PDF; opening another board closes the current PDF and restores the one associated with the new board.
 - **Net Flight Lines**:
@@ -77,8 +79,8 @@ cargo test --workspace --release
 
 | Shortcut | Action |
 | :--- | :--- |
-| `F` | Auto-fit board to window |
-| `Space` | Flip board side (TOP / BOTTOM) |
+| `F` | Auto-fit the visible board view(s) |
+| `Space` | Switch between the Top and Bottom tabs |
 | `R` | Rotate 90° Clockwise |
 | `Shift + R` | Rotate 90° Counter-Clockwise |
 | `M` | Mirror X (Horizontal) |
@@ -87,6 +89,7 @@ cargo test --workspace --release
 | `Ctrl + ,` | Open Preferences |
 | `Scroll` | Zoom into cursor position (2.5× per wheel notch) |
 | `Drag` | Pan canvas |
+| Arrow keys / `+` / `-` | Pan / zoom the active board view (last hovered or clicked) |
 | `Right Click` / `Ctrl + Click` | Context menu |
 | `PageUp` / `PageDown`, `←` / `→` | Previous / next PDF page |
 | `+` / `-` | Zoom PDF page |
