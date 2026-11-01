@@ -86,6 +86,7 @@
 	overlay.align_status_min_points	Sélectionnez au moins 2 paires de broches pour calculer l'alignement.
 	prefs.title	Préférences
 	prefs.language	Langue :
+	prefs.language_auto	Automatique (système)
 	prefs.appearance	Apparence et thèmes
 	prefs.app_theme	Thème de l'application :
 	prefs.pcb_theme	Thème du circuit :

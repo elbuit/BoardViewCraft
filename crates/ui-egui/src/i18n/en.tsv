@@ -86,6 +86,7 @@
 	overlay.align_status_min_points	Pick at least 2 pin pairs to calculate alignment.
 	prefs.title	Preferences
 	prefs.language	Language:
+	prefs.language_auto	Auto (system)
 	prefs.appearance	Appearance & Themes
 	prefs.app_theme	Application Theme:
 	prefs.pcb_theme	PCB Theme:

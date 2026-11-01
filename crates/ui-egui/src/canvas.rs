@@ -1039,7 +1039,7 @@ pub fn show_canvas(
                     .get(pin.part_id)
                     .map(|p| p.name.as_str())
                     .unwrap_or("?");
-                let lang = prefs.language;
+                let lang = prefs.ui_language();
 
                 let mut close_menu = false;
                 let menu_id = egui::Id::unique("pin_context_menu_area");
@@ -1137,7 +1137,7 @@ pub fn show_canvas(
             alignment_session,
             board,
             response.hover_pos(),
-            prefs.language,
+            prefs.ui_language(),
         );
     }
 
