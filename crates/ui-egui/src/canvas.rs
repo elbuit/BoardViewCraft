@@ -579,6 +579,21 @@ impl BoardCanvases {
     }
 }
 
+/// Whether this frame's interaction makes a canvas the active one: a click, right-click or the
+/// start of a drag. Hovering alone does not, so crossing a canvas with the pointer (e.g. on the
+/// way to the side panel) never retargets the keyboard or the overlay tools.
+pub fn activates_canvas(clicked: bool, secondary_clicked: bool, drag_started: bool) -> bool {
+    clicked || secondary_clicked || drag_started
+}
+
+/// Alpha of the overlay photo and opacity factor of the board drawn over it. With a photo
+/// shown, the photo stays opaque and the opacity setting fades the board on top of it, so the
+/// pins can be lined up with the photo; without one, the board is opaque.
+fn overlay_layer_alphas(photo_shown: bool, opacity: f32) -> (u8, f32) {
+    let board = if photo_shown { opacity.clamp(0.0, 1.0) } else { 1.0 };
+    (255, board)
+}
+
 /// Whether a canvas takes keyboard/wheel input and keeps its pin menu this frame: the active
 /// canvas, or one clicked right now (the caller only marks it active after it is drawn, and a
 /// touch or pen click has no hover frame before it).
@@ -688,7 +703,7 @@ pub fn show_canvas(
             let p2 = vp.world_to_screen_with_angle(world_corners[2], rect, final_sx, final_sy, final_rot_rad);
             let p3 = vp.world_to_screen_with_angle(world_corners[3], rect, final_sx, final_sy, final_rot_rad);
 
-            let alpha = (active_slot.opacity.clamp(0.0, 1.0) * 255.0) as u8;
+            let (alpha, _) = overlay_layer_alphas(true, active_slot.opacity);
             let tint = Color32::from_white_alpha(alpha);
 
             let mut img_mesh = Mesh::with_texture(texture.id());
@@ -1022,9 +1037,14 @@ pub fn show_canvas(
         if sync == MeshSync::Remapped {
             ui.ctx().request_repaint();
         }
-        // Emitting a cached mesh only bumps its reference count.
+        // The board over a shown photo is faded by the overlay opacity (the photo stays opaque).
+        let photo_shown = active_slot.visible && active_slot.texture.is_some();
+        let (_, board_opacity) = overlay_layer_alphas(photo_shown, active_slot.opacity);
+        let mut board_painter = painter.clone();
+        board_painter.set_opacity(board_opacity);
+        // Emitting a cached mesh only bumps its reference count (a faded board copies it).
         for mesh in &canvas_state.cached_meshes {
-            painter.add(Shape::Mesh(Arc::clone(mesh)));
+            board_painter.add(Shape::Mesh(Arc::clone(mesh)));
         }
         let hover_mesh = hover_overlay_mesh(b, vp, rect, tokens, current_hover_pin, current_hover_via, *selected_pin_idx);
         if !hover_mesh.is_empty() {
@@ -2723,6 +2743,25 @@ mod tests {
 
     /// A click on a canvas that is not active yet (touch or pen: no hover frame before it)
     /// makes it take the input that frame, so a right-click menu is not closed at once.
+    /// Only a click, right-click or drag start makes a canvas active; merely hovering it (e.g.
+    /// crossing the bottom canvas on the way to the side panel) does not.
+    #[test]
+    fn only_a_click_or_drag_activates_a_canvas() {
+        assert!(!activates_canvas(false, false, false));
+        assert!(activates_canvas(true, false, false));
+        assert!(activates_canvas(false, true, false));
+        assert!(activates_canvas(false, false, true));
+    }
+
+    /// With a photo shown, the photo is drawn opaque and the opacity slider fades the board
+    /// drawn on top of it, so pins stay visible over the photo while aligning.
+    #[test]
+    fn overlay_opacity_fades_the_board_not_the_photo() {
+        assert_eq!(overlay_layer_alphas(true, 0.4), (255, 0.4));
+        assert_eq!(overlay_layer_alphas(true, 1.7), (255, 1.0));
+        assert_eq!(overlay_layer_alphas(false, 0.4), (255, 1.0), "no photo: the board is opaque");
+    }
+
     #[test]
     fn a_clicked_canvas_takes_input_before_it_is_active() {
         assert!(canvas_takes_input(true, false, false));

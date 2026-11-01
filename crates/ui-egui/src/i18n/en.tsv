@@ -58,7 +58,7 @@
 	overlay.locked	Locked
 	overlay.unlocked	Unlocked
 	overlay.visible	Visible
-	overlay.opacity	Opacity:
+	overlay.opacity	Board opacity:
 	overlay.position	Position
 	overlay.size	Dimensions
 	overlay.zoom	Zoom / Scale

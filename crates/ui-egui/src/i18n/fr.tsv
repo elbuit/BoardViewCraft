@@ -58,7 +58,7 @@
 	overlay.locked	Verrouillé
 	overlay.unlocked	Déverrouillé
 	overlay.visible	Visible
-	overlay.opacity	Opacité :
+	overlay.opacity	Opacité de la carte :
 	overlay.position	Position
 	overlay.size	Dimensions
 	overlay.zoom	Zoom / Échelle
