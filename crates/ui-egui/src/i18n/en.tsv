@@ -10,7 +10,7 @@
 	toolbar.actions	Actions
 	toolbar.preferences	Preferences...
 	toolbar.zoom	Zoom
-	toolbar.zoom_fit_window	Fit to Window (F)
+	toolbar.zoom_fit_window	Fit to Window
 	toolbar.zoom_preset_25	25%
 	toolbar.zoom_preset_50	50%
 	toolbar.zoom_preset_100	100%
@@ -20,7 +20,7 @@
 	tabs.bottom	Bottom
 	tabs.both	Both
 	tabs.pdf	Schematic PDF
-	tabs.hover	Board view tabs (Space switches Top/Bottom)
+	tabs.hover	Board view tabs ({key} switches Top/Bottom)
 	layout.label	Layout:
 	layout.auto	Auto
 	layout.vertical	Vertical (top above bottom)
@@ -30,13 +30,13 @@
 	toolbar.vias	Vias
 	toolbar.load_photo	Load Overlay Photo...
 	status.ready	Ready. Open a board file to inspect.
-	actions.rotate_cw	Rotate 90° CW (R)
-	actions.rotate_ccw	Rotate 90° CCW (Shift+R)
+	actions.rotate_cw	Rotate 90° CW
+	actions.rotate_ccw	Rotate 90° CCW
 	actions.rotate_180	Rotate 180°
-	actions.flip_bottom	Flip to BOTTOM (Space)
-	actions.flip_top	Flip to TOP (Space)
-	actions.mirror_x	Mirror X [Horizontal] (M)
-	actions.mirror_y	Mirror Y [Vertical] (Shift+M)
+	actions.flip_bottom	Flip to BOTTOM
+	actions.flip_top	Flip to TOP
+	actions.mirror_x	Mirror X [Horizontal]
+	actions.mirror_y	Mirror Y [Vertical]
 	actions.reset	Reset Orientation
 	actions.adjust_overlay	Adjust Overlay Photo
 	side_panel.back_to_search	← Search

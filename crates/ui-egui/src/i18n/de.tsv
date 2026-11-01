@@ -10,7 +10,7 @@
 	toolbar.actions	Aktionen
 	toolbar.preferences	Einstellungen...
 	toolbar.zoom	Zoom
-	toolbar.zoom_fit_window	An Fenster anpassen (F)
+	toolbar.zoom_fit_window	An Fenster anpassen
 	toolbar.zoom_preset_25	25%
 	toolbar.zoom_preset_50	50%
 	toolbar.zoom_preset_100	100%
@@ -20,7 +20,7 @@
 	tabs.bottom	Unten
 	tabs.both	Beide
 	tabs.pdf	Schaltplan-PDF
-	tabs.hover	Ansichts-Tabs der Platine (Leertaste wechselt Oben/Unten)
+	tabs.hover	Ansichts-Tabs der Platine ({key} wechselt Oben/Unten)
 	layout.label	Anordnung:
 	layout.auto	Auto
 	layout.vertical	Vertikal (oben über unten)
@@ -30,13 +30,13 @@
 	toolbar.vias	Vias
 	toolbar.load_photo	Overlay-Foto laden...
 	status.ready	Bereit. Öffnen Sie eine Platinendatei zur Prüfung.
-	actions.rotate_cw	90° im Uhrzeigersinn drehen (R)
-	actions.rotate_ccw	90° gegen den Uhrzeigersinn drehen (Shift+R)
+	actions.rotate_cw	90° im Uhrzeigersinn drehen
+	actions.rotate_ccw	90° gegen den Uhrzeigersinn drehen
 	actions.rotate_180	180° drehen
-	actions.flip_bottom	Zu UNTEN wechseln (Leertaste)
-	actions.flip_top	Zu OBEN wechseln (Leertaste)
-	actions.mirror_x	Spiegeln X [Horizontal] (M)
-	actions.mirror_y	Spiegeln Y [Vertikal] (Shift+M)
+	actions.flip_bottom	Zu UNTEN wechseln
+	actions.flip_top	Zu OBEN wechseln
+	actions.mirror_x	Spiegeln X [Horizontal]
+	actions.mirror_y	Spiegeln Y [Vertikal]
 	actions.reset	Ausrichtung zurücksetzen
 	actions.adjust_overlay	Overlay-Foto anpassen
 	side_panel.back_to_search	← Suche

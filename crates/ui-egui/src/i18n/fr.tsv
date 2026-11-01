@@ -10,7 +10,7 @@
 	toolbar.actions	Actions
 	toolbar.preferences	Préférences...
 	toolbar.zoom	Zoom
-	toolbar.zoom_fit_window	Ajuster à la fenêtre (F)
+	toolbar.zoom_fit_window	Ajuster à la fenêtre
 	toolbar.zoom_preset_25	25%
 	toolbar.zoom_preset_50	50%
 	toolbar.zoom_preset_100	100%
@@ -20,7 +20,7 @@
 	tabs.bottom	Dessous
 	tabs.both	Les deux
 	tabs.pdf	Schéma PDF
-	tabs.hover	Onglets de vue de la carte (Espace bascule Dessus/Dessous)
+	tabs.hover	Onglets de vue de la carte ({key} bascule Dessus/Dessous)
 	layout.label	Disposition :
 	layout.auto	Auto
 	layout.vertical	Verticale (dessus en haut, dessous en bas)
@@ -30,13 +30,13 @@
 	toolbar.vias	Vias
 	toolbar.load_photo	Charger une photo superposée...
 	status.ready	Prêt. Ouvrez un fichier de circuit pour l'inspecter.
-	actions.rotate_cw	Pivoter de 90° horaire (R)
-	actions.rotate_ccw	Pivoter de 90° antihoraire (Shift+R)
+	actions.rotate_cw	Pivoter de 90° horaire
+	actions.rotate_ccw	Pivoter de 90° antihoraire
 	actions.rotate_180	Pivoter de 180°
-	actions.flip_bottom	Passer au DESSOUS (Espace)
-	actions.flip_top	Passer au DESSUS (Espace)
-	actions.mirror_x	Miroir X [Horizontal] (M)
-	actions.mirror_y	Miroir Y [Vertical] (Shift+M)
+	actions.flip_bottom	Passer au DESSOUS
+	actions.flip_top	Passer au DESSUS
+	actions.mirror_x	Miroir X [Horizontal]
+	actions.mirror_y	Miroir Y [Vertical]
 	actions.reset	Réinitialiser l'orientation
 	actions.adjust_overlay	Ajuster la photo superposée
 	side_panel.back_to_search	← Recherche
