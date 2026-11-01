@@ -1,3 +1,5 @@
+<img src="assets/app-icon/boardviewcraft-mark.svg" alt="BoardViewCraft logo" width="96" align="right">
+
 # BoardViewCraft
 
 > High-performance, modern, pure Rust viewer for hardware repair and PCB inspection.
