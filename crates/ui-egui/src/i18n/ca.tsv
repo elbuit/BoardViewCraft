@@ -123,6 +123,25 @@
 	prefs.show_vias	Mostrar Vies i Claus de Prova
 	prefs.show_unnamed_vias	Mostrar Vies i Pads sense nom
 	prefs.close	Tancar
+	prefs.shortcuts	Dreceres de teclat
+	prefs.shortcut_press_key	Prem una tecla… (Esc cancel·la)
+	prefs.shortcut_capture_hover	Fes clic i prem la nova combinació de tecles
+	prefs.shortcut_reset	Restablir
+	prefs.shortcut_reset_all	Restablir totes les dreceres
+	prefs.shortcut_conflict	Ja s'utilitza per a: {action}
+	shortcut.rotate_cw	Girar 90° en sentit horari
+	shortcut.rotate_ccw	Girar 90° en sentit antihorari
+	shortcut.flip_side	Canviar cara superior/inferior
+	shortcut.mirror_x	Emmirallar X (horitzontal)
+	shortcut.mirror_y	Emmirallar Y (vertical)
+	shortcut.fit_view	Ajustar la placa a la vista
+	shortcut.zoom_in	Apropar
+	shortcut.zoom_out	Allunyar
+	shortcut.pan_up	Desplaçar amunt
+	shortcut.pan_down	Desplaçar avall
+	shortcut.pan_left	Desplaçar a l'esquerra
+	shortcut.pan_right	Desplaçar a la dreta
+	shortcut.toggle_preferences	Obrir/tancar Preferències
 	context_menu.pin_title	Informació del Pin
 	context_menu.net	Xarxa:
 	context_menu.side	Capa:

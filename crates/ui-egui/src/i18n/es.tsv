@@ -123,6 +123,25 @@
 	prefs.show_vias	Mostrar Vías y Clavos de Prueba
 	prefs.show_unnamed_vias	Mostrar Vías y Pads sin nombre
 	prefs.close	Cerrar
+	prefs.shortcuts	Atajos de teclado
+	prefs.shortcut_press_key	Pulsa una tecla… (Esc cancela)
+	prefs.shortcut_capture_hover	Haz clic y pulsa la nueva combinación de teclas
+	prefs.shortcut_reset	Restablecer
+	prefs.shortcut_reset_all	Restablecer todos los atajos
+	prefs.shortcut_conflict	Ya está asignado a: {action}
+	shortcut.rotate_cw	Rotar 90° en sentido horario
+	shortcut.rotate_ccw	Rotar 90° en sentido antihorario
+	shortcut.flip_side	Cambiar cara superior/inferior
+	shortcut.mirror_x	Espejar X (horizontal)
+	shortcut.mirror_y	Espejar Y (vertical)
+	shortcut.fit_view	Ajustar la placa a la vista
+	shortcut.zoom_in	Acercar
+	shortcut.zoom_out	Alejar
+	shortcut.pan_up	Desplazar arriba
+	shortcut.pan_down	Desplazar abajo
+	shortcut.pan_left	Desplazar a la izquierda
+	shortcut.pan_right	Desplazar a la derecha
+	shortcut.toggle_preferences	Abrir/cerrar Preferencias
 	context_menu.pin_title	Información del Pin
 	context_menu.net	Red:
 	context_menu.side	Capa:

@@ -123,6 +123,25 @@
 	prefs.show_vias	Mostra via e punti di test
 	prefs.show_unnamed_vias	Mostra via e pad senza nome
 	prefs.close	Chiudi
+	prefs.shortcuts	Scorciatoie da tastiera
+	prefs.shortcut_press_key	Premi un tasto… (Esc annulla)
+	prefs.shortcut_capture_hover	Fai clic, poi premi la nuova combinazione di tasti
+	prefs.shortcut_reset	Ripristina
+	prefs.shortcut_reset_all	Ripristina tutte le scorciatoie
+	prefs.shortcut_conflict	Già usato da: {action}
+	shortcut.rotate_cw	Ruota di 90° in senso orario
+	shortcut.rotate_ccw	Ruota di 90° in senso antiorario
+	shortcut.flip_side	Passa tra lato superiore e inferiore
+	shortcut.mirror_x	Specchia X (orizzontale)
+	shortcut.mirror_y	Specchia Y (verticale)
+	shortcut.fit_view	Adatta il circuito alla vista
+	shortcut.zoom_in	Ingrandisci
+	shortcut.zoom_out	Riduci
+	shortcut.pan_up	Sposta in alto
+	shortcut.pan_down	Sposta in basso
+	shortcut.pan_left	Sposta a sinistra
+	shortcut.pan_right	Sposta a destra
+	shortcut.toggle_preferences	Apri/chiudi Preferenze
 	context_menu.pin_title	Informazioni sul pin
 	context_menu.net	Rete:
 	context_menu.side	Lato:

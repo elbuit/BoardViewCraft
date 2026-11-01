@@ -170,6 +170,32 @@ impl Binding {
     }
 }
 
+impl Binding {
+    /// The binding a key press records when capturing a new shortcut. `None` for a press that
+    /// cannot be bound: a Ctrl that is not the command modifier (macOS Control). Shift is dropped
+    /// on [`shift_insensitive`] keys, whose glyph already implies it.
+    pub fn from_press(key: Key, mods: Modifiers) -> Option<Self> {
+        if mods.ctrl && !mods.command {
+            return None;
+        }
+        let shift = mods.shift && !shift_insensitive(key);
+        Some(Self::new(key, Mods { shift, alt: mods.alt, command: mods.command }))
+    }
+}
+
+/// Result of feeding one key press to a shortcut capture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureOutcome {
+    /// The press became the action's only binding.
+    Assigned,
+    /// The press is already bound to this other action; nothing changed.
+    Conflict(Action),
+    /// Esc: the capture ends without changes.
+    Cancelled,
+    /// The press cannot be bound (Enter, macOS Control); keep capturing.
+    Ignored,
+}
+
 /// Keys whose glyph needs Shift on common keyboard layouts (e.g. `+` is Shift+`=` on US).
 /// A binding to one of them without Shift ignores the Shift state, so the default zoom-in `+`
 /// keeps working however the layout produces it.
@@ -220,6 +246,39 @@ impl Keymap {
 
     pub fn reset(&mut self, action: Action) {
         self.bindings.insert(action, action.default_bindings());
+    }
+
+    /// Restores the action's defaults unless one of them is now bound to another action, which
+    /// is returned instead (nothing changes).
+    pub fn try_reset(&mut self, action: Action) -> Result<(), Action> {
+        let defaults = action.default_bindings();
+        if let Some(other) = defaults.iter().find_map(|&binding| self.conflict(binding, action)) {
+            return Err(other);
+        }
+        self.bindings.insert(action, defaults);
+        Ok(())
+    }
+
+    /// Whether the action still has its default bindings.
+    pub fn is_default(&self, action: Action) -> bool {
+        self.bindings(action) == action.default_bindings().as_slice()
+    }
+
+    /// Feeds a captured key press for `action`. Esc cancels; Enter (fixed calibration key) and
+    /// unbindable presses are ignored; a press bound to another action is refused.
+    pub fn apply_capture(&mut self, action: Action, key: Key, mods: Modifiers) -> CaptureOutcome {
+        if key == Key::Escape {
+            return CaptureOutcome::Cancelled;
+        }
+        if key == Key::Enter {
+            return CaptureOutcome::Ignored;
+        }
+        let Some(binding) = Binding::from_press(key, mods) else { return CaptureOutcome::Ignored };
+        if let Some(other) = self.conflict(binding, action) {
+            return CaptureOutcome::Conflict(other);
+        }
+        self.set(action, binding);
+        CaptureOutcome::Assigned
     }
 
     pub fn reset_all(&mut self) {
@@ -453,5 +512,51 @@ mod tests {
 
         let not_a_map: Keymap = serde_json::from_value(serde_json::json!(42)).unwrap();
         assert_eq!(not_a_map, def);
+    }
+
+    #[test]
+    fn capture_binding_from_press() {
+        assert_eq!(Binding::from_press(Key::G, Modifiers::SHIFT), Some(b(Key::G, Mods::SHIFT)));
+        let all = Modifiers { alt: true, shift: true, ..Modifiers::COMMAND };
+        assert_eq!(Binding::from_press(Key::K, all), Some(b(Key::K, Mods { shift: true, alt: true, command: true })));
+        // `+` arrives with Shift on many layouts: the glyph already implies it.
+        assert_eq!(Binding::from_press(Key::Plus, Modifiers::SHIFT), Some(b(Key::Plus, Mods::NONE)));
+        // A Control that is not the command modifier (macOS) cannot be represented.
+        assert_eq!(Binding::from_press(Key::G, Modifiers { ctrl: true, ..Modifiers::NONE }), None);
+    }
+
+    #[test]
+    fn capture_assigns_cancels_ignores_and_refuses_conflicts() {
+        let mut km = Keymap::default();
+        assert_eq!(km.apply_capture(Action::FitView, Key::G, Modifiers::COMMAND), CaptureOutcome::Assigned);
+        assert_eq!(km.bindings(Action::FitView), &[b(Key::G, Mods::COMMAND)]);
+
+        let before = km.clone();
+        assert_eq!(km.apply_capture(Action::FitView, Key::R, Modifiers::SHIFT), CaptureOutcome::Conflict(Action::RotateCcw));
+        assert_eq!(km.apply_capture(Action::FitView, Key::Escape, Modifiers::NONE), CaptureOutcome::Cancelled);
+        assert_eq!(km.apply_capture(Action::FitView, Key::Enter, Modifiers::NONE), CaptureOutcome::Ignored);
+        let mac_ctrl = Modifiers { ctrl: true, ..Modifiers::NONE };
+        assert_eq!(km.apply_capture(Action::FitView, Key::H, mac_ctrl), CaptureOutcome::Ignored);
+        assert_eq!(km, before);
+
+        // Re-capturing an action's own key, or one of its alternates, is not a conflict.
+        assert_eq!(km.apply_capture(Action::ZoomIn, Key::Equals, Modifiers::NONE), CaptureOutcome::Assigned);
+        assert_eq!(km.bindings(Action::ZoomIn), &[b(Key::Equals, Mods::NONE)]);
+    }
+
+    #[test]
+    fn capture_reset_and_default_state() {
+        let mut km = Keymap::default();
+        assert!(Action::ALL.iter().all(|&a| km.is_default(a)));
+        km.set(Action::RotateCw, b(Key::G, Mods::NONE));
+        assert!(!km.is_default(Action::RotateCw));
+        assert!(km.is_default(Action::FitView));
+        // R is free again; give it to Fit view, then resetting Rotate CW must be refused.
+        km.set(Action::FitView, b(Key::R, Mods::NONE));
+        assert_eq!(km.try_reset(Action::RotateCw), Err(Action::FitView));
+        assert_eq!(km.bindings(Action::RotateCw), &[b(Key::G, Mods::NONE)]);
+        assert_eq!(km.try_reset(Action::FitView), Ok(()));
+        assert_eq!(km.try_reset(Action::RotateCw), Ok(()));
+        assert_eq!(km, Keymap::default());
     }
 }

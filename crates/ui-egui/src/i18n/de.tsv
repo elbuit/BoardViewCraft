@@ -123,6 +123,25 @@
 	prefs.show_vias	Vias und Testpunkte anzeigen
 	prefs.show_unnamed_vias	Unbenannte Vias und Pads anzeigen
 	prefs.close	Schließen
+	prefs.shortcuts	Tastenkürzel
+	prefs.shortcut_press_key	Taste drücken… (Esc bricht ab)
+	prefs.shortcut_capture_hover	Klicken Sie und drücken Sie dann die neue Tastenkombination
+	prefs.shortcut_reset	Zurücksetzen
+	prefs.shortcut_reset_all	Alle Tastenkürzel zurücksetzen
+	prefs.shortcut_conflict	Bereits belegt durch: {action}
+	shortcut.rotate_cw	90° im Uhrzeigersinn drehen
+	shortcut.rotate_ccw	90° gegen den Uhrzeigersinn drehen
+	shortcut.flip_side	Zwischen Ober- und Unterseite wechseln
+	shortcut.mirror_x	Spiegeln X (horizontal)
+	shortcut.mirror_y	Spiegeln Y (vertikal)
+	shortcut.fit_view	Platine in Ansicht einpassen
+	shortcut.zoom_in	Vergrößern
+	shortcut.zoom_out	Verkleinern
+	shortcut.pan_up	Nach oben verschieben
+	shortcut.pan_down	Nach unten verschieben
+	shortcut.pan_left	Nach links verschieben
+	shortcut.pan_right	Nach rechts verschieben
+	shortcut.toggle_preferences	Einstellungen öffnen/schließen
 	context_menu.pin_title	Pin-Information
 	context_menu.net	Netz:
 	context_menu.side	Seite:

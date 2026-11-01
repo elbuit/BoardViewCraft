@@ -573,6 +573,12 @@ impl BoardViewApp {
 
 impl eframe::App for BoardViewApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        // A shortcut being rebound in Preferences takes this frame's key presses first, so no
+        // hotkey (Preferences toggle included) or Esc handler sees them.
+        if preferences::capture_shortcut_keys(ui.ctx(), &mut self.preferences.keymap) {
+            self.save_prefs_pending = true;
+        }
+
         // Handle Drag & Drop files
         let dropped_files = ui.ctx().input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         if !dropped_files.is_empty() {
