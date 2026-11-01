@@ -6,7 +6,7 @@
 
 BoardViewCraft is an open-source boardview inspection application built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It is designed to provide fluid navigation, clear part and pad rendering, and intuitive diagnostics for dense multi-layer PCB designs, with the board schematic PDF one tab away.
 
-![BoardViewCraft showing a graphics card board with filled part bodies, pads and the part details panel](docs/screenshots/board-view-gpu-card.png)
+![BoardViewCraft Both tab: top and bottom sides of a graphics card stacked, with the 1V8 net selected and its flight lines and pin list](docs/screenshots/board-tabs-both-net.png)
 
 ---
 
@@ -21,7 +21,7 @@ BoardViewCraft is an open-source boardview inspection application built from the
   - Tiled rendering of zoomed pages, background text indexing, and page previews for instant jumps.
   - Shown in its own **PDF** tab; text keeps being indexed while another tab is active.
   - Text search box inside the PDF tab (`Enter` jumps to the next hit).
-  - Cross-probing: selecting a part on the board finds it in the schematic, and clicking a part in the PDF selects it on the board.
+  - Cross-probing: selecting a part on the board finds it in the schematic, and clicking a part in the PDF selects it on the board. Exact designators win: `C212` never lists `BC212` or `MC212` while an exact `C212` exists.
   - Each board remembers its own schematic PDF; opening another board closes the current PDF and restores the one associated with the new board.
 - **Net Flight Lines**:
   - **Radial Mode**: Direct flight lines radiating from the selected pin/via.
@@ -30,13 +30,15 @@ BoardViewCraft is an open-source boardview inspection application built from the
 - **Visual Pin Net Identification**:
   - Selected pins are rendered as an outline circle with the connected net name (e.g. `GND`, `+12V_GPU`) centered inside in high contrast.
   - Opposite-side pins of the selected net rendered in hollow outline X-Ray mode.
-- **Overlay Photos**: Align a photo of the real board over each side and adjust it from the Actions menu.
+- **Overlay Photos**: Align a photo of the real board under each side and adjust it from the Actions menu. The photo stays opaque and the **Board opacity** slider fades the board drawn over it, so pins can be lined up with the photo.
 - **Focused Side Panel**: Shows only the active tool (part details, net details, search, or photo adjustment).
 - **Independent Theming**:
   - **Application UI**: Light and Dark modes.
   - **PCB Themes**: Light, Dark, Warm, Sweet Cold, Cadcraft, and a fully customizable **Custom** theme with editable color tokens and custom name persistence.
-- **Multilingual Support**: English, Spanish, Catalan, French, German, and Italian.
+- **Multilingual Support**: English, Spanish, Catalan, French, German, and Italian. **Auto** (the default) follows the system language.
 - **Board Formats**: GenCAD (`.cad`), TVW, KiCad, BRD/BRD2, BDV, ASC, CPD, FZ, and XZZ boards.
+
+![Part details on a single board side, with filled part bodies and pads](docs/screenshots/board-view-gpu-card.png)
 
 ---
 
