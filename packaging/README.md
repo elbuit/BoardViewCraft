@@ -69,6 +69,15 @@ Output located in `dist/release/`:
 - `boardviewcraft-<version>-macos-universal.dmg` (Drag-to-Applications)
 - `boardviewcraft-<version>-macos-universal.zip`
 
+### App icon
+The icons live in `assets/app-icon/` and are committed, so packaging never renders them. After
+changing the master `assets/app-icon/boardviewcraft.svg`, regenerate every size with
+`packaging/icons.sh` (needs `resvg` and `python3`; see `assets/app-icon/README.md`). Each package
+picks them up: the window icon is embedded in the binary, `build.rs` embeds the `.ico` in
+`boardviewcraft.exe` (set `BOARDVIEWCRAFT_REQUIRE_WINRES=1` to fail instead of warn when no resource
+compiler is found), the MSI uses the `.ico`, the `.app` bundles the `.icns`, and Linux packages
+install the hicolor tree.
+
 ---
 
 ## 3. Automated GitHub Releases

@@ -53,6 +53,8 @@ New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 Write-Output "BoardViewCraft $Version for Windows $Arch ($Target)"
 
 if (-not $SkipBuild) {
+  # Fail the build (rather than warn) if the icon/VERSIONINFO can't be embedded (build.rs).
+  $env:BOARDVIEWCRAFT_REQUIRE_WINRES = '1'
   Invoke-Native "Compiling BoardViewCraft release binary" {
     cargo build --manifest-path (Join-Path $Root 'Cargo.toml') --package boardviewcraft --release --target $Target --ignore-rust-version
   }
@@ -99,7 +101,7 @@ if (Get-Command 'wix' -ErrorAction SilentlyContinue) {
   $MsiOut = Join-Path $Dist "boardviewcraft-$Version-windows-$Arch.msi"
   $WxsFile = Join-Path $PSScriptRoot 'boardviewcraft.wxs'
   Invoke-Native "Building WiX MSI installer" {
-    wix build $WxsFile -ext WixToolset.UI.wixext/5.0.2 -d "Version=$MsiVersion" -d "SourceDir=$StageDir" -o $MsiOut
+    wix build $WxsFile -ext WixToolset.UI.wixext/5.0.2 -d "Version=$MsiVersion" -d "SourceDir=$StageDir" -d "IconPath=$(Join-Path $Root 'assets\app-icon\boardviewcraft.ico')" -o $MsiOut
   }
   Write-Output "Created MSI installer: $MsiOut"
 } else {

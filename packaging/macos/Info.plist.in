@@ -8,6 +8,8 @@
     <string>BoardViewCraft</string>
     <key>CFBundleExecutable</key>
     <string>boardviewcraft</string>
+    <key>CFBundleIconFile</key>
+    <string>BoardViewCraft</string>
     <key>CFBundleIdentifier</key>
     <string>com.boardviewcraft.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
