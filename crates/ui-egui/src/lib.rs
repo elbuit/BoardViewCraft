@@ -372,6 +372,14 @@ impl BoardViewApp {
         self.canvases.active = side;
     }
 
+    /// Side a dropped overlay photo is loaded into: the overlay side, shown (switching away from
+    /// the PDF tab) so the photo is visible.
+    fn photo_drop_side(&mut self) -> Side {
+        let side = self.overlay_side();
+        self.show_board_side(side);
+        side
+    }
+
     /// Side the overlay photo tools work on: the side being aligned while a pin alignment runs
     /// (hovering the other canvas in Both must not retarget it), otherwise the active canvas.
     fn overlay_side(&self) -> Side {
@@ -577,7 +585,7 @@ impl eframe::App for BoardViewApp {
                     match ext.as_str() {
                         "png" | "jpg" | "jpeg" | "webp" | "bmp" => {
                             if let Ok(bytes) = std::fs::read(path) {
-                                let cur_side = self.overlay_side();
+                                let cur_side = self.photo_drop_side();
                                 let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
                                 let slot = self.overlay_manager.slot_for_side(cur_side);
                                 if let Err(err) = slot.load_from_bytes(ui.ctx(), path, &bytes, bbox) {
@@ -1296,6 +1304,16 @@ mod tab_tests {
         assert_eq!(app.overlay_side(), Side::Top);
         app.alignment_session.cancel();
         assert_eq!(app.overlay_side(), Side::Bottom, "back to the active canvas once finished");
+    }
+
+    /// A photo dropped while the PDF tab is shown goes to a side that is then shown, not hidden.
+    #[test]
+    fn a_photo_drop_on_the_pdf_tab_shows_the_target_side() {
+        let mut app = app_on(BoardTab::Pdf);
+        app.canvases.active = Side::Bottom;
+        assert_eq!(app.photo_drop_side(), Side::Bottom);
+        assert_eq!(app.tab, BoardTab::Bottom);
+        assert_eq!(app.canvases.active, Side::Bottom);
     }
 
     #[test]
