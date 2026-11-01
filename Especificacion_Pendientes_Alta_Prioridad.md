@@ -38,10 +38,9 @@ Este documento recoge y desglosa las especificaciones extraídas de `Especificac
 
 ## 4. Valores de Medición de Referencia
 
-*Diagnóstico de averías mediante comparación de modo diodo, impedancia y tensiones.*
+MED-01, MED-02 y MED-04 pasan a prioridad **Baja** (decisión del 2026-11-01) y salen de esta hoja de ruta; siguen descritos en la sección 7 de la especificación funcional.
 
-| ID | Requisito | Edición | Estado Actual | Trabajo Pendiente |
-|---|---|---|---|---|
+---|---|---|---|---|
 | **MED-01** | Mostrar valores de referencia por net o pin (diodo mV, resistencia Ω, voltaje V) | Pro | No implementado | Extender el modelo de datos (`Pin`, `Net`) con campos opcionales de referencia y mostrarlos en los paneles de detalle del pin y tooltip. |
 | **MED-02** | Leer valores de referencia incluidos en formatos que lo soportan | Pro | No implementado | Soporte en parsers compatibles (p. ej. variantes específicas de `.fz` o `.cad`) para volcar mediciones embebidas directamente al modelo. |
 | **MED-04** | Introducir y editar mediciones propias por pin o net | Pro | No implementado | Campo editable en el panel lateral (`Net Details` / `Pin Details`) para que el técnico anote sus lecturas reales en placa y se guarden en archivo de sesión/anotaciones. |
@@ -65,4 +64,3 @@ Este documento recoge y desglosa las especificaciones extraídas de `Especificac
 
 2. **Núcleo Técnico Mayor (Edición Pro):**
    - **Esquemáticos (SCH-01 .. SCH-07)**: Incorporación de librería PDF y sincronización bidireccional placa ↔ PDF.
-   - **Mediciones (MED-01 .. MED-04)**: Capa de datos para modo diodo y lecturas de referencia.

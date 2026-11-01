@@ -144,13 +144,13 @@ Cada pin o net puede llevar valores medidos en una placa sana (modo diodo, resis
 
 | ID | Requisito | Prioridad | Edición |
 | --- | --- | --- | --- |
-| MED-01 | Mostrar valores de referencia por net o pin: diodo (mV), resistencia (Ω) y voltaje (V) por estado de encendido | Alta | Pro |
-| MED-02 | Leer los valores que algunos formatos ya incluyen dentro del archivo | Alta | Pro |
-| MED-03 | Importar valores desde CSV (net, diodo, resistencia, voltaje, notas) | Media | Pro |
-| MED-04 | Que el usuario introduzca y edite sus propias mediciones por pin o net | Alta | Pro |
-| MED-05 | Comparar medición del usuario con la de referencia y colorear según desviación (verde dentro de tolerancia, rojo fuera) | Media | Pro |
-| MED-06 | Tolerancia configurable (p. ej. ±10 %) | Media | Pro |
-| MED-07 | Distinguir estados: sin alimentación, standby (G3/S5) y encendido (S0) | Media | Pro |
+| MED-01 | Mostrar valores de referencia por net o pin: diodo (mV), resistencia (Ω) y voltaje (V) por estado de encendido | Baja | Pro |
+| MED-02 | Leer los valores que algunos formatos ya incluyen dentro del archivo | Baja | Pro |
+| MED-03 | Importar valores desde CSV (net, diodo, resistencia, voltaje, notas) | Baja | Pro |
+| MED-04 | Que el usuario introduzca y edite sus propias mediciones por pin o net | Baja | Pro |
+| MED-05 | Comparar medición del usuario con la de referencia y colorear según desviación (verde dentro de tolerancia, rojo fuera) | Baja | Pro |
+| MED-06 | Tolerancia configurable (p. ej. ±10 %) | Baja | Pro |
+| MED-07 | Distinguir estados: sin alimentación, standby (G3/S5) y encendido (S0) | Baja | Pro |
 | MED-08 | Mapa de calor de la placa según las desviaciones medidas | Baja | Pro |
 | MED-09 | Compartir valores medidos con la comunidad (opt-in, anónimo) para ampliar la base de referencia | Baja | Pro |
 
@@ -239,9 +239,9 @@ Se propone construir en tres fases, cada una entregable por sí sola. Las priori
 
 1. **MVP (requisitos de prioridad Alta de la edición Básica).** Modelo de datos común, parsers de formatos comunes, visualización, búsqueda básica y resaltado de net.
    - Aceptación: abre al menos 20 boardviews reales de distintas marcas sin errores; resaltar una net tarda menos de 50 ms; 60 fps con la placa más grande del conjunto de prueba.
-2. **Versión 1 (Básica completa + núcleo Pro).** Prioridad Media de Básica, más integración con PDF (SCH-01 a SCH-04, SCH-07), valores de referencia (MED-01, MED-02, MED-04) y licencias.
+2. **Versión 1 (Básica completa + núcleo Pro).** Prioridad Media de Básica, más integración con PDF (SCH-01 a SCH-04, SCH-07) y licencias.
    - Aceptación: en 10 pares boardview + esquemático de prueba, el salto entre ambos acierta en al menos el 95 % de los componentes; la activación Pro funciona con y sin conexión.
-3. **Versión 2 (Pro completa).** Resto de requisitos Pro: biblioteca en la nube, sesiones, comparación de revisiones, mapa de calor, macOS y Linux.
+3. **Versión 2 (Pro completa).** Resto de requisitos Pro: valores de medición de referencia (MED, prioridad Baja desde 2026-11-01), biblioteca en la nube, sesiones, comparación de revisiones, mapa de calor, macOS y Linux.
    - Aceptación: definir con el equipo al cerrar la versión 1, según uso real y comentarios de usuarios.
 
 **Preguntas abiertas**
