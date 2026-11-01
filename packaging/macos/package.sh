@@ -50,6 +50,9 @@ mkdir -p "$APP/Contents/Resources"
 # Generate Info.plist
 sed "s/@VERSION@/$VERSION/g" "$HERE/Info.plist.in" > "$APP/Contents/Info.plist"
 
+# App icon (CFBundleIconFile in Info.plist.in; assets/app-icon/README.md)
+cp "$ROOT/assets/app-icon/boardviewcraft.icns" "$APP/Contents/Resources/BoardViewCraft.icns"
+
 # Bundle executable (lipo if universal)
 if [[ "${#TARGETS[@]}" -eq 2 ]]; then
   echo "==> Creating universal binary with lipo..."

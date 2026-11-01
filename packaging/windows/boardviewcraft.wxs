@@ -9,6 +9,11 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of BoardViewCraft is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
+    <!-- Windows Installer requires an Icon id ending in .ico or .exe, or advertised shortcuts and
+         Add/Remove Programs show a blank icon. -->
+    <Icon Id="BoardViewCraftIcon.ico" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="BoardViewCraftIcon.ico" />
+
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="BoardViewCraft">
         <Component Id="MainExecutable" Guid="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
@@ -18,6 +23,8 @@
                       Name="BoardViewCraft"
                       Description="Pure Rust CAD Board Viewer"
                       WorkingDirectory="INSTALLFOLDER"
+                      Icon="BoardViewCraftIcon.ico"
+                      IconIndex="0"
                       Advertise="yes" />
           </File>
           <File Id="LicenseRtf" Source="$(var.SourceDir)\license.rtf" />
