@@ -23,7 +23,7 @@ User request 2026-11-01. Today one canvas shows one side (or both overlapped) an
 ## Tasks
 - [x] T1 — Two per-side canvases: `show_canvas` in an explicit rect, input gated to the active canvas, per-side mesh cache reused across tab sizes, shared rotation/mirror, cache resets for both (route: delegated writer; canvas.rs + lib.rs)
 - [x] T2 — Tabs Top/Bottom/Both/PDF with Both layout Auto/Vertical/Horizontal, preferences, i18n, PDF moved into its tab with a hidden-tab indexing pump, focus/cross-probe adapted (route: same delegated writer; lib.rs + pdf.rs + preferences.rs + i18n)
-- [ ] T3 — README update for the tabs (route: inline)
+- [x] T3 — README update for the tabs (route: inline)
 
 ## Acceptance criteria
 - Each tab shows only its content; Both shows two separated views whose arrangement follows the layout choice (Auto by board aspect after rotation).
@@ -45,3 +45,4 @@ exception-ok (user asked for no questions until done). Forecast ~800 authored li
   - Checks: `cargo test -p bvc-ui-egui --release` 131 passed, 2 ignored; `cargo test -p bvc-core --release` all passed; clippy warnings 139 (base 147); `cargo build --release` ok. GUI not run.
   - Commit `73e03b0` feat(ui): board tabs with separated top/bottom layout and PDF tab.
   - Known limitation: a side first shown at a different canvas size keeps its zoom (e.g. Top -> Both shows the board larger than its half); F fits the visible canvases. Actions -> Reset view now resets rotation/mirror only and keeps the tab.
+- T3 done (inline): README describes the tabs, Both layout, PDF tab and the changed Space/F/arrow shortcuts. Parent spot check: `cargo test -p bvc-ui-egui --release` 131 passed / 2 ignored.
