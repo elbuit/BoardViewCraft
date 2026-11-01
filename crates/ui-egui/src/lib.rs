@@ -145,14 +145,18 @@ impl BoardViewApp {
         let is_light = preferences.app_theme == AppTheme::Light;
         cc.egui_ctx.set_visuals(tokens.egui_visuals(is_light));
 
+        Self::restored(preferences, tokens)
+    }
+
+    /// The app with saved preferences applied: the last tab is restored through `set_tab`, so
+    /// its canvas is the active one (keyboard and overlay tools work before it is hovered).
+    fn restored(preferences: Preferences, tokens: Tokens) -> Self {
         // No schematic is open yet: a PDF tab saved last time starts on Top.
         let tab = preferences.board_tab.at_startup(false);
-        Self {
-            preferences,
-            tokens,
-            tab,
-            ..Self::default()
-        }
+        let mut app = Self { preferences, tokens, ..Self::default() };
+        app.set_tab(tab);
+        app.save_prefs_pending = false;
+        app
     }
 
     /// Parses and loads a board. Returns whether it was loaded; on failure the current board
@@ -1292,6 +1296,16 @@ mod tab_tests {
         assert_eq!(app.overlay_side(), Side::Top);
         app.alignment_session.cancel();
         assert_eq!(app.overlay_side(), Side::Bottom, "back to the active canvas once finished");
+    }
+
+    #[test]
+    fn a_restored_bottom_tab_makes_the_bottom_canvas_active() {
+        let preferences = Preferences { board_tab: BoardTab::Bottom, ..Preferences::default() };
+        let app = BoardViewApp::restored(preferences, Tokens::default());
+        assert_eq!(app.tab, BoardTab::Bottom);
+        assert_eq!(app.canvases.active, Side::Bottom);
+        assert_eq!(app.overlay_side(), Side::Bottom);
+        assert!(!app.save_prefs_pending, "restoring is not a change to save");
     }
 
     #[test]
