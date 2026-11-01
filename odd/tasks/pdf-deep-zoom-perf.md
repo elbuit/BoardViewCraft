@@ -110,3 +110,4 @@ neighbours (pdfcraft prefetches the adjacent rows the same way), now queued afte
 - Review assess (`--base-ref 3ad7b36 --committed-only`): risk medium, review_due false (under_budget); pending in the slice.
 - Native review (consent granted, lens reliability): approved and acknowledged for 3ad7b36..7ec0ff4. Advisory R3-001 (non-blocking): `test_texture_image_mismatched_size_copies` (pdf.rs:843) does not exercise the copy fallback of `texture_image`; follow-up.
 - Build profiles adopted from pdfcraft (`[profile.dev.package."*"]` opt 2, dev opt 1, release thin LTO + 1 CGU): commit on this branch; dev tests 102 pass; release build 2m05s.
+- User check (2026-11-01): the local release build of this branch runs as fast as the v0.1.6 GitHub flatpak; the earlier slowness was a debug `cargo run`.
