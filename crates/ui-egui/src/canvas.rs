@@ -223,18 +223,18 @@ impl Viewport {
     }
 }
 
-/// Everything the board meshes depend on except zoom and pan.
+/// Everything the board meshes depend on except zoom, pan and the canvas rectangle.
 ///
-/// Zoom and pan steps re-map the cached meshes (`BoardMeshBase`) instead of re-tessellating, so
-/// the view centre and scale are not part of the key; a rebuild for them is decided by
-/// `BoardMeshBase::covers`.
+/// Zoom and pan steps, and showing the same side in a canvas of another size or position (a
+/// board tab vs one half of the Both tab), re-map the cached meshes (`BoardMeshBase`) instead of
+/// re-tessellating, so the view centre, scale and canvas rectangle are not part of the key; a
+/// rebuild for them is decided by `BoardMeshBase::covers`.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ViewCacheKey {
     pub side: Side,
     pub rotation: Rotation,
     pub mirror_x: bool,
     pub mirror_y: bool,
-    pub rect_size: (u32, u32),
     pub selected_pin: Option<usize>,
     pub selected_via: Option<usize>,
     pub selected_net: Option<String>,
@@ -257,7 +257,6 @@ impl ViewCacheKey {
     pub fn new(
         b: &Board,
         vp: &Viewport,
-        rect: EguiRect,
         selected_pin: Option<usize>,
         selected_via: Option<usize>,
         selected_part: Option<usize>,
@@ -269,7 +268,6 @@ impl ViewCacheKey {
             rotation: vp.rotation,
             mirror_x: vp.mirror_x,
             mirror_y: vp.mirror_y,
-            rect_size: (rect.width().round() as u32, rect.height().round() as u32),
             selected_pin,
             selected_via,
             selected_net: selected_net.map(str::to_owned),
@@ -324,9 +322,11 @@ pub struct BoardMeshBase {
 }
 
 impl BoardMeshBase {
-    /// Whether the meshes were tessellated for exactly this view.
-    pub fn is_built_for(&self, vp: &Viewport, rect: EguiRect) -> bool {
-        self.center == vp.center && self.scale == vp.scale && self.screen_center == rect.center()
+    /// Whether re-mapping the meshes to `vp` is exact: at the scale they were tessellated for,
+    /// the re-map is a pure translation (pan or another canvas position), which keeps the
+    /// screen-space minimum sizes right. Only a zoomed re-map needs a fresh tessellation.
+    pub fn is_exact_for(&self, vp: &Viewport) -> bool {
+        self.scale == vp.scale
     }
 
     /// Whether the meshes can be re-mapped to `vp` without visible loss: the zoom ratio stays in
@@ -405,9 +405,9 @@ pub fn sync_board_meshes(
     let view: DisplayedView = (vp.center, vp.scale.to_bits(), rect.center());
     if state.cached_view_key.as_ref() == Some(&key) {
         if state.displayed_view == Some(view) {
-            // Re-mapped meshes are exact for true-size geometry but scale the screen-space minimum
-            // sizes; once the view rests for a frame it is tessellated for real.
-            let settled = state.mesh_base.as_ref().is_some_and(|base| base.is_built_for(vp, rect));
+            // Zoom-re-mapped meshes are exact for true-size geometry but scale the screen-space
+            // minimum sizes; once the view rests for a frame it is tessellated for real.
+            let settled = state.mesh_base.as_ref().is_some_and(|base| base.is_exact_for(vp));
             if settled {
                 return MeshSync::Kept;
             }
@@ -441,8 +441,152 @@ impl Default for CanvasState {
     }
 }
 
+impl CanvasState {
+    /// A canvas fixed on `side`.
+    pub fn for_side(side: Side) -> Self {
+        Self { viewport: Viewport { side, ..Viewport::default() }, ..Self::default() }
+    }
+
+    /// Drops everything tied to the current board: meshes, hover and the pin context menu.
+    pub fn clear_board(&mut self) {
+        self.cached_meshes.clear();
+        self.mesh_base = None;
+        self.cached_view_key = None;
+        self.displayed_view = None;
+        self.hovered_pin = None;
+        self.hovered_via = None;
+        self.context_menu_pin = None;
+    }
+}
+
+/// One board view per side, each with its own pan, zoom and mesh cache, so showing a side at
+/// another size or switching which sides are visible re-uses its meshes. Rotation and
+/// mirroring are shared by both views.
+pub struct BoardCanvases {
+    pub top: CanvasState,
+    pub bottom: CanvasState,
+    /// Side of the canvas last hovered or clicked: it receives keyboard pan/zoom, the overlay
+    /// wheel and the pin context menu.
+    pub active: Side,
+}
+
+impl Default for BoardCanvases {
+    fn default() -> Self {
+        Self { top: CanvasState::for_side(Side::Top), bottom: CanvasState::for_side(Side::Bottom), active: Side::Top }
+    }
+}
+
+impl BoardCanvases {
+    /// The canvas showing `side` (`Both` maps to the top one).
+    pub fn side(&self, side: Side) -> &CanvasState {
+        match side {
+            Side::Bottom => &self.bottom,
+            _ => &self.top,
+        }
+    }
+
+    pub fn side_mut(&mut self, side: Side) -> &mut CanvasState {
+        match side {
+            Side::Bottom => &mut self.bottom,
+            _ => &mut self.top,
+        }
+    }
+
+    pub fn active_state(&self) -> &CanvasState {
+        self.side(self.active)
+    }
+
+    pub fn active_mut(&mut self) -> &mut CanvasState {
+        self.side_mut(self.active)
+    }
+
+    fn each_mut(&mut self) -> [&mut CanvasState; 2] {
+        [&mut self.top, &mut self.bottom]
+    }
+
+    pub fn rotation(&self) -> Rotation {
+        self.top.viewport.rotation
+    }
+
+    pub fn mirror_x(&self) -> bool {
+        self.top.viewport.mirror_x
+    }
+
+    pub fn mirror_y(&self) -> bool {
+        self.top.viewport.mirror_y
+    }
+
+    pub fn set_rotation(&mut self, rotation: Rotation) {
+        for state in self.each_mut() {
+            state.viewport.rotation = rotation;
+        }
+    }
+
+    pub fn rotate_cw(&mut self) {
+        self.set_rotation(self.rotation().rotate_cw());
+    }
+
+    pub fn rotate_ccw(&mut self) {
+        self.set_rotation(self.rotation().rotate_ccw());
+    }
+
+    pub fn rotate_180(&mut self) {
+        self.set_rotation(self.rotation().rotate_180());
+    }
+
+    pub fn toggle_mirror_x(&mut self) {
+        let mirror = !self.mirror_x();
+        for state in self.each_mut() {
+            state.viewport.mirror_x = mirror;
+        }
+    }
+
+    pub fn toggle_mirror_y(&mut self) {
+        let mirror = !self.mirror_y();
+        for state in self.each_mut() {
+            state.viewport.mirror_y = mirror;
+        }
+    }
+
+    /// No rotation and no mirroring; each canvas stays on its side.
+    pub fn reset_orientation(&mut self) {
+        for state in self.each_mut() {
+            state.viewport.rotation = Rotation::Deg0;
+            state.viewport.mirror_x = false;
+            state.viewport.mirror_y = false;
+        }
+    }
+
+    /// Forces both sides to re-tessellate on their next frame (selection or display change).
+    pub fn invalidate_caches(&mut self) {
+        for state in self.each_mut() {
+            state.cached_view_key = None;
+        }
+    }
+
+    /// Drops everything tied to the current board on both sides.
+    pub fn clear_board(&mut self) {
+        for state in self.each_mut() {
+            state.clear_board();
+        }
+    }
+
+    /// Centers both views on `center` (a newly loaded board).
+    pub fn center_all(&mut self, center: Point) {
+        for state in self.each_mut() {
+            state.viewport.center = center;
+        }
+    }
+}
+
+/// Draws and handles one board canvas in `rect`. Only the active canvas (`is_active`) takes
+/// keyboard pan/zoom, the overlay wheel and shows the pin context menu, so two canvases on
+/// screen never react to the same key twice.
+#[allow(clippy::too_many_arguments)]
 pub fn show_canvas(
     ui: &mut Ui,
+    rect: EguiRect,
+    is_active: bool,
     tokens: &Tokens,
     board: Option<&Board>,
     canvas_state: &mut CanvasState,
@@ -456,8 +600,11 @@ pub fn show_canvas(
     renderer: &mut Renderer,
     prefs: &Preferences,
 ) -> Response {
-    let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click_and_drag());
-    let rect = response.rect;
+    // A stable id per side keeps drag state across frames whatever else is laid out around it.
+    let canvas_id = egui::Id::unique(("board_canvas", canvas_state.viewport.side));
+    let response = ui.interact(rect, canvas_id, Sense::click_and_drag());
+    ui.advance_cursor_after_rect(rect);
+    let painter = ui.painter_at(rect);
 
     // Background fill
     painter.rect_filled(rect, 0.0, tokens.canvas);
@@ -491,7 +638,7 @@ pub fn show_canvas(
             ui.ctx().request_repaint();
         }
 
-        let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
+        let scroll_y = if is_active { ui.input(|i| i.smooth_scroll_delta.y) } else { 0.0 };
         if scroll_y != 0.0 {
             let scale_factor = if scroll_y > 0.0 { 1.05 } else { 1.0 / 1.05 };
             let new_zoom = active_slot.zoom * scale_factor;
@@ -621,7 +768,7 @@ pub fn show_canvas(
 
     // Keyboard Pan (Arrow keys) and Zoom (+ / -) when not typing in text boxes
     let wants_keyboard = ui.ctx().egui_wants_keyboard_input() || ui.memory(|m| m.focused().is_some());
-    if !wants_keyboard {
+    if is_active && !wants_keyboard {
         let (up, down, left, right, plus, minus) = ui.input(|i| {
             (
                 i.key_pressed(egui::Key::ArrowUp),
@@ -831,7 +978,6 @@ pub fn show_canvas(
         let current_key = ViewCacheKey::new(
             b,
             vp,
-            rect,
             *selected_pin_idx,
             *selected_via_idx,
             *selected_part_idx,
@@ -1031,7 +1177,10 @@ pub fn show_canvas(
             }
         }
 
-        // Render Pin Context Menu Popup if open
+        // Render Pin Context Menu Popup if open (only one canvas shows it)
+        if !is_active {
+            canvas_state.context_menu_pin = None;
+        }
         if let Some((pin_idx, menu_pos)) = canvas_state.context_menu_pin {
             if let Some(pin) = b.pins.get(pin_idx) {
                 let part_name = b
@@ -1042,7 +1191,7 @@ pub fn show_canvas(
                 let lang = prefs.ui_language();
 
                 let mut close_menu = false;
-                let menu_id = egui::Id::unique("pin_context_menu_area");
+                let menu_id = egui::Id::unique(("pin_context_menu_area", vp.side));
 
                 egui::Area::new(menu_id)
                     .fixed_pos(menu_pos)
@@ -2224,7 +2373,7 @@ mod tests {
     /// Runs `sync_board_meshes` for `vp` with a real tessellation and reports what it did.
     fn sync(state: &mut CanvasState, board: &Board, vp: &Viewport, rect: EguiRect, selected_pin: Option<usize>) -> MeshSync {
         let prefs = Preferences::default();
-        let key = ViewCacheKey::new(board, vp, rect, selected_pin, None, None, None, &prefs);
+        let key = ViewCacheKey::new(board, vp, selected_pin, None, None, None, &prefs);
         let mut renderer = Renderer::new();
         sync_board_meshes(state, key, vp, rect, |coverage| {
             generate_board_meshes_in(
@@ -2395,7 +2544,7 @@ mod tests {
         vp.fit_to_rect(board.bounding_box.unwrap(), rect);
         let prefs = Preferences::default();
         let key = |vp: &Viewport, pin: Option<usize>, prefs: &Preferences| {
-            ViewCacheKey::new(&board, vp, rect, pin, None, None, None, prefs)
+            ViewCacheKey::new(&board, vp, pin, None, None, None, prefs)
         };
         let idle = key(&vp, None, &prefs);
         // Same view on the next frame (hover state is not an input of the key).
@@ -2414,6 +2563,79 @@ mod tests {
         let mut no_pins = prefs.clone();
         no_pins.show_pins = false;
         assert_ne!(idle, key(&vp, None, &no_pins));
+    }
+
+    /// A side shown at another canvas size or position (Top tab vs one half of Both) re-uses its
+    /// meshes: a translation-only re-map is exact, so it is not re-tessellated when it rests.
+    #[test]
+    fn same_side_at_a_different_canvas_size_reuses_its_meshes() {
+        let board = two_pin_board();
+        let full = EguiRect::from_min_size(Pos2::new(0.0, 30.0), egui::vec2(800.0, 600.0));
+        let half = EguiRect::from_min_size(Pos2::new(0.0, 30.0), egui::vec2(800.0, 296.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), full);
+        let mut state = CanvasState::default();
+        assert_eq!(sync(&mut state, &board, &vp, full, None), MeshSync::Rebuilt);
+        assert_eq!(sync(&mut state, &board, &vp, half, None), MeshSync::Remapped, "Top -> Both");
+        assert_eq!(sync(&mut state, &board, &vp, half, None), MeshSync::Kept, "resting in Both");
+        assert_eq!(sync(&mut state, &board, &vp, full, None), MeshSync::Remapped, "Both -> Top");
+        assert_eq!(sync(&mut state, &board, &vp, full, None), MeshSync::Kept);
+        // The translated meshes sit where a fresh tessellation for the half canvas puts them.
+        sync(&mut state, &board, &vp, half, None);
+        let pad = state.cached_meshes.last().unwrap().vertices[0].pos;
+        let mut fresh_state = CanvasState::default();
+        sync(&mut fresh_state, &board, &vp, half, None);
+        let fresh = fresh_state.cached_meshes.last().unwrap().vertices[0].pos;
+        assert!((pad - fresh).length() < 1e-2, "{pad:?} vs {fresh:?}");
+    }
+
+    #[test]
+    fn board_canvases_share_rotation_and_mirroring() {
+        let mut canvases = BoardCanvases::default();
+        assert_eq!(canvases.top.viewport.side, Side::Top);
+        assert_eq!(canvases.bottom.viewport.side, Side::Bottom);
+        canvases.rotate_cw();
+        canvases.toggle_mirror_x();
+        for state in [&canvases.top, &canvases.bottom] {
+            assert_eq!(state.viewport.rotation, Rotation::Deg90);
+            assert!(state.viewport.mirror_x && !state.viewport.mirror_y);
+        }
+        canvases.rotate_ccw();
+        canvases.rotate_180();
+        canvases.toggle_mirror_y();
+        assert_eq!(canvases.bottom.viewport.rotation, Rotation::Deg180);
+        assert!(canvases.bottom.viewport.mirror_y);
+        canvases.reset_orientation();
+        for state in [&canvases.top, &canvases.bottom] {
+            assert_eq!(state.viewport.rotation, Rotation::Deg0);
+            assert!(!state.viewport.mirror_x && !state.viewport.mirror_y);
+        }
+        assert_eq!(canvases.bottom.viewport.side, Side::Bottom, "reset keeps each canvas on its side");
+    }
+
+    /// Each side keeps its own cache: showing only one side leaves the hidden side's meshes ready.
+    #[test]
+    fn a_hidden_side_keeps_its_mesh_cache() {
+        let board = two_pin_board();
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut canvases = BoardCanvases::default();
+        for side in [Side::Top, Side::Bottom] {
+            let state = canvases.side_mut(side);
+            state.viewport.fit_to_rect(board.bounding_box.unwrap(), rect);
+            let vp = state.viewport.clone();
+            assert_eq!(sync(state, &board, &vp, rect, None), MeshSync::Rebuilt);
+        }
+        // Only the top side is shown for a while; the bottom one is untouched.
+        canvases.top.viewport.scale *= 3.0;
+        let vp = canvases.top.viewport.clone();
+        assert_eq!(sync(&mut canvases.top, &board, &vp, rect, None), MeshSync::Rebuilt);
+        let vp = canvases.bottom.viewport.clone();
+        assert_eq!(sync(&mut canvases.bottom, &board, &vp, rect, None), MeshSync::Kept);
+
+        canvases.invalidate_caches();
+        assert!(canvases.top.cached_view_key.is_none() && canvases.bottom.cached_view_key.is_none());
+        canvases.clear_board();
+        assert!(canvases.top.mesh_base.is_none() && canvases.bottom.cached_meshes.is_empty());
     }
 
     /// The hover highlight is a tiny per-frame mesh, and the cached board meshes do not depend on hover.
