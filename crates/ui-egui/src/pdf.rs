@@ -522,7 +522,8 @@ impl PdfSchematicViewer {
     /// results and keeps indexing the text layers still missing, without rendering any page, so
     /// a cross-probe from the board finds its hits and the tab opens at the first one.
     pub fn pump_background(&mut self, ctx: &egui::Context) {
-        let Some(pool) = &self.render_pool else { return };
+        // A document reporting no pages has no text to index (and `clamp(1, 0)` would panic).
+        let Some(pool) = self.render_pool.as_ref().filter(|_| self.total_pages > 0) else { return };
         let page = self.current_page.clamp(1, self.total_pages);
         // Replacing the paint queue cancels the rasters of a page nobody is looking at.
         let queue: Vec<RenderRequest> = (0..self.total_pages)
