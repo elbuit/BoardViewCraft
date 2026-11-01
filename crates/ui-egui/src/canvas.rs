@@ -1,5 +1,6 @@
 //! Board canvas view transformation and interactive rendering.
 
+use crate::keymap::{Action, Keymap};
 use crate::overlay::OverlayManager;
 use crate::overlay_align::{AlignmentSession, AlignmentState};
 use crate::preferences::{Preferences, ViaDisplayMode};
@@ -601,6 +602,17 @@ fn canvas_takes_input(is_active: bool, clicked: bool, secondary_clicked: bool) -
     is_active || clicked || secondary_clicked
 }
 
+/// Keyboard pan direction (screen units, -1..1 per axis) and zoom in/out requests for this
+/// frame, read from the keymap's pan and zoom actions.
+fn keyboard_pan_zoom(keymap: &Keymap, input: &egui::InputState) -> (egui::Vec2, bool, bool) {
+    let mut pan = egui::Vec2::ZERO;
+    if keymap.pressed(Action::PanUp, input) { pan.y -= 1.0; }
+    if keymap.pressed(Action::PanDown, input) { pan.y += 1.0; }
+    if keymap.pressed(Action::PanLeft, input) { pan.x -= 1.0; }
+    if keymap.pressed(Action::PanRight, input) { pan.x += 1.0; }
+    (pan, keymap.pressed(Action::ZoomIn, input), keymap.pressed(Action::ZoomOut, input))
+}
+
 /// Draws and handles one board canvas in `rect`. Only the active canvas (`is_active`) takes
 /// keyboard pan/zoom, the overlay wheel and shows the pin context menu, so two canvases on
 /// screen never react to the same key twice.
@@ -790,31 +802,16 @@ pub fn show_canvas(
         vp.center = vp.screen_to_world(center_screen - delta, rect);
     }
 
-    // Keyboard Pan (Arrow keys) and Zoom (+ / -) when not typing in text boxes
+    // Keyboard pan and zoom (keymap actions, arrows and + / - by default) when not typing in text boxes
     let wants_keyboard = ui.ctx().egui_wants_keyboard_input() || ui.memory(|m| m.focused().is_some());
     if is_active && !wants_keyboard {
-        let (up, down, left, right, plus, minus) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::ArrowUp),
-                i.key_pressed(egui::Key::ArrowDown),
-                i.key_pressed(egui::Key::ArrowLeft),
-                i.key_pressed(egui::Key::ArrowRight),
-                i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
-                i.key_pressed(egui::Key::Minus),
-            )
-        });
+        let (pan_delta, plus, minus) = ui.input(|i| keyboard_pan_zoom(&prefs.keymap, i));
 
         let pan_step = (50.0 / vp.scale) as f64;
         let (sx, sy) = vp.effective_factors();
         let rot_rad = vp.rotation.angle_rad();
         let cos = rot_rad.cos() as f64;
         let sin = rot_rad.sin() as f64;
-
-        let mut pan_delta = egui::Vec2::ZERO;
-        if up { pan_delta.y -= 1.0; }
-        if down { pan_delta.y += 1.0; }
-        if left { pan_delta.x -= 1.0; }
-        if right { pan_delta.x += 1.0; }
 
         if pan_delta != egui::Vec2::ZERO {
             let dx_screen = pan_delta.x as f64 * pan_step;
@@ -2151,6 +2148,45 @@ mod tests {
     use super::*;
     use bvc_core::{Pin, Point, Side, Via};
     use std::time::Instant;
+
+    fn key_input(keys: &[(egui::Key, egui::Modifiers)]) -> egui::InputState {
+        let events = keys
+            .iter()
+            .map(|&(key, modifiers)| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers })
+            .collect();
+        let raw = egui::RawInput { events, ..egui::RawInput::default() };
+        egui::InputState::default().begin_pass(raw, false, 1.0, egui::InputOptions::default())
+    }
+
+    #[test]
+    fn keyboard_pan_zoom_follows_default_keymap() {
+        use egui::{Key, Modifiers};
+        let km = Keymap::default();
+        let none = Modifiers::NONE;
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::ArrowUp, none)])), (egui::vec2(0.0, -1.0), false, false));
+        assert_eq!(
+            keyboard_pan_zoom(&km, &key_input(&[(Key::ArrowRight, none), (Key::ArrowDown, none)])),
+            (egui::vec2(1.0, 1.0), false, false)
+        );
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::ArrowLeft, none)])).0, egui::vec2(-1.0, 0.0));
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::Equals, none)])), (egui::Vec2::ZERO, true, false));
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::Plus, Modifiers::SHIFT)])), (egui::Vec2::ZERO, true, false));
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::Minus, none)])), (egui::Vec2::ZERO, false, true));
+    }
+
+    #[test]
+    fn keyboard_pan_zoom_uses_rebound_keys() {
+        use crate::keymap::{Binding, Mods};
+        use egui::{Key, Modifiers};
+        let mut km = Keymap::default();
+        km.set(Action::PanUp, Binding::new(Key::W, Mods::NONE));
+        km.set(Action::ZoomOut, Binding::new(Key::Z, Mods::SHIFT));
+        let none = Modifiers::NONE;
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::W, none)])).0, egui::vec2(0.0, -1.0));
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::ArrowUp, none)])).0, egui::Vec2::ZERO);
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::Z, Modifiers::SHIFT)])), (egui::Vec2::ZERO, false, true));
+        assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::Minus, none)])), (egui::Vec2::ZERO, false, false));
+    }
 
     #[test]
     fn test_c35_pin1_net_rendering() {

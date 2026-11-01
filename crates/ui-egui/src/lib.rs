@@ -17,6 +17,7 @@ mod theme;
 use board_tabs::{BoardTab, BothLayout};
 use bvc_core::{Board, ParserRegistry, Point, Side};
 use canvas::{BoardCanvases, show_canvas};
+use keymap::{Action, Keymap};
 use overlay::OverlayManager;
 use overlay_align::AlignmentSession;
 use preferences::{Preferences, show_preferences_window};
@@ -478,7 +479,7 @@ impl BoardViewApp {
                 ui.horizontal(|ui: &mut Ui| {
                     for tab in BoardTab::ALL {
                         let label = RichText::new(tab.label(lang)).strong();
-                        if ui.selectable_label(self.tab == tab, label).on_hover_text(i18n::tr(lang, "tabs.hover")).clicked() {
+                        if ui.selectable_label(self.tab == tab, label).on_hover_text(i18n::tr(lang, "tabs.hover").replace("{key}", &self.preferences.keymap.display(Action::FlipSide))).clicked() {
                             self.set_tab(tab);
                         }
                     }
@@ -613,24 +614,17 @@ impl eframe::App for BoardViewApp {
         }
 
         // Handle global hotkeys
-        if ui.input(|i| (i.modifiers.ctrl || i.modifiers.command) && i.key_pressed(egui::Key::Comma)) {
+        if ui.input(|i| self.preferences.keymap.pressed(Action::TogglePreferences, i)) {
             self.preferences_open = !self.preferences_open;
         }
 
-        // Actions shortcuts: R (Rotate CW), Shift+R (Rotate CCW), Space (Flip Side), M (Mirror X), Shift+M (Mirror Y), F (Fit), Esc (Deselect)
+        // Board shortcuts come from the keymap (Preferences). Esc (deselect / cancel calibration)
+        // and Enter (apply calibration) stay fixed.
         if !self.preferences_open {
             let wants_kb = ui.ctx().egui_wants_keyboard_input() || ui.memory(|m| m.focused().is_some());
-            let (r_pressed, shift_down, space_pressed, m_pressed, esc_pressed, enter_pressed, f_pressed) = ui.input(|i| {
-                (
-                    i.key_pressed(egui::Key::R),
-                    i.modifiers.shift,
-                    i.key_pressed(egui::Key::Space),
-                    i.key_pressed(egui::Key::M),
-                    i.key_pressed(egui::Key::Escape),
-                    i.key_pressed(egui::Key::Enter),
-                    i.key_pressed(egui::Key::F),
-                )
-            });
+            let (esc_pressed, enter_pressed) =
+                ui.input(|i| (i.key_pressed(egui::Key::Escape), i.key_pressed(egui::Key::Enter)));
+            let actions = ui.input(|i| board_hotkey_actions(&self.preferences.keymap, i, self.preferences_open, wants_kb));
 
             if esc_pressed {
                 if wants_kb {
@@ -674,30 +668,18 @@ impl eframe::App for BoardViewApp {
                 }
             }
 
-            if !wants_kb {
-                if r_pressed {
-                    if shift_down {
-                        self.canvases.rotate_ccw();
-                    } else {
-                        self.canvases.rotate_cw();
+            for action in actions {
+                match action {
+                    Action::RotateCw => self.canvases.rotate_cw(),
+                    Action::RotateCcw => self.canvases.rotate_ccw(),
+                    Action::FlipSide => self.set_tab(self.tab.flipped()),
+                    Action::MirrorX => self.canvases.toggle_mirror_x(),
+                    Action::MirrorY => self.canvases.toggle_mirror_y(),
+                    Action::FitView if self.fit_shown_canvases(ui.clip_rect()) => {
+                        ui.ctx().request_repaint();
+                        self.status_msg = "Viewport fitted to PCB bounds.".to_string();
                     }
-                }
-
-                if space_pressed {
-                    self.set_tab(self.tab.flipped());
-                }
-
-                if m_pressed {
-                    if shift_down {
-                        self.canvases.toggle_mirror_y();
-                    } else {
-                        self.canvases.toggle_mirror_x();
-                    }
-                }
-
-                if f_pressed && self.fit_shown_canvases(ui.clip_rect()) {
-                    ui.ctx().request_repaint();
-                    self.status_msg = "Viewport fitted to PCB bounds (F)".to_string();
+                    _ => {}
                 }
             }
         }
@@ -786,11 +768,11 @@ impl eframe::App for BoardViewApp {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button(i18n::tr(lang, "actions.rotate_cw")).clicked() {
+                    if ui.button(self.preferences.keymap.hint(i18n::tr(lang, "actions.rotate_cw"), Action::RotateCw)).clicked() {
                         self.canvases.rotate_cw();
                         ui.close();
                     }
-                    if ui.button(i18n::tr(lang, "actions.rotate_ccw")).clicked() {
+                    if ui.button(self.preferences.keymap.hint(i18n::tr(lang, "actions.rotate_ccw"), Action::RotateCcw)).clicked() {
                         self.canvases.rotate_ccw();
                         ui.close();
                     }
@@ -800,15 +782,15 @@ impl eframe::App for BoardViewApp {
                     }
                     ui.separator();
                     let is_top = self.tab == BoardTab::Top;
-                    if ui.button(if is_top { i18n::tr(lang, "actions.flip_bottom") } else { i18n::tr(lang, "actions.flip_top") }).clicked() {
+                    if ui.button(self.preferences.keymap.hint(i18n::tr(lang, if is_top { "actions.flip_bottom" } else { "actions.flip_top" }), Action::FlipSide)).clicked() {
                         self.set_tab(self.tab.flipped());
                         ui.close();
                     }
-                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_x"), if self.canvases.mirror_x() { "ON" } else { "OFF" })).clicked() {
+                    if ui.button(format!("{} [{}]", self.preferences.keymap.hint(i18n::tr(lang, "actions.mirror_x"), Action::MirrorX), if self.canvases.mirror_x() { "ON" } else { "OFF" })).clicked() {
                         self.canvases.toggle_mirror_x();
                         ui.close();
                     }
-                    if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_y"), if self.canvases.mirror_y() { "ON" } else { "OFF" })).clicked() {
+                    if ui.button(format!("{} [{}]", self.preferences.keymap.hint(i18n::tr(lang, "actions.mirror_y"), Action::MirrorY), if self.canvases.mirror_y() { "ON" } else { "OFF" })).clicked() {
                         self.canvases.toggle_mirror_y();
                         ui.close();
                     }
@@ -823,7 +805,7 @@ impl eframe::App for BoardViewApp {
                 ui.menu_button(i18n::tr(lang, "menu.view"), |ui| {
                     ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
                         let rect = ui.clip_rect();
-                        if ui.button(i18n::tr(lang, "toolbar.zoom_fit_window")).clicked() {
+                        if ui.button(self.preferences.keymap.hint(i18n::tr(lang, "toolbar.zoom_fit_window"), Action::FitView)).clicked() {
                             if self.fit_shown_canvases(rect) {
                                 ui.ctx().request_repaint();
                             }
@@ -1099,6 +1081,90 @@ impl eframe::App for BoardViewApp {
     }
 }
 
+
+/// Board actions handled by the global hotkey block (pan/zoom live in the canvas).
+const BOARD_HOTKEY_ACTIONS: [Action; 6] =
+    [Action::RotateCw, Action::RotateCcw, Action::FlipSide, Action::MirrorX, Action::MirrorY, Action::FitView];
+
+/// Board actions whose shortcut was pressed this frame. None fire while Preferences is open or
+/// a text field wants the keyboard.
+fn board_hotkey_actions(keymap: &Keymap, input: &egui::InputState, preferences_open: bool, wants_kb: bool) -> Vec<Action> {
+    if preferences_open || wants_kb {
+        return Vec::new();
+    }
+    BOARD_HOTKEY_ACTIONS.into_iter().filter(|&action| keymap.pressed(action, input)).collect()
+}
+
+#[cfg(test)]
+mod hotkey_tests {
+    use super::*;
+    use egui::{Event, InputOptions, Key, Modifiers, RawInput};
+    use keymap::{Binding, Mods};
+
+    fn key_input(key: Key, modifiers: Modifiers) -> egui::InputState {
+        let raw = RawInput {
+            events: vec![Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }],
+            ..RawInput::default()
+        };
+        egui::InputState::default().begin_pass(raw, false, 1.0, InputOptions::default())
+    }
+
+    #[test]
+    fn board_hotkeys_default_bindings() {
+        let km = Keymap::default();
+        let fire = |key, mods| board_hotkey_actions(&km, &key_input(key, mods), false, false);
+        assert_eq!(fire(Key::R, Modifiers::NONE), vec![Action::RotateCw]);
+        assert_eq!(fire(Key::R, Modifiers::SHIFT), vec![Action::RotateCcw]);
+        assert_eq!(fire(Key::Space, Modifiers::NONE), vec![Action::FlipSide]);
+        assert_eq!(fire(Key::M, Modifiers::NONE), vec![Action::MirrorX]);
+        assert_eq!(fire(Key::M, Modifiers::SHIFT), vec![Action::MirrorY]);
+        assert_eq!(fire(Key::F, Modifiers::NONE), vec![Action::FitView]);
+        // Pan/zoom and the Preferences toggle are not handled here.
+        assert!(fire(Key::ArrowUp, Modifiers::NONE).is_empty());
+        assert!(fire(Key::Comma, Modifiers::COMMAND).is_empty());
+    }
+
+    #[test]
+    fn board_hotkeys_follow_rebinding() {
+        let mut km = Keymap::default();
+        km.set(Action::RotateCw, Binding::new(Key::T, Mods::COMMAND));
+        assert_eq!(board_hotkey_actions(&km, &key_input(Key::T, Modifiers::COMMAND), false, false), vec![Action::RotateCw]);
+        assert!(board_hotkey_actions(&km, &key_input(Key::R, Modifiers::NONE), false, false).is_empty());
+        assert_eq!(board_hotkey_actions(&km, &key_input(Key::R, Modifiers::SHIFT), false, false), vec![Action::RotateCcw]);
+    }
+
+    #[test]
+    fn board_hotkeys_gated_by_text_focus_and_preferences() {
+        let km = Keymap::default();
+        let r = key_input(Key::R, Modifiers::NONE);
+        assert!(board_hotkey_actions(&km, &r, false, true).is_empty());
+        assert!(board_hotkey_actions(&km, &r, true, false).is_empty());
+        // The Preferences toggle itself is never gated.
+        assert!(km.pressed(Action::TogglePreferences, &key_input(Key::Comma, Modifiers::COMMAND)));
+    }
+
+    /// Shortcut hints are rendered from the keymap, so the catalogs must not bake them in.
+    #[test]
+    fn catalogs_do_not_bake_rebindable_shortcuts() {
+        let keys = [
+            "toolbar.zoom_fit_window",
+            "actions.rotate_cw",
+            "actions.rotate_ccw",
+            "actions.flip_bottom",
+            "actions.flip_top",
+            "actions.mirror_x",
+            "actions.mirror_y",
+        ];
+        for lang in i18n::Language::ALL {
+            for key in keys {
+                let text = i18n::tr(lang, key);
+                assert!(!text.trim_end().ends_with(')'), "{lang:?} {key}: {text}");
+            }
+            let hover = i18n::tr(lang, "tabs.hover");
+            assert!(hover.contains("{key}"), "{lang:?} tabs.hover: {hover}");
+        }
+    }
+}
 
 #[cfg(test)]
 mod focus_tests {

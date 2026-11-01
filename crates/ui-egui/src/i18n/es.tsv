@@ -10,7 +10,7 @@
 	toolbar.actions	Acciones
 	toolbar.preferences	Preferencias...
 	toolbar.zoom	Zoom
-	toolbar.zoom_fit_window	Ajustar a ventana (F)
+	toolbar.zoom_fit_window	Ajustar a ventana
 	toolbar.zoom_preset_25	25%
 	toolbar.zoom_preset_50	50%
 	toolbar.zoom_preset_100	100%
@@ -20,7 +20,7 @@
 	tabs.bottom	Inferior
 	tabs.both	Ambas
 	tabs.pdf	Esquemático PDF
-	tabs.hover	Pestañas de vista de la placa (Espacio alterna Superior/Inferior)
+	tabs.hover	Pestañas de vista de la placa ({key} alterna Superior/Inferior)
 	layout.label	Disposición:
 	layout.auto	Auto
 	layout.vertical	Vertical (superior arriba, inferior abajo)
@@ -30,13 +30,13 @@
 	toolbar.vias	Vías
 	toolbar.load_photo	Cargar Foto Superpuesta...
 	status.ready	Listo. Abre un archivo de placa para inspeccionar.
-	actions.rotate_cw	Rotar 90° horario (R)
-	actions.rotate_ccw	Rotar 90° antihorario (Shift+R)
+	actions.rotate_cw	Rotar 90° horario
+	actions.rotate_ccw	Rotar 90° antihorario
 	actions.rotate_180	Rotar 180°
-	actions.flip_bottom	Voltear a INFERIOR (Espacio)
-	actions.flip_top	Voltear a SUPERIOR (Espacio)
-	actions.mirror_x	Espejar X [Horizontal] (M)
-	actions.mirror_y	Espejar Y [Vertical] (Shift+M)
+	actions.flip_bottom	Voltear a INFERIOR
+	actions.flip_top	Voltear a SUPERIOR
+	actions.mirror_x	Espejar X [Horizontal]
+	actions.mirror_y	Espejar Y [Vertical]
 	actions.reset	Restablecer orientación
 	actions.adjust_overlay	Ajustar foto superpuesta
 	side_panel.back_to_search	← Buscar

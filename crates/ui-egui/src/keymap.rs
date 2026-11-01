@@ -231,6 +231,11 @@ impl Keymap {
         Action::ALL.into_iter().find(|&a| a != except && self.bindings(a).contains(&binding))
     }
 
+    /// `label` followed by the action's shortcut in parentheses, e.g. `"Rotate 90° CW (R)"`.
+    pub fn hint(&self, label: &str, action: Action) -> String {
+        format!("{label} ({})", self.display(action))
+    }
+
     /// All bindings of the action, joined by `" / "`.
     pub fn display(&self, action: Action) -> String {
         self.bindings(action).iter().map(Binding::display).collect::<Vec<_>>().join(" / ")
@@ -404,6 +409,15 @@ mod tests {
         assert_eq!(km.display(Action::TogglePreferences), format!("{CMD}+,"));
         let all = Binding::new(Key::K, Mods { shift: true, alt: true, command: true });
         assert_eq!(all.display(), format!("{CMD}+Alt+Shift+K"));
+    }
+
+    #[test]
+    fn keymap_hint_appends_the_live_binding() {
+        let mut km = Keymap::default();
+        assert_eq!(km.hint("Rotate", Action::RotateCw), "Rotate (R)");
+        km.set(Action::RotateCw, b(Key::T, Mods::COMMAND));
+        assert_eq!(km.hint("Rotate", Action::RotateCw), format!("Rotate ({CMD}+T)"));
+        assert_eq!(km.hint("Zoom", Action::ZoomIn), "Zoom (+ / =)");
     }
 
     #[test]
