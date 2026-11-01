@@ -16,10 +16,16 @@
 	toolbar.zoom_preset_100	100%
 	toolbar.zoom_preset_150	150%
 	toolbar.zoom_preset_200	200%
-	toolbar.view_top	Vista: SUPERIORE
-	toolbar.view_bottom	Vista: INFERIORE
-	toolbar.view_both	Vista: ENTRAMBI
-	toolbar.view_side_hover	Lato della scheda da mostrare (Spazio alterna superiore/inferiore)
+	tabs.top	Superiore
+	tabs.bottom	Inferiore
+	tabs.both	Entrambi
+	tabs.pdf	Schema PDF
+	tabs.hover	Schede di vista della scheda (Spazio alterna Superiore/Inferiore)
+	layout.label	Disposizione:
+	layout.auto	Auto
+	layout.vertical	Verticale (superiore sopra, inferiore sotto)
+	layout.horizontal	Orizzontale (superiore a sinistra, inferiore a destra)
+	layout.hover	Disposizione dei due lati; Auto li impila quando la scheda ruotata è più larga che alta
 	toolbar.pins	Pin
 	toolbar.vias	Via
 	toolbar.load_photo	Carica foto sovrapposta...
@@ -124,7 +130,8 @@
 	context_menu.copy_pin_info	Copia dettagli pin
 	pdf.title	Schema PDF
 	pdf.open	Apri schema PDF...
-	pdf.hide	Nascondi schema PDF
+	pdf.show	Mostra schema PDF
+	pdf.no_document	Nessuno schema PDF aperto.
 	pdf.close	Chiudi schema PDF
 	pdf.page_prev	Pagina precedente
 	pdf.page_next	Pagina successiva

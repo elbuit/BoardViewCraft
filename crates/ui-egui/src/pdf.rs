@@ -188,7 +188,6 @@ pub struct PdfSchematicViewer {
     pub selected_result_idx: usize,
     pub zoom: f32,
     pub pan_offset: Vec2,
-    pub is_open: bool,
     pub pending_center_on_match: bool,
 
     // Page text layers indexed so far for whole-document search (0-based page index -> PageText)
@@ -250,7 +249,6 @@ impl Default for PdfSchematicViewer {
             selected_result_idx: 0,
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
-            is_open: false,
             pending_center_on_match: false,
             page_texts: HashMap::new(),
             text_failed: HashSet::new(),
@@ -310,7 +308,6 @@ impl PdfSchematicViewer {
         self.search_is_fallback = false;
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
-        self.is_open = true;
 
         // 2. One render pool (one shared parser) for rasters and text layers. Like pdfcraft, leave
         //    a core to the UI thread; text indexing takes at most half of the workers.
@@ -514,6 +511,36 @@ impl PdfSchematicViewer {
         }
 
         self.paint(painter, page_rect, viewport, pts, tag, tiled, ppp)
+    }
+
+    /// Whether a document is open (its tab may be hidden).
+    pub fn is_loaded(&self) -> bool {
+        self.doc_info.is_some()
+    }
+
+    /// Background work while the page is not painted (its tab hidden): collects finished
+    /// results and keeps indexing the text layers still missing, without rendering any page, so
+    /// a cross-probe from the board finds its hits and the tab opens at the first one.
+    pub fn pump_background(&mut self, ctx: &egui::Context) {
+        let Some(pool) = &self.render_pool else { return };
+        let page = self.current_page.clamp(1, self.total_pages);
+        // Replacing the paint queue cancels the rasters of a page nobody is looking at.
+        let queue: Vec<RenderRequest> = (0..self.total_pages)
+            .map(|k| (page - 1 + k) % self.total_pages)
+            .filter(|p| !self.page_texts.contains_key(p) && !self.text_failed.contains(p))
+            .take(self.text_slots)
+            .map(text_request)
+            .collect();
+        if queue != self.last_queue {
+            pool.set_queue(queue.clone());
+            self.last_queue = queue;
+            self.stats.queue_changes += 1;
+        }
+        let max_side = ctx.input(|i| i.max_texture_side) as f32;
+        self.receive(ctx, max_side);
+        if !self.last_queue.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(30));
+        }
     }
 
     /// Keeps the current page and its neighbours, then the pages turned away from, nearest the
@@ -1075,6 +1102,29 @@ mod tests {
         assert!(hit.text.contains("U12"));
     }
 
+    /// With the PDF tab hidden nothing paints, yet the pump keeps indexing the text layers (and
+    /// renders no page), so a board cross-probe finds its hits and the tab opens at the first one.
+    #[test]
+    fn test_background_pump_indexes_text_without_painting() {
+        let Some((mut viewer, sim)) = open_fixture() else { return };
+        assert!(!viewer.cross_probe("U12"), "nothing indexed yet");
+        let t0 = std::time::Instant::now();
+        while !viewer.text_indexed() {
+            assert!(t0.elapsed() < std::time::Duration::from_secs(120), "pump made no progress");
+            sim.pump(&mut viewer);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(viewer.last_queue.iter().all(|r| r.kind == RequestKind::Text), "{:?}", viewer.last_queue);
+        assert!(viewer.page_textures.is_empty() && viewer.previews.is_empty(), "no page rendered");
+        assert!(!viewer.search_results.is_empty());
+        let hit = &viewer.search_results[viewer.selected_result_idx];
+        assert_eq!(viewer.current_page, hit.page_number, "the pending cross-probe jumped to its hit");
+        sim.pump(&mut viewer);
+        assert!(viewer.last_queue.is_empty(), "nothing left to do once indexed");
+        // Showing the tab paints the hit's page.
+        sim.wait_until(&mut viewer, |v| v.page_textures.contains_key(&v.current_page));
+    }
+
     #[test]
     fn test_admit_by_budget_skips_what_does_not_fit() {
         let sizes = [(1usize, 40usize), (2, 70), (3, 30), (4, 20)];
@@ -1213,6 +1263,17 @@ mod tests {
             // No renderer applies the texture uploads here (epaint asserts on dropping them).
             self.ctx.end_pass().textures_delta.clear();
             painted
+        }
+
+        /// One frame with the PDF tab hidden: only the background pump runs.
+        fn pump(&self, viewer: &mut PdfSchematicViewer) {
+            self.ctx.begin_pass(egui::RawInput {
+                time: Some(self.start.elapsed().as_secs_f64()),
+                max_texture_side: Some(8192),
+                ..Default::default()
+            });
+            viewer.pump_background(&self.ctx);
+            self.ctx.end_pass().textures_delta.clear();
         }
 
         /// Runs frames until every page's text is indexed (generous bound: not a timing check).

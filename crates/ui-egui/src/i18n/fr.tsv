@@ -16,10 +16,16 @@
 	toolbar.zoom_preset_100	100%
 	toolbar.zoom_preset_150	150%
 	toolbar.zoom_preset_200	200%
-	toolbar.view_top	Vue : DESSUS
-	toolbar.view_bottom	Vue : DESSOUS
-	toolbar.view_both	Vue : LES DEUX
-	toolbar.view_side_hover	Face de la carte à afficher (Espace bascule dessus/dessous)
+	tabs.top	Dessus
+	tabs.bottom	Dessous
+	tabs.both	Les deux
+	tabs.pdf	Schéma PDF
+	tabs.hover	Onglets de vue de la carte (Espace bascule Dessus/Dessous)
+	layout.label	Disposition :
+	layout.auto	Auto
+	layout.vertical	Verticale (dessus en haut, dessous en bas)
+	layout.horizontal	Horizontale (dessus à gauche, dessous à droite)
+	layout.hover	Disposition des deux faces ; Auto les empile quand la carte pivotée est plus large que haute
 	toolbar.pins	Broches
 	toolbar.vias	Vias
 	toolbar.load_photo	Charger une photo superposée...
@@ -124,7 +130,8 @@
 	context_menu.copy_pin_info	Copier les détails de la broche
 	pdf.title	Schéma PDF
 	pdf.open	Ouvrir le schéma PDF...
-	pdf.hide	Masquer le schéma PDF
+	pdf.show	Afficher le schéma PDF
+	pdf.no_document	Aucun schéma PDF n'est ouvert.
 	pdf.close	Fermer le schéma PDF
 	pdf.page_prev	Page précédente
 	pdf.page_next	Page suivante

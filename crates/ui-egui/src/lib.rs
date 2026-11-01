@@ -1,16 +1,19 @@
 //! Main application entry point and window runner for BoardViewCraft.
 
 mod about;
+mod board_tabs;
 mod canvas;
 mod i18n;
 mod overlay;
 pub mod overlay_align;
 pub mod pdf;
+mod pdf_tab;
 mod preferences;
 mod render;
 mod side_panel;
 mod theme;
 
+use board_tabs::{BoardTab, BothLayout};
 use bvc_core::{Board, ParserRegistry, Point, Side};
 use canvas::{BoardCanvases, show_canvas};
 use overlay::OverlayManager;
@@ -20,20 +23,8 @@ use render::Renderer;
 use side_panel::{SidePanelState, show_side_panel};
 use theme::{AppTheme, Tokens};
 
-use egui::{CentralPanel, Color32, Panel, Pos2, Rect, RichText, Ui};
+use egui::{CentralPanel, Panel, Rect, RichText, Ui};
 use std::sync::Arc;
-
-/// Board sides offered by the toolbar side selector, in display order.
-const SIDE_CHOICES: [Side; 3] = [Side::Top, Side::Bottom, Side::Both];
-
-/// Translated toolbar label for a board side.
-fn side_label(lang: i18n::Language, side: Side) -> &'static str {
-    match side {
-        Side::Top => i18n::tr(lang, "toolbar.view_top"),
-        Side::Bottom => i18n::tr(lang, "toolbar.view_bottom"),
-        Side::Both => i18n::tr(lang, "toolbar.view_both"),
-    }
-}
 
 
 /// Searches for a co-located PDF schematic file matching the given boardview file path.
@@ -81,8 +72,10 @@ pub struct BoardViewApp {
     renderer: Renderer,
     /// One board view per side (own pan, zoom and mesh cache; shared rotation and mirroring).
     canvases: BoardCanvases,
-    /// Sides shown in the central area: `Top`, `Bottom` or `Both` (side by side).
-    shown_side: Side,
+    /// Tab shown in the central area; only its content renders.
+    tab: BoardTab,
+    /// The tab or Both layout changed and the preferences need saving.
+    save_prefs_pending: bool,
     /// Screen rectangle of each canvas drawn in the last frame, for fitting to the real size.
     canvas_rects: Vec<(Side, Rect)>,
     side_panel_state: SidePanelState,
@@ -118,7 +111,8 @@ impl Default for BoardViewApp {
             tokens: Tokens::DARK,
             renderer: Renderer::new(),
             canvases: BoardCanvases::default(),
-            shown_side: Side::Top,
+            tab: BoardTab::Top,
+            save_prefs_pending: false,
             canvas_rects: Vec::new(),
             side_panel_state: SidePanelState::default(),
             overlay_manager: OverlayManager::default(),
@@ -151,9 +145,12 @@ impl BoardViewApp {
         let is_light = preferences.app_theme == AppTheme::Light;
         cc.egui_ctx.set_visuals(tokens.egui_visuals(is_light));
 
+        // No schematic is open yet: a PDF tab saved last time starts on Top.
+        let tab = preferences.board_tab.at_startup(false);
         Self {
             preferences,
             tokens,
+            tab,
             ..Self::default()
         }
     }
@@ -318,6 +315,7 @@ impl BoardViewApp {
                 } else {
                     self.status_msg = format!("Loaded overlay photo for {side:?}: {}", path.display());
                     self.side_panel_state.overlay_editing = true;
+                    self.show_board_side(side);
                 }
             }
         }
@@ -331,30 +329,43 @@ impl BoardViewApp {
         &self.status_msg
     }
 
-    pub fn open_pdf_dialog(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
+    /// Asks for a schematic PDF and opens it in the PDF tab. Returns whether one was opened.
+    pub fn open_pdf_dialog(&mut self) -> bool {
+        let Some(path) = rfd::FileDialog::new()
             .add_filter("PDF Schematics (*.pdf)", &["pdf"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
+        else {
+            return false;
+        };
+        let opened = self.open_schematic(&path);
+        if opened {
+            self.set_tab(BoardTab::Pdf);
+        }
+        opened
+    }
+
+    /// Shows `tab`, keeps the active canvas among the visible ones and remembers the tab.
+    fn set_tab(&mut self, tab: BoardTab) {
+        self.tab = tab;
+        if let Some(&first) = tab.sides().first()
+            && !tab.sides().contains(&self.canvases.active)
         {
-            self.open_schematic(&path);
+            self.canvases.active = first;
+        }
+        if self.preferences.board_tab != tab {
+            self.preferences.board_tab = tab;
+            self.save_prefs_pending = true;
         }
     }
 
-    /// Sides whose canvases are on screen.
-    fn visible_sides(&self) -> Vec<Side> {
-        match self.shown_side {
-            Side::Both => vec![Side::Top, Side::Bottom],
-            side => vec![side],
+    /// Makes the canvas of `side` visible (switching to its tab when needed) and active, for
+    /// the overlay photo tools of that side.
+    fn show_board_side(&mut self, side: Side) {
+        if !self.tab.sides().contains(&side) {
+            self.set_tab(BoardTab::for_side(side));
         }
-    }
-
-    /// Shows `side` (`Both` shows the two canvases) and keeps the active canvas visible.
-    fn show_side(&mut self, side: Side) {
-        self.shown_side = side;
-        if !self.visible_sides().contains(&self.canvases.active) {
-            self.canvases.active = if side == Side::Bottom { Side::Bottom } else { Side::Top };
-        }
+        self.canvases.active = side;
     }
 
     /// Side the overlay photo tools work on: the active canvas.
@@ -368,6 +379,9 @@ impl BoardViewApp {
         let Some(bbox) = self.board.as_ref().and_then(|b| b.bounding_box) else {
             return false;
         };
+        if self.tab == BoardTab::Pdf {
+            return false;
+        }
         if self.canvas_rects.is_empty() {
             self.canvases.active_mut().viewport.fit_to_rect(bbox, fallback);
         }
@@ -379,13 +393,15 @@ impl BoardViewApp {
 
     /// Centers the board view on `center`, an item visible on `item_side`: the shown canvases
     /// that can show it are centered. When none can, the canvases of the item's side are
-    /// centered, and with `switch_side` the view switches to that side first.
+    /// centered, and with `switch_side` a Top or Bottom tab switches to that side first (the
+    /// PDF tab stays where it is).
     fn focus_point(&mut self, center: Point, item_side: Side, switch_side: bool) {
-        let mut targets: Vec<Side> = self.visible_sides().into_iter().filter(|&s| item_side.visible_on(s)).collect();
+        let mut targets: Vec<Side> = self.tab.sides().iter().copied().filter(|&s| item_side.visible_on(s)).collect();
         if targets.is_empty() {
             targets = [Side::Top, Side::Bottom].into_iter().filter(|&s| item_side.visible_on(s)).collect();
-            if switch_side && let Some(&side) = targets.first() {
-                self.show_side(side);
+            let single_side_tab = matches!(self.tab, BoardTab::Top | BoardTab::Bottom);
+            if switch_side && single_side_tab && let Some(&side) = targets.first() {
+                self.set_tab(BoardTab::for_side(side));
                 targets.truncate(1);
             }
         }
@@ -404,13 +420,95 @@ impl BoardViewApp {
     }
 }
 
-/// Where a schematic click moves the board view.
-enum Focus {
-    Part(usize),
-    Point(Point, Side),
-}
-
 impl BoardViewApp {
+    /// Reverse cross-probing: selects the part (or else the net) named by a schematic text token
+    /// and centers the board on it, staying on the PDF tab.
+    fn apply_pdf_token(&mut self, token: &str) {
+        let Some(board) = &self.board else { return };
+        let token_raw = token.trim();
+        let token_clean = pdf::SchematicIndex::normalize_key(token_raw);
+        // 1. Try matching component designator (e.g. C123, U5, R10)
+        if let Some(part) = board.find_part_by_name(token_raw).or_else(|| board.find_part_by_name(&token_clean)) {
+            let part_id = part.id;
+            // Select only the part (no pin, via or net), as the side panel search does
+            self.selected_part_idx = Some(part_id);
+            self.selected_pin_idx = None;
+            self.selected_via_idx = None;
+            self.selected_net = None;
+            // Already shown in the PDF: don't cross-probe it back to its first hit
+            self.pdf_viewer.probed_part = Some(part_id);
+            self.status_msg = format!("Selected part {} from schematic PDF", part.name);
+            self.focus_part(part_id, false);
+        }
+        // 2. Try matching net name (e.g. PP3V3_S5, GND, +12V)
+        else if let Some(net) = board.get_net(token_raw).or_else(|| board.get_net(&token_clean)) {
+            self.selected_net = Some(net.name.clone());
+            self.selected_pin_idx = net.pin_indices.first().copied();
+            self.selected_via_idx = None;
+            let first_pin = self.selected_pin_idx.and_then(|idx| board.pins.get(idx));
+            self.selected_part_idx = first_pin.map(|p| p.part_id);
+            self.status_msg = format!("Selected net {} ({} pins) from schematic PDF", net.name, net.pin_indices.len());
+            if let Some((pos, side)) = first_pin.map(|p| (p.pos, p.side)) {
+                self.focus_point(pos, side, false);
+            }
+        }
+    }
+
+    /// Tab bar of the central area, with the Both layout selector while the Both tab is shown.
+    fn show_tab_bar(&mut self, ui: &mut Ui, lang: i18n::Language) {
+        egui::Frame::NONE
+            .fill(ui.visuals().panel_fill)
+            .inner_margin(egui::Margin::symmetric(8, 4))
+            .show(ui, |ui: &mut Ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui: &mut Ui| {
+                    for tab in BoardTab::ALL {
+                        let label = RichText::new(tab.label(lang)).strong();
+                        if ui.selectable_label(self.tab == tab, label).on_hover_text(i18n::tr(lang, "tabs.hover")).clicked() {
+                            self.set_tab(tab);
+                        }
+                    }
+                    if self.tab == BoardTab::Both {
+                        ui.separator();
+                        ui.label(i18n::tr(lang, "layout.label"));
+                        let mut layout = self.preferences.both_layout;
+                        egui::ComboBox::from_id_salt("both_layout_selector")
+                            .selected_text(layout.label(lang))
+                            .show_ui(ui, |ui: &mut Ui| {
+                                for choice in BothLayout::ALL {
+                                    ui.selectable_value(&mut layout, choice, choice.label(lang));
+                                }
+                            })
+                            .response
+                            .on_hover_text(i18n::tr(lang, "layout.hover"));
+                        if layout != self.preferences.both_layout {
+                            self.preferences.both_layout = layout;
+                            self.save_prefs_pending = true;
+                        }
+                    }
+                });
+            });
+    }
+
+    /// The board canvases of the current tab in `area`, with a separator line between the two
+    /// sides of the Both tab.
+    fn show_board_tab(&mut self, ui: &mut Ui, area: Rect) {
+        let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
+        let rects = board_tabs::canvas_rects(self.tab, area, self.preferences.both_layout, bbox, self.canvases.rotation());
+        if let [(_, a), (_, b)] = rects.as_slice() {
+            let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
+            let line = if a.max.x <= b.min.x {
+                let x = (a.max.x + b.min.x) * 0.5;
+                [egui::pos2(x, area.min.y), egui::pos2(x, area.max.y)]
+            } else {
+                let y = (a.max.y + b.min.y) * 0.5;
+                [egui::pos2(area.min.x, y), egui::pos2(area.max.x, y)]
+            };
+            ui.painter().line_segment(line, egui::Stroke::new(stroke.width.max(1.0), stroke.color));
+        }
+        self.show_board_canvases(ui, &rects);
+    }
+
     /// Draws the canvas of each `(side, rect)`, tracks the active canvas (last hovered or
     /// clicked) and applies a pending auto-fit to the real canvas rectangles.
     fn show_board_canvases(&mut self, ui: &mut Ui, rects: &[(Side, Rect)]) {
@@ -486,7 +584,9 @@ impl eframe::App for BoardViewApp {
                             }
                         }
                         "pdf" => {
-                            self.open_schematic(path);
+                            if self.open_schematic(path) {
+                                self.set_tab(BoardTab::Pdf);
+                            }
                         }
                         _ => {
                             self.open_file_from_path(path);
@@ -570,7 +670,7 @@ impl eframe::App for BoardViewApp {
                 }
 
                 if space_pressed {
-                    self.show_side(if self.shown_side == Side::Top { Side::Bottom } else { Side::Top });
+                    self.set_tab(self.tab.flipped());
                 }
 
                 if m_pressed {
@@ -650,22 +750,24 @@ impl eframe::App for BoardViewApp {
                         let cur_side = self.overlay_side();
                         if !self.overlay_manager.slot_for_side_ref(cur_side).is_loaded() {
                             let side = if self.overlay_manager.top.is_loaded() { Side::Top } else { Side::Bottom };
-                            self.show_side(side);
-                            self.canvases.active = side;
+                            self.show_board_side(side);
+                        } else {
+                            self.show_board_side(cur_side);
                         }
                         self.side_panel_state.overlay_editing = true;
                         ui.close();
                     }
-                    let pdf_toggle_label = if self.pdf_viewer.is_open {
-                        i18n::tr(lang, "pdf.hide")
+                    // Open a schematic, or show the open one in the PDF tab.
+                    let pdf_label = if self.pdf_viewer.is_loaded() {
+                        i18n::tr(lang, "pdf.show")
                     } else {
                         i18n::tr(lang, "pdf.open")
                     };
-                    if ui.button(pdf_toggle_label).clicked() {
-                        if !self.pdf_viewer.is_open && self.pdf_viewer.path.is_none() {
-                            self.open_pdf_dialog();
+                    if ui.button(pdf_label).clicked() {
+                        if self.pdf_viewer.is_loaded() {
+                            self.set_tab(BoardTab::Pdf);
                         } else {
-                            self.pdf_viewer.is_open = !self.pdf_viewer.is_open;
+                            self.open_pdf_dialog();
                         }
                         ui.close();
                     }
@@ -683,9 +785,9 @@ impl eframe::App for BoardViewApp {
                         ui.close();
                     }
                     ui.separator();
-                    let is_top = self.shown_side == Side::Top;
+                    let is_top = self.tab == BoardTab::Top;
                     if ui.button(if is_top { i18n::tr(lang, "actions.flip_bottom") } else { i18n::tr(lang, "actions.flip_top") }).clicked() {
-                        self.show_side(if is_top { Side::Bottom } else { Side::Top });
+                        self.set_tab(self.tab.flipped());
                         ui.close();
                     }
                     if ui.button(format!("{} [{}]", i18n::tr(lang, "actions.mirror_x"), if self.canvases.mirror_x() { "ON" } else { "OFF" })).clicked() {
@@ -699,7 +801,6 @@ impl eframe::App for BoardViewApp {
                     ui.separator();
                     if ui.button(i18n::tr(lang, "actions.reset")).clicked() {
                         self.canvases.reset_orientation();
-                        self.show_side(Side::Top);
                         ui.close();
                     }
                 });
@@ -763,24 +864,7 @@ impl eframe::App for BoardViewApp {
 
                 ui.separator();
 
-                // Board side selector (Top / Bottom / Both). The side is part of
-                // the view cache key, so assigning it re-renders the board.
-                let mut shown = self.shown_side;
-                egui::ComboBox::from_id_salt("board_side_selector")
-                    .selected_text(side_label(lang, shown))
-                    .show_ui(ui, |ui: &mut Ui| {
-                        for side in SIDE_CHOICES {
-                            ui.selectable_value(&mut shown, side, side_label(lang, side));
-                        }
-                    })
-                    .response
-                    .on_hover_text(i18n::tr(lang, "toolbar.view_side_hover"));
-                if shown != self.shown_side {
-                    self.show_side(shown);
-                }
-
                 if let Some(name) = &self.filename {
-                    ui.separator();
                     ui.label(RichText::new(name).color(self.tokens.text_dim()));
                 }
             });
@@ -794,11 +878,7 @@ impl eframe::App for BoardViewApp {
                 ui.label(RichText::new(&self.status_msg).color(self.tokens.status_bar_text()));
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui: &mut Ui| {
-                    let side_str = match self.shown_side {
-                        Side::Top => "TOP",
-                        Side::Bottom => "BOTTOM",
-                        Side::Both => "BOTH",
-                    };
+                    let side_str = self.tab.label(lang);
                     let rot_str = self.canvases.rotation().display_str();
                     let mirror_str = match (self.canvases.mirror_x(), self.canvases.mirror_y()) {
                         (true, true) => " [Mirror XY]",
@@ -854,9 +934,9 @@ impl eframe::App for BoardViewApp {
             ui.ctx().request_repaint();
         }
 
-        // Automatic cross-probing: sync with PDF schematic whenever a component is selected.
-        // Only on a selection change, so a search typed in the PDF panel is not overridden.
-        if self.pdf_viewer.is_open {
+        // Automatic cross-probing: sync with PDF schematic whenever a component is selected, from
+        // any tab. Only on a selection change, so a search typed in the PDF tab is not overridden.
+        if self.pdf_viewer.is_loaded() {
             if let Some(part_idx) = self.selected_part_idx {
                 if let Some(board) = &self.board {
                     if let Some(part) = board.parts.get(part_idx) {
@@ -871,323 +951,9 @@ impl eframe::App for BoardViewApp {
                 self.pdf_viewer.probed_part = None;
             }
         }
-
-        // Schematic PDF split panel (if open)
-        if self.pdf_viewer.is_open {
-            Panel::left("pdf_schematic_panel")
-                .resizable(true)
-                .default_size(ui.available_width() * 0.45)
-                .size_range(280.0..=ui.available_width() * 0.75)
-                .show(ui, |ui: &mut Ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading(RichText::new(i18n::tr(lang, "pdf.title")).strong().color(self.tokens.accent()));
-                        if let Some(fn_str) = &self.pdf_viewer.filename {
-                            ui.label(RichText::new(fn_str).small().color(self.tokens.text_dim()));
-                        }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("✖").on_hover_text(i18n::tr(lang, "pdf.close")).clicked() {
-                                self.pdf_viewer.is_open = false;
-                            }
-                        });
-                    });
-                    ui.separator();
-
-                    // Navigation bar
-                    ui.horizontal(|ui| {
-                        if ui.button("⏴").on_hover_text(i18n::tr(lang, "pdf.page_prev")).clicked() && self.pdf_viewer.current_page > 1 {
-                            self.pdf_viewer.current_page -= 1;
-                        }
-                        let page_counter_text = i18n::tr(lang, "pdf.page_counter")
-                            .replacen("{}", &self.pdf_viewer.current_page.to_string(), 1)
-                            .replacen("{}", &self.pdf_viewer.total_pages.to_string(), 1);
-                        ui.label(page_counter_text);
-                        if ui.button("⏵").on_hover_text(i18n::tr(lang, "pdf.page_next")).clicked() && self.pdf_viewer.current_page < self.pdf_viewer.total_pages {
-                            self.pdf_viewer.current_page += 1;
-                        }
-
-                        ui.separator();
-                        let zoom_pct = (self.pdf_viewer.zoom * 100.0).round() as i32;
-                        let zoom_label = format!("🔍 {zoom_pct}%");
-                        if ui.button(RichText::new(zoom_label).color(self.tokens.accent()).monospace())
-                            .on_hover_text("Click to reset zoom to 100%")
-                            .clicked()
-                        {
-                            self.pdf_viewer.zoom = 1.0;
-                            self.pdf_viewer.pan_offset = egui::Vec2::ZERO;
-                            ui.ctx().request_repaint();
-                        }
-
-                        if !self.pdf_viewer.search_results.is_empty() {
-                            ui.separator();
-                            let count = self.pdf_viewer.search_results.len();
-                            let current = self.pdf_viewer.selected_result_idx + 1;
-                            let hits_label = format!("{current}/{count} {}", i18n::tr(lang, "pdf.hits"));
-
-                            let mut match_to_select = None;
-                            egui::ComboBox::from_id_salt("pdf_match_list")
-                                .selected_text(RichText::new(hits_label).color(self.tokens.accent()))
-                                .show_ui(ui, |ui| {
-                                    for (i, hit) in self.pdf_viewer.search_results.iter().enumerate() {
-                                        let item_label = format!("#{}: {} (p. {})", i + 1, hit.text, hit.page_number);
-                                        let is_selected = i == self.pdf_viewer.selected_result_idx;
-                                        if ui.selectable_label(is_selected, item_label).clicked() {
-                                            match_to_select = Some(i);
-                                        }
-                                    }
-                                });
-
-                            if let Some(idx) = match_to_select {
-                                self.pdf_viewer.select_match(idx);
-                            }
-
-                            if ui.button(i18n::tr(lang, "pdf.hit_prev")).clicked() {
-                                self.pdf_viewer.prev_match();
-                            }
-                            if ui.button(i18n::tr(lang, "pdf.hit_next")).clicked() {
-                                self.pdf_viewer.next_match();
-                            }
-                        }
-                    });
-
-                    // Text search: Enter or the button jumps to the first hit; Enter again on the
-                    // same query steps to the next one.
-                    ui.horizontal(|ui| {
-                        let search_resp = ui.add(
-                            egui::TextEdit::singleline(&mut self.pdf_viewer.search_input)
-                                .hint_text(i18n::tr(lang, "pdf.search_hint"))
-                                .desired_width(180.0),
-                        );
-                        let entered = search_resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                        if entered || ui.button(i18n::tr(lang, "pdf.search")).clicked() {
-                            let query = self.pdf_viewer.search_input.trim().to_string();
-                            if entered && !query.is_empty() && query == self.pdf_viewer.active_search && !self.pdf_viewer.search_results.is_empty() {
-                                self.pdf_viewer.next_match();
-                            } else {
-                                self.pdf_viewer.search(&query);
-                            }
-                            if entered {
-                                search_resp.request_focus();
-                            }
-                        }
-                        if !self.pdf_viewer.active_search.is_empty()
-                            && self.pdf_viewer.search_results.is_empty()
-                            && self.pdf_viewer.text_indexed()
-                        {
-                            ui.label(RichText::new(i18n::tr(lang, "pdf.no_hits")).color(self.tokens.text_dim()));
-                        }
-                    });
-                    ui.separator();
-
-                    // PDF Page viewer canvas area with interactive pan and zoom
-                    let (rect, resp) = ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
-                    let painter = ui.painter().with_clip_rect(rect);
-                    painter.rect_filled(rect, 4.0, Color32::from_rgb(255, 255, 255));
-
-                    if resp.dragged() {
-                        self.pdf_viewer.pan_offset += resp.drag_delta();
-                    }
-
-                    // Mouse wheel zoom centered under cursor with gentle sensitivity
-                    if resp.hovered() {
-                        let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
-                        if scroll_y != 0.0 {
-                            let old_zoom = self.pdf_viewer.zoom;
-                            // Gentle 1.07 factor per tick instead of aggressive 1.15
-                            let zoom_factor = if scroll_y > 0.0 { 1.07 } else { 1.0 / 1.07 };
-                            let new_zoom = (old_zoom * zoom_factor).clamp(0.2, 30.0);
-
-                            if let Some(hover_pos) = resp.hover_pos() {
-                                // Keep the document point under the mouse invariant:
-                                // hover_pos = rect.center() + pan_offset_new + (hover_pos - rect.center() - pan_offset_old) * (new_zoom / old_zoom)
-                                let cursor_rel = hover_pos - rect.center() - self.pdf_viewer.pan_offset;
-                                let scale_ratio = new_zoom / old_zoom;
-                                self.pdf_viewer.pan_offset = hover_pos - rect.center() - cursor_rel * scale_ratio;
-                            }
-
-                            self.pdf_viewer.zoom = new_zoom;
-                            ui.ctx().request_repaint();
-                        }
-
-                        // Keyboard navigation inside PDF panel when hovered, unless a text field
-                        // (e.g. the search box) has the keyboard
-                        let typing = ui.memory(|m| m.focused().is_some());
-                        let (page_up, page_down, arrow_left, arrow_right, plus_key, minus_key) = ui.input(|i| {
-                            if typing {
-                                return Default::default();
-                            }
-                            (
-                                i.key_pressed(egui::Key::PageUp),
-                                i.key_pressed(egui::Key::PageDown),
-                                i.key_pressed(egui::Key::ArrowLeft),
-                                i.key_pressed(egui::Key::ArrowRight),
-                                i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
-                                i.key_pressed(egui::Key::Minus),
-                            )
-                        });
-
-                        if (page_up || arrow_left) && self.pdf_viewer.current_page > 1 {
-                            self.pdf_viewer.current_page -= 1;
-                            ui.ctx().request_repaint();
-                        } else if (page_down || arrow_right) && self.pdf_viewer.current_page < self.pdf_viewer.total_pages {
-                            self.pdf_viewer.current_page += 1;
-                            ui.ctx().request_repaint();
-                        }
-
-                        if plus_key {
-                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom * 1.15).clamp(0.2, 30.0);
-                            ui.ctx().request_repaint();
-                        } else if minus_key {
-                            self.pdf_viewer.zoom = (self.pdf_viewer.zoom / 1.15).clamp(0.2, 30.0);
-                            ui.ctx().request_repaint();
-                        }
-                    }
-
-                    // Render crisp rasterized PDF page (whole, or backdrop + visible tiles) from engine
-                    if self.pdf_viewer.doc_info.is_some() {
-                        let page_size_pts = self.pdf_viewer.page_size_pts(self.pdf_viewer.current_page);
-                        // Natural unzoomed size of the page in UI points
-                        let base_page_size = page_size_pts * crate::pdf::PT;
-                        let fit_scale = ((rect.width() * 0.95) / base_page_size.x.max(1.0))
-                            .min((rect.height() * 0.95) / base_page_size.y.max(1.0));
-                        let display_scale = fit_scale * self.pdf_viewer.zoom;
-                        let render_size = base_page_size * display_scale;
-
-                        // Center viewport on selected match if requested (e.g. cross-probing or next/prev match)
-                        if self.pdf_viewer.pending_center_on_match {
-                            if let Some(hit) = self.pdf_viewer.search_results.get(self.pdf_viewer.selected_result_idx) {
-                                if hit.page_number == self.pdf_viewer.current_page {
-                                    let center_pt = hit.bbox.center();
-                                    let comp_pos = center_pt * crate::pdf::PT * display_scale;
-
-                                    self.pdf_viewer.pan_offset = egui::vec2(
-                                        render_size.x * 0.5 - comp_pos.x,
-                                        render_size.y * 0.5 - comp_pos.y,
-                                    );
-                                    self.pdf_viewer.pending_center_on_match = false;
-                                }
-                            }
-                        }
-
-                        let render_pos = rect.min
-                            + (rect.size() - render_size) * 0.5
-                            + self.pdf_viewer.pan_offset;
-
-                        let img_rect = Rect::from_min_size(render_pos, render_size);
-                        let painted = self.pdf_viewer.paint_current_page(ui.ctx(), &painter, img_rect, rect);
-                        if !painted {
-                            let page_label = i18n::tr(lang, "pdf.loading_page")
-                                .replace("{}", &self.pdf_viewer.current_page.to_string());
-                            painter.text(
-                                rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                page_label,
-                                egui::FontId::proportional(16.0),
-                                Color32::from_rgb(100, 100, 110),
-                            );
-                        }
-
-                        // PDF coordinate mapping function (PDF points -> screen points)
-                        let to_screen = |pdf_pt: Pos2| -> Pos2 {
-                            let p = pdf_pt.to_vec2() * crate::pdf::PT * display_scale;
-                            render_pos + p
-                        };
-
-                        // Cross-probing highlights
-                        for (i, hit) in self.pdf_viewer.search_results.iter().enumerate() {
-                            if hit.page_number == self.pdf_viewer.current_page {
-                                let top_left = to_screen(hit.bbox.min);
-                                let btm_right = to_screen(hit.bbox.max);
-                                let marker_rect = Rect::from_min_max(top_left, btm_right);
-
-                                let is_selected = i == self.pdf_viewer.selected_result_idx;
-                                let bg_color = if is_selected {
-                                    Color32::from_rgba_unmultiplied(255, 230, 0, 160)
-                                } else {
-                                    Color32::from_rgba_unmultiplied(100, 180, 255, 120)
-                                };
-
-                                painter.rect_filled(marker_rect, 2.0, bg_color);
-                                painter.rect_stroke(
-                                    marker_rect,
-                                    2.0,
-                                    egui::Stroke::new(2.0, Color32::from_rgb(220, 20, 40)),
-                                    egui::StrokeKind::Middle,
-                                );
-                            }
-                        }
-
-                        // Reverse Cross-probing: Click on PDF text token to select & center part/net in PCB layout
-                        if resp.clicked() {
-                            let click_opt = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).or_else(|| ui.input(|i| i.pointer.interact_pos()));
-                            if let Some(click_pos) = click_opt {
-                                if rect.contains(click_pos) {
-                                    // Inverse map: screen pos -> PDF point
-                                    let rel_screen = click_pos - render_pos;
-                                    let pdf_pt_x = rel_screen.x / (crate::pdf::PT * display_scale);
-                                    let pdf_pt_y = rel_screen.y / (crate::pdf::PT * display_scale);
-                                    let clicked_pdf_pt = Pos2::new(pdf_pt_x, pdf_pt_y);
-
-                                    let clicked_token = self.pdf_viewer.find_token_at(self.pdf_viewer.current_page, clicked_pdf_pt);
-                                    let mut focus = None;
-
-                                    if let Some(occ) = clicked_token {
-                                        let token_raw = occ.text.trim();
-                                        let token_clean = crate::pdf::SchematicIndex::normalize_key(token_raw);
-                                        if let Some(board) = &self.board {
-                                            // 1. Try matching component designator (e.g. C123, U5, R10)
-                                            let part_match = board.find_part_by_name(token_raw).or_else(|| board.find_part_by_name(&token_clean));
-                                            if let Some(part) = part_match {
-                                                // Select only the part (no pin, via or net), as the side panel search does
-                                                self.selected_part_idx = Some(part.id);
-                                                self.selected_pin_idx = None;
-                                                self.selected_via_idx = None;
-                                                self.selected_net = None;
-                                                // Already shown in the PDF: don't cross-probe it back to its first hit
-                                                self.pdf_viewer.probed_part = Some(part.id);
-
-                                                self.status_msg = format!("Selected part {} from schematic PDF", part.name);
-                                                focus = Some(Focus::Part(part.id));
-                                                ui.ctx().request_repaint();
-                                            }
-                                            // 2. Try matching net name (e.g. PP3V3_S5, GND, +12V)
-                                            else if let Some(net) = board.get_net(token_raw).or_else(|| board.get_net(&token_clean)) {
-                                                self.selected_net = Some(net.name.clone());
-                                                self.selected_pin_idx = net.pin_indices.first().copied();
-                                                self.selected_via_idx = None;
-                                                self.selected_part_idx = self.selected_pin_idx.and_then(|p_idx| board.pins.get(p_idx)).map(|p| p.part_id);
-
-                                                if let Some(first_pin) = self.selected_pin_idx.and_then(|idx| board.pins.get(idx)) {
-                                                    focus = Some(Focus::Point(first_pin.pos, first_pin.side));
-                                                }
-
-                                                self.status_msg = format!("Selected net {} ({} pins) from schematic PDF", net.name, net.pin_indices.len());
-                                                ui.ctx().request_repaint();
-                                            }
-                                        }
-                                    }
-                                    // Center the board on the hit, switching the view side if needed
-                                    match focus {
-                                        Some(Focus::Part(part_id)) => {
-                                            self.focus_part(part_id, true);
-                                        }
-                                        Some(Focus::Point(center, side)) => self.focus_point(center, side, true),
-                                        None => {}
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        let page_label = i18n::tr(lang, "pdf.loading_page")
-                            .replace("{}", &self.pdf_viewer.current_page.to_string());
-                        painter.text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            page_label,
-                            egui::FontId::proportional(16.0),
-                            Color32::from_rgb(100, 100, 110),
-                        );
-                    }
-                });
+        // The PDF tab paints (and drives) the viewer; hidden, its text indexing keeps going.
+        if self.pdf_viewer.is_loaded() && self.tab != BoardTab::Pdf {
+            self.pdf_viewer.pump_background(ui.ctx());
         }
 
         // Modal dialog asking to open co-located matching schematic PDF
@@ -1254,15 +1020,31 @@ impl eframe::App for BoardViewApp {
         CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
             .show(ui, |ui: &mut Ui| {
-                let area = ui.available_rect_before_wrap();
-                let rects = match self.shown_side {
-                    Side::Both => {
-                        let (left, right) = area.split_left_right_at_fraction(0.5);
-                        vec![(Side::Top, left.shrink2(egui::vec2(2.0, 0.0))), (Side::Bottom, right.shrink2(egui::vec2(2.0, 0.0)))]
+                self.show_tab_bar(ui, lang);
+                if self.tab == BoardTab::Pdf {
+                    self.canvas_rects.clear();
+                    let out = egui::Frame::NONE
+                        .fill(ui.visuals().panel_fill)
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui: &mut Ui| {
+                            ui.set_min_size(ui.available_size());
+                            pdf_tab::show_pdf_tab(ui, &self.tokens, lang, &mut self.pdf_viewer)
+                        })
+                        .inner;
+                    if out.open_requested {
+                        self.open_pdf_dialog();
                     }
-                    side => vec![(side, area)],
-                };
-                self.show_board_canvases(ui, &rects);
+                    if out.close_requested {
+                        self.pdf_viewer.close();
+                    }
+                    if let Some(occ) = out.clicked_token {
+                        self.apply_pdf_token(&occ.text);
+                        ui.ctx().request_repaint();
+                    }
+                } else {
+                    let area = ui.available_rect_before_wrap();
+                    self.show_board_tab(ui, area);
+                }
             });
 
         about::show_about_window(ui.ctx(), &mut self.about_open, &self.tokens, lang);
@@ -1295,6 +1077,9 @@ impl eframe::App for BoardViewApp {
             // Invalidate canvas mesh caches
             self.canvases.invalidate_caches();
             self.preferences = prefs;
+            self.save_prefs_pending = true;
+        }
+        if std::mem::take(&mut self.save_prefs_pending) {
             let _ = self.preferences.save_atomic();
         }
     }
@@ -1314,7 +1099,8 @@ mod focus_tests {
             tokens: Tokens::default(),
             renderer: Renderer::default(),
             canvases: BoardCanvases::default(),
-            shown_side: Side::Top,
+            tab: BoardTab::Top,
+            save_prefs_pending: false,
             canvas_rects: Vec::new(),
             side_panel_state: SidePanelState::default(),
             overlay_manager: OverlayManager::default(),
@@ -1354,7 +1140,6 @@ mod focus_tests {
         app.side_panel_state.overlay_editing = true;
         app.side_panel_state.stay_on_part = Some(3);
         app.pdf_viewer.path = Some(std::path::PathBuf::from("/boards/MS-V375.pdf"));
-        app.pdf_viewer.is_open = true;
         app.pending_schematic_prompt = Some(std::path::PathBuf::from("/boards/MS-V375.pdf"));
 
         app.close_board();
@@ -1365,7 +1150,7 @@ mod focus_tests {
         assert!(app.selected_part_idx.is_none() && app.selected_net.is_none());
         assert!(!app.side_panel_state.overlay_editing && app.side_panel_state.stay_on_part.is_none());
         assert_eq!(app.side_panel_state.filter_part, "U1", "search filters are kept");
-        assert!(!app.pdf_viewer.is_open && app.pdf_viewer.path.is_none());
+        assert!(!app.pdf_viewer.is_loaded() && app.pdf_viewer.path.is_none());
         assert!(app.pending_schematic_prompt.is_none());
         assert!(app.canvases.top.cached_view_key.is_none() && app.canvases.bottom.cached_view_key.is_none());
         assert_eq!(app.status(), "Closed MS-V375.cad.");
@@ -1377,12 +1162,11 @@ mod focus_tests {
         app.board = Some(Board::new());
         app.board_path = Some(std::path::PathBuf::from("/boards/a.cad"));
         app.pdf_viewer.path = Some(std::path::PathBuf::from("/boards/a.pdf"));
-        app.pdf_viewer.is_open = true;
         app.pending_schematic_prompt = Some(std::path::PathBuf::from("/boards/a.pdf"));
 
         app.adopt_board("b.cad", Board::new());
 
-        assert!(!app.pdf_viewer.is_open && app.pdf_viewer.path.is_none());
+        assert!(!app.pdf_viewer.is_loaded() && app.pdf_viewer.path.is_none());
         assert!(app.pending_schematic_prompt.is_none());
         assert!(app.board_path.is_none(), "the caller sets the path of a board opened from a file");
         assert_eq!(app.filename.as_deref(), Some("b.cad"));
@@ -1452,25 +1236,103 @@ mod focus_tests {
 }
 
 #[cfg(test)]
-mod side_selector_tests {
+mod tab_tests {
     use super::*;
+    use bvc_core::{Part, Rect as BoardRect};
 
-    #[test]
-    fn test_side_selector_offers_all_three_sides() {
-        assert_eq!(SIDE_CHOICES, [Side::Top, Side::Bottom, Side::Both]);
+    /// A board with one part on each side, centered at x = 100 (top) and x = 900 (bottom).
+    fn two_sided_board() -> Board {
+        let mut board = Board::new();
+        for (id, (name, side, x)) in [("U1", Side::Top, 100.0), ("U2", Side::Bottom, 900.0)].into_iter().enumerate() {
+            board.parts.push(Part {
+                id,
+                name: name.into(),
+                side,
+                bounding_box: Some(BoardRect { min_x: x - 10.0, min_y: -10.0, max_x: x + 10.0, max_y: 10.0 }),
+                ..Default::default()
+            });
+        }
+        board.rebuild_indices();
+        board.bounding_box = Some(BoardRect { min_x: 0.0, min_y: -10.0, max_x: 1000.0, max_y: 10.0 });
+        board
+    }
+
+    fn app_on(tab: BoardTab) -> BoardViewApp {
+        let mut app = BoardViewApp { board: Some(two_sided_board()), ..BoardViewApp::default() };
+        app.set_tab(tab);
+        app.save_prefs_pending = false;
+        app
     }
 
     #[test]
-    fn test_side_label_is_translated_for_every_side() {
-        let lang = i18n::Language::English;
-        assert_eq!(side_label(lang, Side::Top), "View: TOP");
-        assert_eq!(side_label(lang, Side::Bottom), "View: BOTTOM");
-        assert_eq!(side_label(lang, Side::Both), "View: BOTH");
-        for &l in &i18n::Language::ALL {
-            for side in SIDE_CHOICES {
-                assert_ne!(side_label(l, side), "toolbar.view_both");
-            }
-            assert_ne!(i18n::tr(l, "toolbar.view_side_hover"), "toolbar.view_side_hover");
-        }
+    fn focusing_a_hidden_side_part_switches_a_single_side_tab() {
+        let mut app = app_on(BoardTab::Top);
+        assert!(app.focus_part(1, true));
+        assert_eq!(app.tab, BoardTab::Bottom);
+        assert_eq!(app.canvases.active, Side::Bottom);
+        assert_eq!(app.canvases.bottom.viewport.center.x, 900.0);
+        assert_eq!(app.canvases.top.viewport.center.x, 0.0, "the top view is left alone");
+        assert!(app.save_prefs_pending && app.preferences.board_tab == BoardTab::Bottom, "the tab is remembered");
+
+        // A part visible on the shown side does not switch.
+        assert!(app.focus_part(1, true));
+        assert_eq!(app.tab, BoardTab::Bottom);
+    }
+
+    #[test]
+    fn focusing_in_both_centers_only_the_canvas_showing_the_part() {
+        let mut app = app_on(BoardTab::Both);
+        assert!(app.focus_part(0, true));
+        assert_eq!(app.tab, BoardTab::Both);
+        assert_eq!(app.canvases.top.viewport.center.x, 100.0);
+        assert_eq!(app.canvases.bottom.viewport.center.x, 0.0);
+        app.focus_point(Point::new(500.0, 0.0), Side::Both, true);
+        assert_eq!((app.canvases.top.viewport.center.x, app.canvases.bottom.viewport.center.x), (500.0, 500.0));
+    }
+
+    #[test]
+    fn a_schematic_click_selects_and_centers_but_stays_on_the_pdf_tab() {
+        let mut app = app_on(BoardTab::Pdf);
+        app.apply_pdf_token(" U2 ");
+        assert_eq!(app.tab, BoardTab::Pdf);
+        assert_eq!(app.selected_part_idx, Some(1));
+        assert_eq!(app.pdf_viewer.probed_part, Some(1), "not cross-probed back");
+        assert_eq!(app.canvases.bottom.viewport.center.x, 900.0, "ready when the Bottom tab is shown");
+
+        // From a single-side tab a schematic click centers the part's side without switching.
+        let mut app = app_on(BoardTab::Top);
+        app.apply_pdf_token("U2");
+        assert_eq!(app.tab, BoardTab::Top);
+        assert_eq!(app.canvases.bottom.viewport.center.x, 900.0);
+    }
+
+    #[test]
+    fn tabs_keep_the_active_canvas_visible() {
+        let mut app = app_on(BoardTab::Both);
+        app.canvases.active = Side::Bottom;
+        app.set_tab(BoardTab::Top);
+        assert_eq!(app.canvases.active, Side::Top);
+        app.set_tab(BoardTab::Pdf);
+        assert_eq!(app.canvases.active, Side::Top, "the PDF tab keeps the last active canvas");
+        app.show_board_side(Side::Bottom);
+        assert_eq!((app.tab, app.canvases.active), (BoardTab::Bottom, Side::Bottom));
+        app.set_tab(BoardTab::Both);
+        app.show_board_side(Side::Top);
+        assert_eq!((app.tab, app.canvases.active), (BoardTab::Both, Side::Top), "Both already shows it");
+    }
+
+    #[test]
+    fn fit_uses_the_real_canvas_rects() {
+        let mut app = app_on(BoardTab::Both);
+        let area = Rect::from_min_size(egui::pos2(0.0, 30.0), egui::vec2(1000.0, 800.0));
+        let bbox = app.board.as_ref().unwrap().bounding_box;
+        app.canvas_rects = board_tabs::canvas_rects(BoardTab::Both, area, BothLayout::Vertical, bbox, app.canvases.rotation());
+        assert!(app.fit_shown_canvases(area));
+        let mut expected = canvas::Viewport::default();
+        expected.fit_to_rect(bbox.unwrap(), app.canvas_rects[0].1);
+        assert_eq!(app.canvases.top.viewport.scale, expected.scale);
+        assert_eq!(app.canvases.bottom.viewport.scale, expected.scale);
+        app.set_tab(BoardTab::Pdf);
+        assert!(!app.fit_shown_canvases(area), "nothing to fit on the PDF tab");
     }
 }

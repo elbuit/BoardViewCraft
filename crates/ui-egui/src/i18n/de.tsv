@@ -16,10 +16,16 @@
 	toolbar.zoom_preset_100	100%
 	toolbar.zoom_preset_150	150%
 	toolbar.zoom_preset_200	200%
-	toolbar.view_top	Ansicht: OBEN
-	toolbar.view_bottom	Ansicht: UNTEN
-	toolbar.view_both	Ansicht: BEIDE
-	toolbar.view_side_hover	Anzuzeigende Platinenseite (Leertaste wechselt oben/unten)
+	tabs.top	Oben
+	tabs.bottom	Unten
+	tabs.both	Beide
+	tabs.pdf	Schaltplan-PDF
+	tabs.hover	Ansichts-Tabs der Platine (Leertaste wechselt Oben/Unten)
+	layout.label	Anordnung:
+	layout.auto	Auto
+	layout.vertical	Vertikal (oben über unten)
+	layout.horizontal	Horizontal (oben links, unten rechts)
+	layout.hover	Anordnung der beiden Seiten; Auto stapelt sie, wenn die gedrehte Platine breiter als hoch ist
 	toolbar.pins	Pins
 	toolbar.vias	Vias
 	toolbar.load_photo	Overlay-Foto laden...
@@ -124,7 +130,8 @@
 	context_menu.copy_pin_info	Pin-Details kopieren
 	pdf.title	Schaltplan-PDF
 	pdf.open	Schaltplan-PDF öffnen...
-	pdf.hide	Schaltplan-PDF ausblenden
+	pdf.show	Schaltplan-PDF anzeigen
+	pdf.no_document	Kein Schaltplan-PDF geöffnet.
 	pdf.close	Schaltplan-PDF schließen
 	pdf.page_prev	Vorherige Seite
 	pdf.page_next	Nächste Seite

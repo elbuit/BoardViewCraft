@@ -16,10 +16,16 @@
 	toolbar.zoom_preset_100	100%
 	toolbar.zoom_preset_150	150%
 	toolbar.zoom_preset_200	200%
-	toolbar.view_top	View: TOP
-	toolbar.view_bottom	View: BOTTOM
-	toolbar.view_both	View: BOTH
-	toolbar.view_side_hover	Board side to display (Space flips Top/Bottom)
+	tabs.top	Top
+	tabs.bottom	Bottom
+	tabs.both	Both
+	tabs.pdf	Schematic PDF
+	tabs.hover	Board view tabs (Space switches Top/Bottom)
+	layout.label	Layout:
+	layout.auto	Auto
+	layout.vertical	Vertical (top above bottom)
+	layout.horizontal	Horizontal (top left, bottom right)
+	layout.hover	Arrangement of the two sides; Auto stacks them when the rotated board is wider than tall
 	toolbar.pins	Pins
 	toolbar.vias	Vias
 	toolbar.load_photo	Load Overlay Photo...
@@ -124,7 +130,8 @@
 	context_menu.copy_pin_info	Copy Pin Details
 	pdf.title	Schematic PDF
 	pdf.open	Open Schematic PDF...
-	pdf.hide	Hide Schematic PDF
+	pdf.show	Show Schematic PDF
+	pdf.no_document	No schematic PDF is open.
 	pdf.close	Close Schematic PDF
 	pdf.page_prev	Previous page
 	pdf.page_next	Next page

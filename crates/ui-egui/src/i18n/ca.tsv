@@ -16,10 +16,16 @@
 	toolbar.zoom_preset_100	100%
 	toolbar.zoom_preset_150	150%
 	toolbar.zoom_preset_200	200%
-	toolbar.view_top	Capa: SUPERIOR
-	toolbar.view_bottom	Capa: INFERIOR
-	toolbar.view_both	Capa: AMBDUES
-	toolbar.view_side_hover	Cara de la placa a mostrar (Espai alterna superior/inferior)
+	tabs.top	Superior
+	tabs.bottom	Inferior
+	tabs.both	Ambdues
+	tabs.pdf	Esquemàtic PDF
+	tabs.hover	Pestanyes de vista de la placa (Espai alterna Superior/Inferior)
+	layout.label	Disposició:
+	layout.auto	Auto
+	layout.vertical	Vertical (superior a dalt, inferior a baix)
+	layout.horizontal	Horitzontal (superior a l'esquerra, inferior a la dreta)
+	layout.hover	Disposició de les dues cares; Auto les apila quan la placa girada és més ampla que alta
 	toolbar.pins	Pins
 	toolbar.vias	Vies
 	toolbar.load_photo	Carregar Foto Superposada...
@@ -124,7 +130,8 @@
 	context_menu.copy_pin_info	Copiar detalls del pin
 	pdf.title	Esquemàtic PDF
 	pdf.open	Obrir Esquemàtic PDF...
-	pdf.hide	Amagar Esquemàtic PDF
+	pdf.show	Mostrar Esquemàtic PDF
+	pdf.no_document	No hi ha cap esquemàtic PDF obert.
 	pdf.close	Tancar Esquemàtic PDF
 	pdf.page_prev	Pàgina anterior
 	pdf.page_next	Pàgina següent
