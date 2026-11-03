@@ -39,7 +39,7 @@
 	actions.mirror_y	Spiegeln Y [Vertikal]
 	actions.reset	Ausrichtung zurücksetzen
 	actions.adjust_overlay	Overlay-Foto anpassen
-	side_panel.back_to_search	← Suche
+	side_panel.back_to_search	⏴ Suche
 	side_panel.pins_on_net	Pins im Netz:
 	side_panel.vias_on_net	Vias im Netz:
 	side_panel.search_parts	Bauteile suchen:
