@@ -39,7 +39,7 @@
 	actions.mirror_y	Miroir Y [Vertical]
 	actions.reset	Réinitialiser l'orientation
 	actions.adjust_overlay	Ajuster la photo superposée
-	side_panel.back_to_search	← Recherche
+	side_panel.back_to_search	⏴ Recherche
 	side_panel.pins_on_net	Broches sur le réseau :
 	side_panel.vias_on_net	Vias sur le réseau :
 	side_panel.search_parts	Rechercher des composants :

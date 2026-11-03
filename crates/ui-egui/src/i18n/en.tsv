@@ -39,7 +39,7 @@
 	actions.mirror_y	Mirror Y [Vertical]
 	actions.reset	Reset Orientation
 	actions.adjust_overlay	Adjust Overlay Photo
-	side_panel.back_to_search	← Search
+	side_panel.back_to_search	⏴ Search
 	side_panel.pins_on_net	Pins on Net:
 	side_panel.vias_on_net	Vias on Net:
 	side_panel.search_parts	Search Parts:

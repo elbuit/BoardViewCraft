@@ -39,7 +39,7 @@
 	actions.mirror_y	Espillar Y [Vertical]
 	actions.reset	Restablir orientació
 	actions.adjust_overlay	Ajustar foto superposada
-	side_panel.back_to_search	← Cercar
+	side_panel.back_to_search	⏴ Cercar
 	side_panel.pins_on_net	Pins a la Xarxa:
 	side_panel.vias_on_net	Vies a la Xarxa:
 	side_panel.search_parts	Cercar Components:
