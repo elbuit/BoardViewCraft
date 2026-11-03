@@ -124,13 +124,9 @@ impl Binding {
         })
     }
 
-    /// Human-readable form such as `"Shift+R"`, `"Ctrl+,"` (`"Cmd+,"` on macOS) or `"↑"`.
+    /// Human-readable form such as `"Shift+R"`, `"Ctrl+,"` (`"Cmd+,"` on macOS) or `"⏶"`.
     pub fn display(&self) -> String {
         let key = match self.key {
-            Key::ArrowUp => "↑",
-            Key::ArrowDown => "↓",
-            Key::ArrowLeft => "←",
-            Key::ArrowRight => "→",
             Key::Minus => "-",
             key => key.symbol_or_name(),
         };
@@ -463,8 +459,8 @@ mod tests {
         assert_eq!(km.display(Action::FlipSide), "Space");
         assert_eq!(km.display(Action::ZoomIn), "+ / =");
         assert_eq!(km.display(Action::ZoomOut), "-");
-        assert_eq!(km.display(Action::PanUp), "↑");
-        assert_eq!(km.display(Action::PanLeft), "←");
+        assert_eq!(km.display(Action::PanUp), "⏶");
+        assert_eq!(km.display(Action::PanLeft), "⏴");
         assert_eq!(km.display(Action::TogglePreferences), format!("{CMD}+,"));
         let all = Binding::new(Key::K, Mods { shift: true, alt: true, command: true });
         assert_eq!(all.display(), format!("{CMD}+Alt+Shift+K"));
