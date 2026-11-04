@@ -39,11 +39,16 @@
 	actions.mirror_y	Espejar Y [Vertical]
 	actions.reset	Restablecer orientación
 	actions.adjust_overlay	Ajustar foto superpuesta
+	side_panel.no_board_loaded	Ninguna placa cargada
 	side_panel.back_to_search	⏴ Buscar
 	side_panel.pins_on_net	Pines en la Red:
 	side_panel.vias_on_net	Vías en la Red:
 	side_panel.search_parts	Buscar Componentes:
 	side_panel.search_nets	Buscar Redes:
+	side_panel.search_parts_hint	Escribir componente (ej. U1, R*, *12)...
+	side_panel.search_nets_hint	Escribir red (ej. *VCC*, GND, PP3V3*)...
+	side_panel.click_pin_view_net	Haz clic en un pin o vía para ver su red.
+	side_panel.click_pin_view_part	Haz clic en el pin de un componente para ver sus detalles.
 	side_panel.side	Capa
 	side_panel.pins	Pines
 	overlay.title	Foto de Fondo
@@ -147,6 +152,13 @@
 	context_menu.side	Capa:
 	context_menu.copy_net	Copiar nombre de red
 	context_menu.copy_pin_info	Copiar detalles del pin
+	context_menu.part_title	Información del Componente
+	context_menu.pins	Pines:
+	context_menu.copy_part_name	Copiar nombre de componente
+	context_menu.copy_part_details	Copiar detalles del componente (TSV)
+	context_menu.copy_net_details	Copiar detalles de red (TSV)
+	context_menu.paste	Pegar
+	context_menu.clear	Limpiar
 	pdf.title	Esquemático PDF
 	pdf.open	Abrir Esquemático PDF...
 	pdf.show	Mostrar Esquemático PDF

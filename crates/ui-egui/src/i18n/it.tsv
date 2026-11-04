@@ -39,11 +39,16 @@
 	actions.mirror_y	Specchia Y [Verticale]
 	actions.reset	Ripristina orientamento
 	actions.adjust_overlay	Regola foto sovrapposta
+	side_panel.no_board_loaded	Nessun circuito caricato
 	side_panel.back_to_search	⏴ Cerca
 	side_panel.pins_on_net	Pin sulla rete:
 	side_panel.vias_on_net	Via sulla rete:
 	side_panel.search_parts	Cerca componenti:
 	side_panel.search_nets	Cerca reti:
+	side_panel.search_parts_hint	Digita componente (es. U1, R*, *12)...
+	side_panel.search_nets_hint	Digita rete (es. *VCC*, GND, PP3V3*)...
+	side_panel.click_pin_view_net	Fai clic su un pin o via per visualizzare la sua rete.
+	side_panel.click_pin_view_part	Fai clic sul pin di un componente per i dettagli.
 	side_panel.side	Lato
 	side_panel.pins	Pin
 	overlay.title	Foto sovrapposta
@@ -147,6 +152,13 @@
 	context_menu.side	Lato:
 	context_menu.copy_net	Copia nome rete
 	context_menu.copy_pin_info	Copia dettagli pin
+	context_menu.part_title	Informazioni sul componente
+	context_menu.pins	Pin:
+	context_menu.copy_part_name	Copia nome componente
+	context_menu.copy_part_details	Copia dettagli componente (TSV)
+	context_menu.copy_net_details	Copia dettagli rete (TSV)
+	context_menu.paste	Incolla
+	context_menu.clear	Cancella
 	pdf.title	Schema PDF
 	pdf.open	Apri schema PDF...
 	pdf.show	Mostra schema PDF

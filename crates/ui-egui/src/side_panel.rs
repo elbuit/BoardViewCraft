@@ -11,6 +11,8 @@ use egui::{Button, Color32, DragValue, RichText, ScrollArea, Slider, TextEdit, U
 pub struct SidePanelState {
     pub filter_part: String,
     pub filter_net: String,
+    /// Quick component prefix filter (e.g. "U", "R", "C", "Q", "D", "L", "F", "J").
+    pub selected_prefix: Option<&'static str>,
     /// Photo overlay adjustment is in progress: the panel shows the overlay view
     /// (and the canvas manipulates the photo) until the user presses "Done".
     pub overlay_editing: bool,
@@ -32,6 +34,10 @@ fn board_stamp(b: &Board) -> BoardStamp {
     (b as *const Board as usize, b.parts.len(), b.pins.len(), b.nets.len())
 }
 
+fn get_clipboard_text() -> Option<String> {
+    arboard::Clipboard::new().ok().and_then(|mut cb| cb.get_text().ok())
+}
+
 /// Cached results of the part and net search lists.
 ///
 /// The lists are virtualised (only visible rows are laid out), so the per-frame cost
@@ -39,7 +45,7 @@ fn board_stamp(b: &Board) -> BoardStamp {
 /// when the filter text or the board changes.
 #[derive(Default)]
 pub struct SearchCache {
-    parts: Option<(BoardStamp, String, Vec<usize>)>,
+    parts: Option<(BoardStamp, String, Option<&'static str>, Vec<usize>)>,
     nets: Option<(BoardStamp, String, Vec<String>)>,
     /// Number of times the match lists were recomputed (for tests).
     pub recomputes: usize,
@@ -52,16 +58,16 @@ impl SearchCache {
         self.nets = None;
     }
 
-    /// Indices of the parts matching `filter`, in board order.
-    pub fn parts(&mut self, b: &Board, filter: &str) -> &[usize] {
+    /// Indices of the parts matching `filter` and optional `prefix`, in board order.
+    pub fn parts(&mut self, b: &Board, filter: &str, prefix: Option<&'static str>) -> &[usize] {
         let stamp = board_stamp(b);
         let needle = filter.trim().to_ascii_uppercase();
-        let fresh = matches!(&self.parts, Some((s, n, _)) if *s == stamp && *n == needle);
+        let fresh = matches!(&self.parts, Some((s, n, p, _)) if *s == stamp && *n == needle && *p == prefix);
         if !fresh {
             self.recomputes += 1;
-            self.parts = Some((stamp, needle.clone(), filter_part_indices(b, &needle)));
+            self.parts = Some((stamp, needle.clone(), prefix, filter_part_indices(b, &needle, prefix)));
         }
-        self.parts.as_ref().map(|(_, _, v)| v.as_slice()).unwrap_or_default()
+        self.parts.as_ref().map(|(_, _, _, v)| v.as_slice()).unwrap_or_default()
     }
 
     /// Names of the nets matching `filter`, in name order.
@@ -77,21 +83,74 @@ impl SearchCache {
     }
 }
 
-/// Parts whose name contains the upper-case `needle` (all parts when it is empty).
-pub fn filter_part_indices(b: &Board, needle: &str) -> Vec<usize> {
+/// Matches a string against a pattern supporting wildcards (`*` and `?`).
+/// If the pattern contains no wildcard characters, checks if `text` contains `pattern`.
+pub fn wildcard_match(pattern: &str, text: &str) -> bool {
+    if pattern.is_empty() {
+        return true;
+    }
+    if !pattern.contains('*') && !pattern.contains('?') {
+        return text.contains(pattern);
+    }
+
+    let p_bytes = pattern.as_bytes();
+    let t_bytes = text.as_bytes();
+    let mut p_idx = 0;
+    let mut t_idx = 0;
+    let mut star_idx = None;
+    let mut match_idx = 0;
+
+    while t_idx < t_bytes.len() {
+        if p_idx < p_bytes.len() && (p_bytes[p_idx] == b'?' || p_bytes[p_idx] == t_bytes[t_idx]) {
+            p_idx += 1;
+            t_idx += 1;
+        } else if p_idx < p_bytes.len() && p_bytes[p_idx] == b'*' {
+            star_idx = Some(p_idx);
+            p_idx += 1;
+            match_idx = t_idx;
+        } else if let Some(s) = star_idx {
+            p_idx = s + 1;
+            match_idx += 1;
+            t_idx = match_idx;
+        } else {
+            return false;
+        }
+    }
+
+    while p_idx < p_bytes.len() && p_bytes[p_idx] == b'*' {
+        p_idx += 1;
+    }
+
+    p_idx == p_bytes.len()
+}
+
+/// Parts whose name matches the upper-case `needle` (with wildcard or substring)
+/// and optional `prefix`.
+pub fn filter_part_indices(b: &Board, needle: &str, prefix: Option<&str>) -> Vec<usize> {
     b.parts
         .iter()
         .enumerate()
-        .filter(|(_, part)| needle.is_empty() || part.name.to_ascii_uppercase().contains(needle))
+        .filter(|(_, part)| {
+            let name_upper = part.name.to_ascii_uppercase();
+            if let Some(pfx) = prefix {
+                if !name_upper.starts_with(pfx) {
+                    return false;
+                }
+            }
+            wildcard_match(needle, &name_upper)
+        })
         .map(|(idx, _)| idx)
         .collect()
 }
 
-/// Nets whose name contains the upper-case `needle` (all nets when it is empty).
+/// Nets whose name matches the upper-case `needle` (with wildcard or substring).
 pub fn filter_net_names(b: &Board, needle: &str) -> Vec<String> {
     b.nets
         .keys()
-        .filter(|name| needle.is_empty() || name.to_ascii_uppercase().contains(needle))
+        .filter(|name| {
+            let name_upper = name.to_ascii_uppercase();
+            wildcard_match(needle, &name_upper)
+        })
         .cloned()
         .collect()
 }
@@ -199,7 +258,7 @@ pub fn show_side_panel(
     }
 
     let Some(b) = board else {
-        ui.label(RichText::new("No board loaded").color(tokens.text_dim()));
+        ui.label(RichText::new(i18n::tr(lang, "side_panel.no_board_loaded")).color(tokens.text_dim()));
         return;
     };
 
@@ -247,7 +306,7 @@ pub fn show_side_panel(
                     );
 
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Pins on Net:").strong());
+                    ui.label(RichText::new(i18n::tr(lang, "side_panel.pins_on_net")).strong());
 
                     let row_height = 20.0;
                     ScrollArea::vertical()
@@ -307,7 +366,7 @@ pub fn show_side_panel(
 
                     if !net.via_indices.is_empty() {
                         ui.add_space(8.0);
-                        ui.label(RichText::new("Vias on Net:").strong());
+                        ui.label(RichText::new(i18n::tr(lang, "side_panel.vias_on_net")).strong());
                         let via_row_height = 18.0;
                         ScrollArea::vertical()
                             .id_salt("net_vias_scroll")
@@ -334,7 +393,7 @@ pub fn show_side_panel(
                     }
                 }
             } else {
-                ui.label(RichText::new("Click a pin or via to view its net.").color(tokens.text_dim()));
+                ui.label(RichText::new(i18n::tr(lang, "side_panel.click_pin_view_net")).color(tokens.text_dim()));
             }
         }
         Tab::Part => {
@@ -358,7 +417,7 @@ pub fn show_side_panel(
                     );
 
                     ui.add_space(8.0);
-                    ui.label(RichText::new("Pins:").strong());
+                    ui.label(RichText::new(i18n::tr(lang, "side_panel.pins")).strong());
 
                     let row_height = 20.0;
                     ScrollArea::vertical()
@@ -418,18 +477,49 @@ pub fn show_side_panel(
                         });
                 }
             } else {
-                ui.label(RichText::new("Click a component pin to view part details.").color(tokens.text_dim()));
+                ui.label(RichText::new(i18n::tr(lang, "side_panel.click_pin_view_part")).color(tokens.text_dim()));
             }
         }
         Tab::Search => {
-            ui.label(RichText::new("Search Parts:").strong());
-            ui.add(
+            ui.label(RichText::new(i18n::tr(lang, "side_panel.search_parts")).strong());
+            let part_input = ui.add(
                 TextEdit::singleline(&mut state.filter_part)
-                    .hint_text("Type part name (e.g. U1, R1)..."),
+                    .hint_text(i18n::tr(lang, "side_panel.search_parts_hint")),
             );
+            part_input.context_menu(|ui| {
+                if ui.button(i18n::tr(lang, "context_menu.paste")).clicked() {
+                    if let Some(text) = get_clipboard_text() {
+                        let text = text.replace("\r\n", "\n").replace('\n', " ");
+                        state.filter_part.push_str(text.trim());
+                    } else {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                    }
+                    ui.close();
+                }
+                if !state.filter_part.is_empty() && ui.button(i18n::tr(lang, "context_menu.clear")).clicked() {
+                    state.filter_part.clear();
+                    ui.close();
+                }
+            });
+
+            // Quick prefix filter chips: All, U, R, C, Q, D, L, F, J
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                let all_selected = state.selected_prefix.is_none();
+                if ui.selectable_label(all_selected, "All").clicked() {
+                    state.selected_prefix = None;
+                }
+                const PREFIXES: [&str; 8] = ["U", "R", "C", "Q", "D", "L", "F", "J"];
+                for &pfx in &PREFIXES {
+                    let is_active = state.selected_prefix == Some(pfx);
+                    if ui.selectable_label(is_active, pfx).clicked() {
+                        state.selected_prefix = if is_active { None } else { Some(pfx) };
+                    }
+                }
+            });
 
             let row_height = ui.spacing().interact_size.y;
-            let part_matches = state.search.parts(b, &state.filter_part);
+            let part_matches = state.search.parts(b, &state.filter_part, state.selected_prefix);
             let mut clicked_part = None;
             ScrollArea::vertical()
                 .id_salt("search_parts_scroll")
@@ -438,12 +528,21 @@ pub fn show_side_panel(
                     for &idx in &part_matches[row_range] {
                         let Some(part) = b.parts.get(idx) else { continue };
                         let is_selected = *selected_part_idx == Some(part.id);
-                        if ui
-                            .selectable_label(is_selected, format!("{} ({:?})", part.name, part.side))
-                            .clicked()
-                        {
+                        let response = ui.selectable_label(is_selected, format!("{} ({:?})", part.name, part.side));
+                        if response.clicked() {
                             clicked_part = Some(part.id);
                         }
+                        response.context_menu(|ui| {
+                            if ui.button(i18n::tr(lang, "context_menu.copy_part_name")).clicked() {
+                                ui.ctx().copy_text(part.name.clone());
+                                ui.close();
+                            }
+                            if ui.button(i18n::tr(lang, "context_menu.copy_part_details")).clicked() {
+                                let tsv = export_part_details_tsv(b, part);
+                                ui.ctx().copy_text(tsv);
+                                ui.close();
+                            }
+                        });
                     }
                 });
             if let Some(part_id) = clicked_part {
@@ -452,11 +551,26 @@ pub fn show_side_panel(
             }
 
             ui.separator();
-            ui.label(RichText::new("Search Nets:").strong());
-            ui.add(
+            ui.label(RichText::new(i18n::tr(lang, "side_panel.search_nets")).strong());
+            let net_input = ui.add(
                 TextEdit::singleline(&mut state.filter_net)
-                    .hint_text("Type net name (e.g. VCC, GND)..."),
+                    .hint_text(i18n::tr(lang, "side_panel.search_nets_hint")),
             );
+            net_input.context_menu(|ui| {
+                if ui.button(i18n::tr(lang, "context_menu.paste")).clicked() {
+                    if let Some(text) = get_clipboard_text() {
+                        let text = text.replace("\r\n", "\n").replace('\n', " ");
+                        state.filter_net.push_str(text.trim());
+                    } else {
+                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                    }
+                    ui.close();
+                }
+                if !state.filter_net.is_empty() && ui.button(i18n::tr(lang, "context_menu.clear")).clicked() {
+                    state.filter_net.clear();
+                    ui.close();
+                }
+            });
 
             let row_height = ui.spacing().interact_size.y;
             let net_matches = state.search.nets(b, &state.filter_net);
@@ -466,19 +580,28 @@ pub fn show_side_panel(
                     for name in &net_matches[row_range] {
                         let Some(net) = b.nets.get(name) else { continue };
                         let is_selected = selected_net.as_deref() == Some(name.as_str());
-                        if ui
-                            .selectable_label(
-                                is_selected,
-                                format!("{} ({} pins)", name, net.pin_indices.len()),
-                            )
-                            .clicked()
-                        {
+                        let response = ui.selectable_label(
+                            is_selected,
+                            format!("{} ({} pins)", name, net.pin_indices.len()),
+                        );
+                        if response.clicked() {
                             *selected_net = Some(name.clone());
                             *selected_pin_idx = net.pin_indices.first().copied();
                             if let Some(p_idx) = *selected_pin_idx {
                                 *selected_part_idx = b.pins.get(p_idx).map(|p| p.part_id);
                             }
                         }
+                        response.context_menu(|ui| {
+                            if ui.button(i18n::tr(lang, "context_menu.copy_net")).clicked() {
+                                ui.ctx().copy_text(name.clone());
+                                ui.close();
+                            }
+                            if ui.button(i18n::tr(lang, "context_menu.copy_net_details")).clicked() {
+                                let tsv = export_net_details_tsv(b, name);
+                                ui.ctx().copy_text(tsv);
+                                ui.close();
+                            }
+                        });
                     }
                 });
         }
@@ -889,31 +1012,41 @@ mod tests {
     #[test]
     fn search_filters_parts_and_nets_case_insensitively() {
         let b = search_board();
-        assert_eq!(filter_part_indices(&b, ""), vec![0, 1, 2, 3]);
-        assert_eq!(filter_part_indices(&b, "R"), vec![1, 3]);
+        assert_eq!(filter_part_indices(&b, "", None), vec![0, 1, 2, 3]);
+        assert_eq!(filter_part_indices(&b, "R", None), vec![1, 3]);
+        assert_eq!(filter_part_indices(&b, "", Some("R")), vec![1, 3]);
+        assert_eq!(filter_part_indices(&b, "10", Some("R")), vec![1]);
+        assert_eq!(filter_part_indices(&b, "R*0", None), vec![1]);
+        assert_eq!(filter_part_indices(&b, "*2", None), vec![3]);
+        assert_eq!(filter_part_indices(&b, "R?", None), vec![3]);
         assert_eq!(filter_net_names(&b, ""), vec!["GND", "PCIE_RX0", "VCC"]);
         assert_eq!(filter_net_names(&b, "C"), vec!["PCIE_RX0", "VCC"]);
+        assert_eq!(filter_net_names(&b, "PCIE*"), vec!["PCIE_RX0"]);
+        assert_eq!(filter_net_names(&b, "*RX0"), vec!["PCIE_RX0"]);
+        assert_eq!(filter_net_names(&b, "V?C"), vec!["VCC"]);
     }
 
-    /// The match lists are recomputed only when the filter text or the board changes,
+    /// The match lists are recomputed only when the filter text, prefix or the board changes,
     /// not on every frame.
     #[test]
     fn search_cache_recomputes_only_on_change() {
         let b = search_board();
         let mut cache = SearchCache::default();
-        assert_eq!(cache.parts(&b, "r"), &[1, 3]);
+        assert_eq!(cache.parts(&b, "r", None), &[1, 3]);
         assert_eq!(cache.nets(&b, ""), &["GND", "PCIE_RX0", "VCC"]);
         assert_eq!(cache.recomputes, 2);
         for _ in 0..10 {
-            cache.parts(&b, " r ");
+            cache.parts(&b, " r ", None);
             cache.nets(&b, "");
         }
         assert_eq!(cache.recomputes, 2, "idle frames reuse the cached matches");
-        assert_eq!(cache.parts(&b, "u"), &[0]);
+        assert_eq!(cache.parts(&b, "r", Some("R")), &[1, 3]);
         assert_eq!(cache.recomputes, 3);
+        assert_eq!(cache.parts(&b, "u", None), &[0]);
+        assert_eq!(cache.recomputes, 4);
         cache.invalidate();
         cache.nets(&b, "");
-        assert_eq!(cache.recomputes, 4);
+        assert_eq!(cache.recomputes, 5);
     }
 
     #[test]

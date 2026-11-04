@@ -391,6 +391,7 @@ pub struct CanvasState {
     pub mesh_base: Option<BoardMeshBase>,
     displayed_view: Option<DisplayedView>,
     pub context_menu_pin: Option<(usize, Pos2)>,
+    pub context_menu_part: Option<(usize, Pos2)>,
 }
 
 /// Brings `state.cached_meshes` up to date for `vp`: keeps them, re-maps the cached base for a
@@ -438,6 +439,7 @@ impl Default for CanvasState {
             mesh_base: None,
             displayed_view: None,
             context_menu_pin: None,
+            context_menu_part: None,
         }
     }
 }
@@ -457,6 +459,7 @@ impl CanvasState {
         self.hovered_pin = None;
         self.hovered_via = None;
         self.context_menu_pin = None;
+        self.context_menu_part = None;
     }
 }
 
@@ -923,13 +926,29 @@ pub fn show_canvas(
 
                     let click_pos = response.hover_pos().unwrap_or(rect.center());
                     canvas_state.context_menu_pin = Some((pin_idx, click_pos));
+                    canvas_state.context_menu_part = None;
                 }
+            }
+        } else if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
+            let world_pos = vp.screen_to_world(hover_pos, rect);
+            if let Some(part_idx) = b.find_part_near(world_pos, vp.side) {
+                *selected_pin_idx = None;
+                *selected_via_idx = None;
+                *selected_part_idx = Some(part_idx);
+                *selected_net = None;
+                canvas_state.context_menu_pin = None;
+                canvas_state.context_menu_part = Some((part_idx, hover_pos));
+            } else {
+                canvas_state.context_menu_pin = None;
+                canvas_state.context_menu_part = None;
             }
         } else {
             canvas_state.context_menu_pin = None;
+            canvas_state.context_menu_part = None;
         }
     } else if response.clicked() {
         canvas_state.context_menu_pin = None;
+        canvas_state.context_menu_part = None;
         if let Some(pin_idx) = current_hover_pin {
             if *selected_pin_idx == Some(pin_idx) {
                 // Clicking the already-selected pin deselects it
@@ -1206,6 +1225,7 @@ pub fn show_canvas(
         // Render Pin Context Menu Popup if open (only one canvas shows it)
         if !is_active {
             canvas_state.context_menu_pin = None;
+            canvas_state.context_menu_part = None;
         }
         if let Some((pin_idx, menu_pos)) = canvas_state.context_menu_pin {
             if let Some(pin) = b.pins.get(pin_idx) {
@@ -1297,6 +1317,78 @@ pub fn show_canvas(
 
                 if close_menu {
                     canvas_state.context_menu_pin = None;
+                }
+            }
+        }
+
+        // Render Component Context Menu Popup if open
+        if let Some((part_idx, menu_pos)) = canvas_state.context_menu_part {
+            if let Some(part) = b.parts.get(part_idx) {
+                let lang = prefs.ui_language();
+                let mut close_menu = false;
+                let menu_id = egui::Id::unique(("part_context_menu_area", vp.side));
+
+                egui::Area::new(menu_id)
+                    .fixed_pos(menu_pos)
+                    .order(egui::Order::Foreground)
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::menu(ui.style())
+                            .fill(tokens.chrome)
+                            .stroke(Stroke::new(1.0, tokens.border))
+                            .corner_radius(4.0)
+                            .inner_margin(8.0)
+                            .show(ui, |ui| {
+                                ui.set_min_width(180.0);
+                                ui.heading(
+                                    RichText::new(&part.name)
+                                        .color(tokens.accent)
+                                        .strong(),
+                                );
+                                ui.separator();
+
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.side")).color(tokens.text_dim));
+                                    let side_str = match part.side {
+                                        Side::Top => "TOP",
+                                        Side::Bottom => "BOTTOM",
+                                        Side::Both => "BOTH",
+                                    };
+                                    ui.label(RichText::new(side_str).color(tokens.text));
+                                });
+
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.pins")).color(tokens.text_dim));
+                                    ui.label(RichText::new(part.pin_indices.len().to_string()).color(tokens.text));
+                                });
+
+                                ui.add_space(6.0);
+                                ui.separator();
+
+                                if ui
+                                    .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_part_name")).color(tokens.text))
+                                    .clicked()
+                                {
+                                    ui.ctx().copy_text(part.name.clone());
+                                    close_menu = true;
+                                }
+
+                                if ui
+                                    .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_part_details")).color(tokens.text))
+                                    .clicked()
+                                {
+                                    let tsv = crate::side_panel::export_part_details_tsv(b, part);
+                                    ui.ctx().copy_text(tsv);
+                                    close_menu = true;
+                                }
+
+                                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                    close_menu = true;
+                                }
+                            });
+                    });
+
+                if close_menu {
+                    canvas_state.context_menu_part = None;
                 }
             }
         }

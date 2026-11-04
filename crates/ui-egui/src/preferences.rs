@@ -98,7 +98,7 @@ impl Default for Preferences {
         Self {
             language: LanguagePref::Auto,
             app_theme: AppTheme::Dark,
-            pcb_theme: PcbTheme::Cadcraft,
+            pcb_theme: PcbTheme::Dark,
             custom_pcb_tokens: None,
             custom_pcb_theme_name: None,
             show_net_web: true,
@@ -436,7 +436,7 @@ pub fn show_preferences_window(
                                                 let seed = if current_pcb_theme != PcbTheme::Custom {
                                                     current_pcb_theme.tokens()
                                                 } else {
-                                                    PcbTokens::CADCRAFT
+                                                    PcbTokens::DARK
                                                 };
                                                 prefs.custom_pcb_tokens = Some(seed);
                                             }
@@ -448,7 +448,7 @@ pub fn show_preferences_window(
 
                     // If Custom PCB theme is selected, expose color pickers and name
                     if prefs.pcb_theme == PcbTheme::Custom {
-                        let custom = prefs.custom_pcb_tokens.get_or_insert_with(|| PcbTokens::CADCRAFT);
+                        let custom = prefs.custom_pcb_tokens.get_or_insert_with(|| PcbTokens::DARK);
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.label(RichText::new(i18n::tr(lang, "prefs.custom_theme_name")).color(tokens.text()));
@@ -759,7 +759,7 @@ mod tests {
         let prefs = Preferences {
             app_theme: AppTheme::Light,
             pcb_theme: PcbTheme::Custom,
-            custom_pcb_tokens: Some(PcbTokens::CADCRAFT),
+            custom_pcb_tokens: Some(PcbTokens::DARK),
             custom_pcb_theme_name: Some("My Custom PCB".to_string()),
             language: LanguagePref::Explicit(Language::Catalan),
             show_net_web: false,
@@ -853,7 +853,7 @@ mod tests {
         prefs.via_display_mode = ViaDisplayMode::Radial;
         prefs.app_theme = AppTheme::Light;
         prefs.pcb_theme = PcbTheme::Custom;
-        prefs.custom_pcb_tokens = Some(PcbTokens::CADCRAFT);
+        prefs.custom_pcb_tokens = Some(PcbTokens::DARK);
 
         // Save
         prefs.save_atomic_to(&config_file).expect("Atomic save should succeed");
