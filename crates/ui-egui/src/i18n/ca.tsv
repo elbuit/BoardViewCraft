@@ -39,11 +39,16 @@
 	actions.mirror_y	Espillar Y [Vertical]
 	actions.reset	Restablir orientació
 	actions.adjust_overlay	Ajustar foto superposada
+	side_panel.no_board_loaded	Cap placa carregada
 	side_panel.back_to_search	⏴ Cercar
 	side_panel.pins_on_net	Pins a la Xarxa:
 	side_panel.vias_on_net	Vies a la Xarxa:
 	side_panel.search_parts	Cercar Components:
 	side_panel.search_nets	Cercar Xarxes:
+	side_panel.search_parts_hint	Escriure component (ex. U1, R*, *12)...
+	side_panel.search_nets_hint	Escriure xarxa (ex. *VCC*, GND, PP3V3*)...
+	side_panel.click_pin_view_net	Fes clic en un pin o via per veure la seva xarxa.
+	side_panel.click_pin_view_part	Fes clic en el pin d'un component per veure els seus detalls.
 	side_panel.side	Capa
 	side_panel.pins	Pins
 	overlay.title	Foto de Fons
@@ -147,6 +152,13 @@
 	context_menu.side	Capa:
 	context_menu.copy_net	Copiar nom de xarxa
 	context_menu.copy_pin_info	Copiar detalls del pin
+	context_menu.part_title	Informació del Component
+	context_menu.pins	Pins:
+	context_menu.copy_part_name	Copiar nom del component
+	context_menu.copy_part_details	Copiar detalls del component (TSV)
+	context_menu.copy_net_details	Copiar detalls de xarxa (TSV)
+	context_menu.paste	Enganxar
+	context_menu.clear	Netejar
 	pdf.title	Esquemàtic PDF
 	pdf.open	Obrir Esquemàtic PDF...
 	pdf.show	Mostrar Esquemàtic PDF

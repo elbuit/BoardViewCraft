@@ -39,11 +39,16 @@
 	actions.mirror_y	Mirror Y [Vertical]
 	actions.reset	Reset Orientation
 	actions.adjust_overlay	Adjust Overlay Photo
+	side_panel.no_board_loaded	No board loaded
 	side_panel.back_to_search	⏴ Search
 	side_panel.pins_on_net	Pins on Net:
 	side_panel.vias_on_net	Vias on Net:
 	side_panel.search_parts	Search Parts:
 	side_panel.search_nets	Search Nets:
+	side_panel.search_parts_hint	Type part name (e.g. U1, R*, *12)...
+	side_panel.search_nets_hint	Type net name (e.g. *VCC*, GND, PP3V3*)...
+	side_panel.click_pin_view_net	Click a pin or via to view its net.
+	side_panel.click_pin_view_part	Click a component pin to view part details.
 	side_panel.side	Side
 	side_panel.pins	Pins
 	overlay.title	Overlay Photo
@@ -147,6 +152,13 @@
 	context_menu.side	Side:
 	context_menu.copy_net	Copy Net Name
 	context_menu.copy_pin_info	Copy Pin Details
+	context_menu.part_title	Part Information
+	context_menu.pins	Pins:
+	context_menu.copy_part_name	Copy Part Name
+	context_menu.copy_part_details	Copy Part Details (TSV)
+	context_menu.copy_net_details	Copy Net Details (TSV)
+	context_menu.paste	Paste
+	context_menu.clear	Clear
 	pdf.title	Schematic PDF
 	pdf.open	Open Schematic PDF...
 	pdf.show	Show Schematic PDF

@@ -1,5 +1,5 @@
 //! Design tokens and theme styling for BoardViewCraft.
-//! Separated into Application UI theme (Light, Dark) and PCB Board theme (Light, Dark, Warm, Sweet Cold, Cadcraft).
+//! Separated into Application UI theme (Light, Dark) and PCB Board theme (Light, Dark, Warm, Blue Carrot).
 
 use egui::Color32;
 use serde::{Deserialize, Serialize};
@@ -32,45 +32,41 @@ impl AppTheme {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PcbTheme {
     Light,
+    #[default]
     Dark,
     Warm,
-    #[serde(alias = "SweetBlue")]
-    SweetCold,
-    #[default]
-    #[serde(alias = "CadcraftDark")]
-    Cadcraft,
+    #[serde(alias = "SweetBlue", alias = "SweetCold")]
+    BlueCarrot,
+    #[serde(alias = "CadcraftDark", alias = "Cadcraft")]
     Custom,
 }
 
 impl PcbTheme {
-    pub const ALL: [PcbTheme; 6] = [
-        PcbTheme::Cadcraft,
+    pub const ALL: [PcbTheme; 5] = [
         PcbTheme::Dark,
         PcbTheme::Light,
         PcbTheme::Warm,
-        PcbTheme::SweetCold,
+        PcbTheme::BlueCarrot,
         PcbTheme::Custom,
     ];
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            PcbTheme::Light => "Light",
             PcbTheme::Dark => "Dark",
+            PcbTheme::Light => "Light",
             PcbTheme::Warm => "Warm",
-            PcbTheme::SweetCold => "Sweet Cold",
-            PcbTheme::Cadcraft => "Cadcraft",
+            PcbTheme::BlueCarrot => "Blue Carrot",
             PcbTheme::Custom => "Custom...",
         }
     }
 
     pub fn tokens(&self) -> PcbTokens {
         match self {
-            PcbTheme::Light => PcbTokens::LIGHT,
             PcbTheme::Dark => PcbTokens::DARK,
+            PcbTheme::Light => PcbTokens::LIGHT,
             PcbTheme::Warm => PcbTokens::WARM,
-            PcbTheme::SweetCold => PcbTokens::SWEET_COLD,
-            PcbTheme::Cadcraft => PcbTokens::CADCRAFT,
-            PcbTheme::Custom => PcbTokens::CADCRAFT,
+            PcbTheme::BlueCarrot => PcbTokens::BLUE_CARROT,
+            PcbTheme::Custom => PcbTokens::DARK,
         }
     }
 }
@@ -295,7 +291,7 @@ impl PcbTokens {
         net_web: Color32::from_rgba_premultiplied(0xff, 0xd0, 0x00, 0xb4),
     };
 
-    pub const SWEET_COLD: PcbTokens = PcbTokens {
+    pub const BLUE_CARROT: PcbTokens = PcbTokens {
         canvas: Color32::from_rgb(0x0f, 0x14, 0x1d), // deep navy pastel canvas
         grid_minor: Color32::from_rgb(0x17, 0x1f, 0x2c),
         grid_major: Color32::from_rgb(0x22, 0x2d, 0x3d),
@@ -368,7 +364,7 @@ pub struct Tokens {
 
 impl Default for Tokens {
     fn default() -> Self {
-        Self::new(AppTheme::Dark, PcbTheme::Cadcraft)
+        Self::new(AppTheme::Dark, PcbTheme::Dark)
     }
 }
 
@@ -385,7 +381,7 @@ impl Tokens {
     ) -> Self {
         let app = app_theme.tokens();
         let pcb = if pcb_theme == PcbTheme::Custom {
-            custom_pcb.unwrap_or(PcbTokens::CADCRAFT)
+            custom_pcb.unwrap_or(PcbTokens::DARK)
         } else {
             pcb_theme.tokens()
         };
@@ -511,7 +507,7 @@ impl Tokens {
 
     pub const DARK: Tokens = Tokens {
         app: AppTokens::DARK,
-        pcb: PcbTokens::CADCRAFT,
+        pcb: PcbTokens::DARK,
         chrome: AppTokens::DARK.chrome,
         chrome_dark: AppTokens::DARK.chrome_dark,
         panel: AppTokens::DARK.panel,
@@ -529,24 +525,24 @@ impl Tokens {
         status_bar_bg: AppTokens::DARK.status_bar_bg,
         status_bar_text: AppTokens::DARK.status_bar_text,
 
-        canvas: PcbTokens::CADCRAFT.canvas,
-        grid_minor: PcbTokens::CADCRAFT.grid_minor,
-        grid_major: PcbTokens::CADCRAFT.grid_major,
-        axis_x: PcbTokens::CADCRAFT.axis_x,
-        axis_y: PcbTokens::CADCRAFT.axis_y,
-        part_text: PcbTokens::CADCRAFT.part_text,
-        board_outline: PcbTokens::CADCRAFT.board_outline,
-        board_fill: PcbTokens::CADCRAFT.board_fill,
-        part_body: PcbTokens::CADCRAFT.part_body,
-        part_body_line: PcbTokens::CADCRAFT.part_body_line,
-        pin_default: PcbTokens::CADCRAFT.pin_default,
-        pin_unconnected: PcbTokens::CADCRAFT.pin_unconnected,
-        pin_highlight_cur_side: PcbTokens::CADCRAFT.pin_highlight_cur_side,
-        pin_highlight_opp_side: PcbTokens::CADCRAFT.pin_highlight_opp_side,
-        via_cur_side: PcbTokens::CADCRAFT.via_cur_side,
-        via_opp_side: PcbTokens::CADCRAFT.via_opp_side,
-        via_highlight: PcbTokens::CADCRAFT.via_highlight,
-        net_web: PcbTokens::CADCRAFT.net_web,
+        canvas: PcbTokens::DARK.canvas,
+        grid_minor: PcbTokens::DARK.grid_minor,
+        grid_major: PcbTokens::DARK.grid_major,
+        axis_x: PcbTokens::DARK.axis_x,
+        axis_y: PcbTokens::DARK.axis_y,
+        part_text: PcbTokens::DARK.part_text,
+        board_outline: PcbTokens::DARK.board_outline,
+        board_fill: PcbTokens::DARK.board_fill,
+        part_body: PcbTokens::DARK.part_body,
+        part_body_line: PcbTokens::DARK.part_body_line,
+        pin_default: PcbTokens::DARK.pin_default,
+        pin_unconnected: PcbTokens::DARK.pin_unconnected,
+        pin_highlight_cur_side: PcbTokens::DARK.pin_highlight_cur_side,
+        pin_highlight_opp_side: PcbTokens::DARK.pin_highlight_opp_side,
+        via_cur_side: PcbTokens::DARK.via_cur_side,
+        via_opp_side: PcbTokens::DARK.via_opp_side,
+        via_highlight: PcbTokens::DARK.via_highlight,
+        net_web: PcbTokens::DARK.net_web,
     };
     #[allow(dead_code)]
     pub const LIGHT: Tokens = Tokens {

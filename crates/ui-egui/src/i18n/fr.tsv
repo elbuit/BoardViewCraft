@@ -39,11 +39,16 @@
 	actions.mirror_y	Miroir Y [Vertical]
 	actions.reset	Réinitialiser l'orientation
 	actions.adjust_overlay	Ajuster la photo superposée
+	side_panel.no_board_loaded	Aucun circuit chargé
 	side_panel.back_to_search	⏴ Recherche
 	side_panel.pins_on_net	Broches sur le réseau :
 	side_panel.vias_on_net	Vias sur le réseau :
 	side_panel.search_parts	Rechercher des composants :
 	side_panel.search_nets	Rechercher des réseaux :
+	side_panel.search_parts_hint	Saisir un composant (ex. U1, R*, *12)...
+	side_panel.search_nets_hint	Saisir un réseau (ex. *VCC*, GND, PP3V3*)...
+	side_panel.click_pin_view_net	Cliquez sur une broche ou un via pour voir son réseau.
+	side_panel.click_pin_view_part	Cliquez sur la broche d'un composant pour voir ses détails.
 	side_panel.side	Côté
 	side_panel.pins	Broches
 	overlay.title	Photo superposée
@@ -147,6 +152,13 @@
 	context_menu.side	Côté :
 	context_menu.copy_net	Copier le nom du réseau
 	context_menu.copy_pin_info	Copier les détails de la broche
+	context_menu.part_title	Informations sur le composant
+	context_menu.pins	Broches :
+	context_menu.copy_part_name	Copier le nom du composant
+	context_menu.copy_part_details	Copier les détails du composant (TSV)
+	context_menu.copy_net_details	Copier les détails du réseau (TSV)
+	context_menu.paste	Coller
+	context_menu.clear	Effacer
 	pdf.title	Schéma PDF
 	pdf.open	Ouvrir le schéma PDF...
 	pdf.show	Afficher le schéma PDF

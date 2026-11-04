@@ -39,11 +39,16 @@
 	actions.mirror_y	Spiegeln Y [Vertikal]
 	actions.reset	Ausrichtung zurücksetzen
 	actions.adjust_overlay	Overlay-Foto anpassen
+	side_panel.no_board_loaded	Keine Platine geladen
 	side_panel.back_to_search	⏴ Suche
 	side_panel.pins_on_net	Pins im Netz:
 	side_panel.vias_on_net	Vias im Netz:
 	side_panel.search_parts	Bauteile suchen:
 	side_panel.search_nets	Netze suchen:
+	side_panel.search_parts_hint	Bauteil eingeben (z. B. U1, R*, *12)...
+	side_panel.search_nets_hint	Netz eingeben (z. B. *VCC*, GND, PP3V3*)...
+	side_panel.click_pin_view_net	Klicken Sie auf einen Pin oder ein Via, um das Netz anzuzeigen.
+	side_panel.click_pin_view_part	Klicken Sie auf einen Bauteil-Pin für Details.
 	side_panel.side	Seite
 	side_panel.pins	Pins
 	overlay.title	Overlay-Foto
@@ -147,6 +152,13 @@
 	context_menu.side	Seite:
 	context_menu.copy_net	Netznamen kopieren
 	context_menu.copy_pin_info	Pin-Details kopieren
+	context_menu.part_title	Bauteil-Information
+	context_menu.pins	Pins:
+	context_menu.copy_part_name	Bauteilnamen kopieren
+	context_menu.copy_part_details	Bauteildetails kopieren (TSV)
+	context_menu.copy_net_details	Netzdetails kopieren (TSV)
+	context_menu.paste	Einfügen
+	context_menu.clear	Löschen
 	pdf.title	Schaltplan-PDF
 	pdf.open	Schaltplan-PDF öffnen...
 	pdf.show	Schaltplan-PDF anzeigen
