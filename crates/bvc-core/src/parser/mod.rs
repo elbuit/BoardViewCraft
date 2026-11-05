@@ -1,21 +1,32 @@
 //! Format parsing interface and registry.
 
+pub mod allegro;
+pub mod altium;
 pub mod asc;
 pub mod bdv;
 pub mod brd;
 pub mod brd2;
+pub mod bv2;
 pub mod cad;
 pub mod cpd;
 pub mod dialects;
+pub mod eagle;
+pub mod easyeda;
+pub mod extended_formats;
 pub mod fz;
 pub mod fz_zlib;
 pub mod gencad;
 pub mod gencad_geometry;
+pub mod ipc2581;
+pub mod ipc356;
 pub mod kicad;
+pub mod odbpp;
 pub mod registry;
+pub mod rejection;
 pub mod test_link;
 pub mod tvw;
 pub mod xzz;
+pub mod zip_container;
 
 use crate::board::Board;
 use thiserror::Error;
