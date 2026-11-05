@@ -163,6 +163,13 @@
 	context_menu.clear	Effacer
 	context_menu.show_in_schematic	Afficher dans le schéma (PDF)
 	context_menu.show_in_pcb	Afficher sur le PCB
+	notes.title	Notes et mesures
+	notes.voltage	Tension :
+	notes.resistance	Résistance :
+	notes.diode_drop	Chute de diode :
+	notes.observation	Observation / Réparation :
+	notes.save	Enregistrer la note
+	notes.delete	Supprimer
 	pdf.title	Schéma PDF
 	pdf.open	Ouvrir le schéma PDF...
 	pdf.show	Afficher le schéma PDF
