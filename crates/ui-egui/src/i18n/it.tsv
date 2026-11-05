@@ -161,6 +161,8 @@
 	context_menu.copy_net_details	Copia dettagli rete (TSV)
 	context_menu.paste	Incolla
 	context_menu.clear	Cancella
+	context_menu.show_in_schematic	Mostra nello schema (PDF)
+	context_menu.show_in_pcb	Mostra nel PCB
 	pdf.title	Schema PDF
 	pdf.open	Apri schema PDF...
 	pdf.show	Mostra schema PDF

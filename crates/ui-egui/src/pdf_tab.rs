@@ -15,6 +15,8 @@ pub struct PdfTabOutput {
     pub close_requested: bool,
     /// Text token under a click on the page, for reverse cross-probing.
     pub clicked_token: Option<SchematicOccurrence>,
+    /// Request to navigate to the PCB tab focusing a token/component.
+    pub navigate_to_pcb: Option<String>,
 }
 
 /// Draws the PDF tab in `ui`. Without a document it offers an "Open PDF" button.
@@ -277,23 +279,11 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
             }
         }
 
-        // Reverse cross-probing: the text token under a click goes back to the board (only when not selecting a rectangle).
+        // Clicking on the page clears context menu and selection
         if resp.clicked() {
             viewer.context_menu_pos = None;
-            let click_opt = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).or_else(|| ui.input(|i| i.pointer.interact_pos()));
-            if let Some(click_pos) = click_opt
-                && rect.contains(click_pos)
-            {
-                // Inverse map: screen pos -> PDF point
-                let rel_screen = click_pos - render_pos;
-                let clicked_pdf_pt = Pos2::new(
-                    rel_screen.x / (crate::pdf::PT * display_scale),
-                    rel_screen.y / (crate::pdf::PT * display_scale),
-                );
-                out.clicked_token = viewer.find_token_at(viewer.current_page, clicked_pdf_pt);
-                viewer.selection_rect = None;
-                viewer.selected_text = None;
-            }
+            viewer.selection_rect = None;
+            viewer.selected_text = None;
         }
 
         // Rectangular text selection with primary mouse drag
@@ -349,10 +339,14 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
             }
         }
 
-        // Context menu for copying selection or selecting all
+        // Context menu for copying selection, selecting all, or navigating to PCB
         if let Some(menu_pos) = viewer.context_menu_pos {
             let mut close_menu = false;
             let menu_id = egui::Id::unique("pdf_selection_context_menu");
+            let click_pdf_pt = to_pdf(menu_pos);
+            let hover_token = viewer.find_token_at(viewer.current_page, click_pdf_pt);
+            let target_text = hover_token.as_ref().map(|t| t.text.clone()).or_else(|| viewer.selected_text.clone());
+
             let area_response = egui::Area::new(menu_id)
                 .fixed_pos(menu_pos)
                 .order(egui::Order::Foreground)
@@ -363,7 +357,17 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
                         .corner_radius(4.0)
                         .inner_margin(8.0)
                         .show(ui, |ui| {
-                            ui.set_min_width(160.0);
+                            ui.set_min_width(170.0);
+
+                            if let Some(ref text) = target_text {
+                                let label = format!("{} ({})", i18n::tr(lang, "context_menu.show_in_pcb"), text.trim());
+                                if ui.button(RichText::new(label).color(tokens.accent()).strong()).clicked() {
+                                    out.navigate_to_pcb = Some(text.trim().to_string());
+                                    close_menu = true;
+                                }
+                                ui.separator();
+                            }
+
                             let has_text = viewer.selected_text.as_ref().is_some_and(|s| !s.trim().is_empty());
                             let copy_btn = egui::Button::new(
                                 RichText::new(i18n::tr(lang, "pdf.copy_selection"))
