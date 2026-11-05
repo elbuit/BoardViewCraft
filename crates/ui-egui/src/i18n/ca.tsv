@@ -163,6 +163,13 @@
 	context_menu.clear	Netejar
 	context_menu.show_in_schematic	Mostrar en Esquema (PDF)
 	context_menu.show_in_pcb	Mostrar en PCB
+	notes.title	Notes i Mesures
+	notes.voltage	Voltatge:
+	notes.resistance	Resistència:
+	notes.diode_drop	Caiguda de díode:
+	notes.observation	Observació / Reparació:
+	notes.save	Desar nota
+	notes.delete	Eliminar
 	pdf.title	Esquemàtic PDF
 	pdf.open	Obrir Esquemàtic PDF...
 	pdf.show	Mostrar Esquemàtic PDF

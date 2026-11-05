@@ -163,6 +163,13 @@
 	context_menu.clear	Clear
 	context_menu.show_in_schematic	Show in Schematic (PDF)
 	context_menu.show_in_pcb	Show in PCB
+	notes.title	Notes & Measurements
+	notes.voltage	Voltage:
+	notes.resistance	Resistance:
+	notes.diode_drop	Diode Drop:
+	notes.observation	Observation / Fix notes:
+	notes.save	Save Note
+	notes.delete	Delete
 	pdf.title	Schematic PDF
 	pdf.open	Open Schematic PDF...
 	pdf.show	Show Schematic PDF

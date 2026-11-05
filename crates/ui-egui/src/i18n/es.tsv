@@ -163,6 +163,13 @@
 	context_menu.clear	Limpiar
 	context_menu.show_in_schematic	Mostrar en Esquema (PDF)
 	context_menu.show_in_pcb	Mostrar en PCB
+	notes.title	Notas y Mediciones
+	notes.voltage	Voltaje:
+	notes.resistance	Resistencia:
+	notes.diode_drop	Caída de diodo:
+	notes.observation	Observación / Reparación:
+	notes.save	Guardar nota
+	notes.delete	Eliminar
 	pdf.title	Esquemático PDF
 	pdf.open	Abrir Esquemático PDF...
 	pdf.show	Mostrar Esquemático PDF

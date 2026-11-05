@@ -163,6 +163,13 @@
 	context_menu.clear	Löschen
 	context_menu.show_in_schematic	Im Schaltplan anzeigen (PDF)
 	context_menu.show_in_pcb	Auf Leiterplatte anzeigen (PCB)
+	notes.title	Notizen & Messungen
+	notes.voltage	Spannung:
+	notes.resistance	Widerstand:
+	notes.diode_drop	Diodenspannung:
+	notes.observation	Beobachtung / Reparaturhinweise:
+	notes.save	Notiz speichern
+	notes.delete	Löschen
 	pdf.title	Schaltplan-PDF
 	pdf.open	Schaltplan-PDF öffnen...
 	pdf.show	Schaltplan-PDF anzeigen

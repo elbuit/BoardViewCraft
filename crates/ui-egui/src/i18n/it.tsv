@@ -163,6 +163,13 @@
 	context_menu.clear	Cancella
 	context_menu.show_in_schematic	Mostra nello schema (PDF)
 	context_menu.show_in_pcb	Mostra nel PCB
+	notes.title	Note e misurazioni
+	notes.voltage	Tensione:
+	notes.resistance	Resistenza:
+	notes.diode_drop	Caduta diodo:
+	notes.observation	Osservazione / Riparazione:
+	notes.save	Salva nota
+	notes.delete	Elimina
 	pdf.title	Schema PDF
 	pdf.open	Apri schema PDF...
 	pdf.show	Mostra schema PDF

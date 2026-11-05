@@ -495,7 +495,7 @@ pub fn show_side_panel(
                     ui.add_space(4.0);
 
                     let target_label = current_target.display_label();
-                    ui.heading(RichText::new(format!("📝 Notes & Measurements: {target_label}")).color(tokens.accent()).small());
+                    ui.heading(RichText::new(format!("📝 {}: {target_label}", i18n::tr(lang, "notes.title"))).color(tokens.accent()).small());
 
                     if state.note_active_target.as_ref() != Some(&current_target) {
                         state.note_active_target = Some(current_target.clone());
@@ -514,31 +514,32 @@ pub fn show_side_panel(
                     }
 
                     ui.horizontal(|ui| {
-                        ui.label("Voltage:");
+                        ui.label(i18n::tr(lang, "notes.voltage"));
                         if ui.add(TextEdit::singleline(&mut state.note_edit_voltage).desired_width(70.0).hint_text("e.g. 3.3V")).changed() {
                             state.note_dirty = true;
                         }
-                        ui.label("Resistance:");
+                        ui.label(i18n::tr(lang, "notes.resistance"));
                         if ui.add(TextEdit::singleline(&mut state.note_edit_resistance).desired_width(70.0).hint_text("e.g. 4.7k")).changed() {
                             state.note_dirty = true;
                         }
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Diode Drop:");
+                        ui.label(i18n::tr(lang, "notes.diode_drop"));
                         if ui.add(TextEdit::singleline(&mut state.note_edit_diode).desired_width(70.0).hint_text("e.g. 0.45V")).changed() {
                             state.note_dirty = true;
                         }
                     });
 
                     ui.add_space(4.0);
-                    ui.label("Observation / Fix notes:");
+                    ui.label(i18n::tr(lang, "notes.observation"));
                     if ui.add(TextEdit::multiline(&mut state.note_edit_text).desired_rows(2).desired_width(ui.available_width())).changed() {
                         state.note_dirty = true;
                     }
 
                     ui.horizontal(|ui| {
-                        if ui.button("💾 Save Note").clicked() || state.note_dirty {
+                        let save_btn = format!("💾 {}", i18n::tr(lang, "notes.save"));
+                        if ui.button(save_btn).clicked() || state.note_dirty {
                             let measurements = bvc_core::TechnicalMeasurements {
                                 voltage: (!state.note_edit_voltage.trim().is_empty()).then(|| state.note_edit_voltage.trim().to_string()),
                                 resistance: (!state.note_edit_resistance.trim().is_empty()).then(|| state.note_edit_resistance.trim().to_string()),
@@ -554,7 +555,8 @@ pub fn show_side_panel(
                         }
 
                         if notes_store.notes.iter().any(|n| n.target == current_target) {
-                            if ui.button("🗑 Delete").clicked() {
+                            let del_btn = format!("🗑 {}", i18n::tr(lang, "notes.delete"));
+                            if ui.button(del_btn).clicked() {
                                 notes_store.remove(&current_target);
                                 state.note_edit_text.clear();
                                 state.note_edit_voltage.clear();
