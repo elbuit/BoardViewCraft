@@ -38,6 +38,7 @@
 	actions.mirror_x	Mirror X [Horizontal]
 	actions.mirror_y	Mirror Y [Vertical]
 	actions.reset	Reset Orientation
+	actions.measure	Measure (2D Caliper)
 	actions.adjust_overlay	Adjust Overlay Photo
 	side_panel.no_board_loaded	No board loaded
 	side_panel.back_to_search	⏴ Search
@@ -147,6 +148,7 @@
 	shortcut.pan_left	Pan left
 	shortcut.pan_right	Pan right
 	shortcut.toggle_preferences	Open/close Preferences
+	shortcut.measure	Measure tool (2D Caliper)
 	context_menu.pin_title	Pin Information
 	context_menu.net	Net:
 	context_menu.side	Side:

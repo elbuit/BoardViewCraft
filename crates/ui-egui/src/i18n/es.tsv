@@ -38,6 +38,7 @@
 	actions.mirror_x	Espejar X [Horizontal]
 	actions.mirror_y	Espejar Y [Vertical]
 	actions.reset	Restablecer orientación
+	actions.measure	Medición (calibre 2D)
 	actions.adjust_overlay	Ajustar foto superpuesta
 	side_panel.no_board_loaded	Ninguna placa cargada
 	side_panel.back_to_search	⏴ Buscar
@@ -147,6 +148,7 @@
 	shortcut.pan_left	Desplazar a la izquierda
 	shortcut.pan_right	Desplazar a la derecha
 	shortcut.toggle_preferences	Abrir/cerrar Preferencias
+	shortcut.measure	Herramienta de medición (calibre 2D)
 	context_menu.pin_title	Información del Pin
 	context_menu.net	Red:
 	context_menu.side	Capa:

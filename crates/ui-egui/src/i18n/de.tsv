@@ -38,6 +38,7 @@
 	actions.mirror_x	Spiegeln X [Horizontal]
 	actions.mirror_y	Spiegeln Y [Vertikal]
 	actions.reset	Ausrichtung zurücksetzen
+	actions.measure	Messen (2D-Messschieber)
 	actions.adjust_overlay	Overlay-Foto anpassen
 	side_panel.no_board_loaded	Keine Platine geladen
 	side_panel.back_to_search	⏴ Suche
@@ -147,6 +148,7 @@
 	shortcut.pan_left	Nach links verschieben
 	shortcut.pan_right	Nach rechts verschieben
 	shortcut.toggle_preferences	Einstellungen öffnen/schließen
+	shortcut.measure	Messwerkzeug (2D-Messschieber)
 	context_menu.pin_title	Pin-Information
 	context_menu.net	Netz:
 	context_menu.side	Seite:

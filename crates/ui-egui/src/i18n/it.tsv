@@ -38,6 +38,7 @@
 	actions.mirror_x	Specchia X [Orizzontale]
 	actions.mirror_y	Specchia Y [Verticale]
 	actions.reset	Ripristina orientamento
+	actions.measure	Misura (calibro 2D)
 	actions.adjust_overlay	Regola foto sovrapposta
 	side_panel.no_board_loaded	Nessun circuito caricato
 	side_panel.back_to_search	⏴ Cerca
@@ -147,6 +148,7 @@
 	shortcut.pan_left	Sposta a sinistra
 	shortcut.pan_right	Sposta a destra
 	shortcut.toggle_preferences	Apri/chiudi Preferenze
+	shortcut.measure	Strumento di misura (calibro 2D)
 	context_menu.pin_title	Informazioni sul pin
 	context_menu.net	Rete:
 	context_menu.side	Lato:

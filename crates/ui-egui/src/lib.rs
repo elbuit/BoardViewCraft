@@ -646,6 +646,10 @@ impl eframe::App for BoardViewApp {
                     }
                     self.status_msg = "Calibration cancelled and overlay restored.".to_string();
                     ui.ctx().request_repaint();
+                } else if self.canvases.active_state().measurement.active || self.canvases.active_state().measurement.has_measurement() {
+                    self.canvases.clear_measurement();
+                    self.status_msg = "Measurement cleared.".to_string();
+                    ui.ctx().request_repaint();
                 } else if self.selected_pin_idx.is_some() || self.selected_net.is_some() || self.selected_part_idx.is_some() {
                     self.selected_pin_idx = None;
                     self.selected_part_idx = None;
@@ -686,6 +690,16 @@ impl eframe::App for BoardViewApp {
                     Action::FitView if self.fit_shown_canvases(ui.clip_rect()) => {
                         ui.ctx().request_repaint();
                         self.status_msg = "Viewport fitted to PCB bounds.".to_string();
+                    }
+                    Action::Measure => {
+                        self.canvases.toggle_measure();
+                        let active = self.canvases.active_state().measurement.active;
+                        self.status_msg = if active {
+                            "Measure tool (2D Caliper) activated: click 2 points to measure.".to_string()
+                        } else {
+                            "Measure tool deactivated.".to_string()
+                        };
+                        ui.ctx().request_repaint();
                     }
                     _ => {}
                 }
@@ -805,6 +819,12 @@ impl eframe::App for BoardViewApp {
                     ui.separator();
                     if ui.button(i18n::tr(lang, "actions.reset")).clicked() {
                         self.canvases.reset_orientation();
+                        ui.close();
+                    }
+                    ui.separator();
+                    let measure_active = self.canvases.active_state().measurement.active;
+                    if ui.button(format!("{} [{}]", self.preferences.keymap.hint(i18n::tr(lang, "actions.measure"), Action::Measure), if measure_active { "ON" } else { "OFF" })).clicked() {
+                        self.canvases.toggle_measure();
                         ui.close();
                     }
                 });
@@ -1091,8 +1111,8 @@ impl eframe::App for BoardViewApp {
 
 
 /// Board actions handled by the global hotkey block (pan/zoom live in the canvas).
-const BOARD_HOTKEY_ACTIONS: [Action; 6] =
-    [Action::RotateCw, Action::RotateCcw, Action::FlipSide, Action::MirrorX, Action::MirrorY, Action::FitView];
+const BOARD_HOTKEY_ACTIONS: [Action; 7] =
+    [Action::RotateCw, Action::RotateCcw, Action::FlipSide, Action::MirrorX, Action::MirrorY, Action::FitView, Action::Measure];
 
 /// Board actions whose shortcut was pressed this frame. None fire while Preferences is open or
 /// a text field wants the keyboard.
@@ -1127,6 +1147,7 @@ mod hotkey_tests {
         assert_eq!(fire(Key::M, Modifiers::NONE), vec![Action::MirrorX]);
         assert_eq!(fire(Key::M, Modifiers::SHIFT), vec![Action::MirrorY]);
         assert_eq!(fire(Key::F, Modifiers::NONE), vec![Action::FitView]);
+        assert_eq!(fire(Key::Q, Modifiers::NONE), vec![Action::Measure]);
         // Pan/zoom and the Preferences toggle are not handled here.
         assert!(fire(Key::ArrowUp, Modifiers::NONE).is_empty());
         assert!(fire(Key::Comma, Modifiers::COMMAND).is_empty());

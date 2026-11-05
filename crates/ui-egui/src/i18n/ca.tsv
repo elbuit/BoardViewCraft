@@ -38,6 +38,7 @@
 	actions.mirror_x	Espillar X [Horitzontal]
 	actions.mirror_y	Espillar Y [Vertical]
 	actions.reset	Restablir orientació
+	actions.measure	Mesura (calibre 2D)
 	actions.adjust_overlay	Ajustar foto superposada
 	side_panel.no_board_loaded	Cap placa carregada
 	side_panel.back_to_search	⏴ Cercar
@@ -147,6 +148,7 @@
 	shortcut.pan_left	Desplaçar a l'esquerra
 	shortcut.pan_right	Desplaçar a la dreta
 	shortcut.toggle_preferences	Obrir/tancar Preferències
+	shortcut.measure	Eina de mesura (calibre 2D)
 	context_menu.pin_title	Informació del Pin
 	context_menu.net	Xarxa:
 	context_menu.side	Capa:
