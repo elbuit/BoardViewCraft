@@ -24,6 +24,13 @@ pub struct SidePanelState {
     pub stay_on_part: Option<usize>,
     /// Search matches, recomputed only when the filter text or the board changes.
     pub search: SearchCache,
+    /// Draft inputs for editing a technician note.
+    pub note_edit_text: String,
+    pub note_edit_voltage: String,
+    pub note_edit_resistance: String,
+    pub note_edit_diode: String,
+    pub note_active_target: Option<bvc_core::NoteTarget>,
+    pub note_dirty: bool,
 }
 
 /// Identity of the board a cached search belongs to (address plus sizes, so a new board
@@ -212,6 +219,7 @@ pub fn show_side_panel(
     tokens: &Tokens,
     board: Option<&Board>,
     state: &mut SidePanelState,
+    notes_store: &mut bvc_core::BoardNotesStore,
     overlay_manager: &mut OverlayManager,
     alignment_session: &mut AlignmentSession,
     selected_pin_idx: &mut Option<usize>,
@@ -475,6 +483,87 @@ pub fn show_side_panel(
                                 }
                             }
                         });
+
+                    // Technician Notes & Reference Measurements Section
+                    let current_target = match (*selected_pin_idx).and_then(|idx| b.pins.get(idx)) {
+                        Some(pin) => bvc_core::NoteTarget::pin(&part.name, &pin.name),
+                        None => bvc_core::NoteTarget::component(&part.name),
+                    };
+
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    let target_label = current_target.display_label();
+                    ui.heading(RichText::new(format!("📝 Notes & Measurements: {target_label}")).color(tokens.accent()).small());
+
+                    if state.note_active_target.as_ref() != Some(&current_target) {
+                        state.note_active_target = Some(current_target.clone());
+                        if let Some(existing) = notes_store.notes.iter().find(|n| n.target == current_target) {
+                            state.note_edit_text = existing.text.clone();
+                            state.note_edit_voltage = existing.measurements.voltage.clone().unwrap_or_default();
+                            state.note_edit_resistance = existing.measurements.resistance.clone().unwrap_or_default();
+                            state.note_edit_diode = existing.measurements.diode_drop.clone().unwrap_or_default();
+                        } else {
+                            state.note_edit_text.clear();
+                            state.note_edit_voltage.clear();
+                            state.note_edit_resistance.clear();
+                            state.note_edit_diode.clear();
+                        }
+                        state.note_dirty = false;
+                    }
+
+                    ui.horizontal(|ui| {
+                        ui.label("Voltage:");
+                        if ui.add(TextEdit::singleline(&mut state.note_edit_voltage).desired_width(70.0).hint_text("e.g. 3.3V")).changed() {
+                            state.note_dirty = true;
+                        }
+                        ui.label("Resistance:");
+                        if ui.add(TextEdit::singleline(&mut state.note_edit_resistance).desired_width(70.0).hint_text("e.g. 4.7k")).changed() {
+                            state.note_dirty = true;
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Diode Drop:");
+                        if ui.add(TextEdit::singleline(&mut state.note_edit_diode).desired_width(70.0).hint_text("e.g. 0.45V")).changed() {
+                            state.note_dirty = true;
+                        }
+                    });
+
+                    ui.add_space(4.0);
+                    ui.label("Observation / Fix notes:");
+                    if ui.add(TextEdit::multiline(&mut state.note_edit_text).desired_rows(2).desired_width(ui.available_width())).changed() {
+                        state.note_dirty = true;
+                    }
+
+                    ui.horizontal(|ui| {
+                        if ui.button("💾 Save Note").clicked() || state.note_dirty {
+                            let measurements = bvc_core::TechnicalMeasurements {
+                                voltage: (!state.note_edit_voltage.trim().is_empty()).then(|| state.note_edit_voltage.trim().to_string()),
+                                resistance: (!state.note_edit_resistance.trim().is_empty()).then(|| state.note_edit_resistance.trim().to_string()),
+                                diode_drop: (!state.note_edit_diode.trim().is_empty()).then(|| state.note_edit_diode.trim().to_string()),
+                                other: None,
+                            };
+                            if state.note_edit_text.trim().is_empty() && measurements.is_empty() {
+                                notes_store.remove(&current_target);
+                            } else {
+                                notes_store.upsert(current_target.clone(), state.note_edit_text.trim().to_string(), measurements);
+                            }
+                            state.note_dirty = false;
+                        }
+
+                        if notes_store.notes.iter().any(|n| n.target == current_target) {
+                            if ui.button("🗑 Delete").clicked() {
+                                notes_store.remove(&current_target);
+                                state.note_edit_text.clear();
+                                state.note_edit_voltage.clear();
+                                state.note_edit_resistance.clear();
+                                state.note_edit_diode.clear();
+                                state.note_dirty = false;
+                            }
+                        }
+                    });
                 }
             } else {
                 ui.label(RichText::new(i18n::tr(lang, "side_panel.click_pin_view_part")).color(tokens.text_dim()));

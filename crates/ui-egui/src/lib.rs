@@ -105,6 +105,9 @@ pub struct BoardViewApp {
     // PDF Schematic integration
     pdf_viewer: pdf::PdfSchematicViewer,
     pending_schematic_prompt: Option<std::path::PathBuf>,
+
+    // Technician notes and reference measurements
+    notes_store: bvc_core::BoardNotesStore,
 }
 
 impl Default for BoardViewApp {
@@ -134,6 +137,7 @@ impl Default for BoardViewApp {
             board_path: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
             pending_schematic_prompt: None,
+            notes_store: bvc_core::BoardNotesStore::default(),
         }
     }
 }
@@ -198,6 +202,7 @@ impl BoardViewApp {
         self.side_panel_state.search.invalidate();
         self.pdf_viewer.close();
         self.pending_schematic_prompt = None;
+        self.notes_store = Self::load_notes_for_board(filename);
 
         // Center view and request auto-fit to window on next render frame
         if let Some(bbox) = board.bounding_box {
@@ -268,6 +273,10 @@ impl BoardViewApp {
         let Some(name) = self.filename.take().or_else(|| self.board.as_ref().map(|_| "board".to_string())) else {
             return;
         };
+        if let Some(ref filename) = self.filename {
+            Self::save_notes_for_board(filename, &self.notes_store);
+        }
+        self.notes_store = bvc_core::BoardNotesStore::default();
         self.board = None;
         self.board_path = None;
         self.selected_pin_idx = None;
@@ -335,6 +344,32 @@ impl BoardViewApp {
 
     pub fn status(&self) -> &str {
         &self.status_msg
+    }
+
+    pub fn notes_dir() -> std::path::PathBuf {
+        preferences::default_config_path().parent().unwrap_or(std::path::Path::new(".")).join("notes")
+    }
+
+    pub fn load_notes_for_board(filename: &str) -> bvc_core::BoardNotesStore {
+        let safe_name = filename.replace(['/', '\\', ':', ' '], "_");
+        let path = Self::notes_dir().join(format!("{safe_name}.json"));
+        if let Ok(data) = std::fs::read_to_string(&path) {
+            bvc_core::BoardNotesStore::from_json(&data).unwrap_or_default()
+        } else {
+            bvc_core::BoardNotesStore::default()
+        }
+    }
+
+    pub fn save_notes_for_board(filename: &str, store: &bvc_core::BoardNotesStore) {
+        let dir = Self::notes_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let safe_name = filename.replace(['/', '\\', ':', ' '], "_");
+        let path = dir.join(format!("{safe_name}.json"));
+        if store.notes.is_empty() {
+            let _ = std::fs::remove_file(path);
+        } else if let Ok(json) = store.to_json() {
+            let _ = std::fs::write(path, json);
+        }
     }
 
     /// Asks for a schematic PDF and opens it in the PDF tab. Returns whether one was opened.
@@ -956,6 +991,7 @@ impl eframe::App for BoardViewApp {
                     &self.tokens,
                     self.board.as_ref(),
                     &mut self.side_panel_state,
+                    &mut self.notes_store,
                     &mut self.overlay_manager,
                     &mut self.alignment_session,
                     &mut self.selected_pin_idx,
@@ -1135,6 +1171,9 @@ impl eframe::App for BoardViewApp {
         if std::mem::take(&mut self.save_prefs_pending) {
             let _ = self.preferences.save_atomic();
         }
+        if let Some(ref filename) = self.filename {
+            Self::save_notes_for_board(filename, &self.notes_store);
+        }
     }
 }
 
@@ -1256,6 +1295,7 @@ mod focus_tests {
             board_path: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
             pending_schematic_prompt: None,
+            notes_store: bvc_core::BoardNotesStore::default(),
         };
 
         assert!(app.selected_pin_idx.is_some());
