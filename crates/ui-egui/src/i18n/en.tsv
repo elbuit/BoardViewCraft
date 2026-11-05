@@ -161,6 +161,8 @@
 	context_menu.copy_net_details	Copy Net Details (TSV)
 	context_menu.paste	Paste
 	context_menu.clear	Clear
+	context_menu.show_in_schematic	Show in Schematic (PDF)
+	context_menu.show_in_pcb	Show in PCB
 	pdf.title	Schematic PDF
 	pdf.open	Open Schematic PDF...
 	pdf.show	Show Schematic PDF

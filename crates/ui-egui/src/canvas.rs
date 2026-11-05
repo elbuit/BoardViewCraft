@@ -422,6 +422,7 @@ pub struct CanvasState {
     displayed_view: Option<DisplayedView>,
     pub context_menu_pin: Option<(usize, Pos2)>,
     pub context_menu_part: Option<(usize, Pos2)>,
+    pub navigate_to_schematic: Option<String>,
     pub measurement: MeasurementTool,
 }
 
@@ -471,6 +472,7 @@ impl Default for CanvasState {
             displayed_view: None,
             context_menu_pin: None,
             context_menu_part: None,
+            navigate_to_schematic: None,
             measurement: MeasurementTool::default(),
         }
     }
@@ -492,6 +494,7 @@ impl CanvasState {
         self.hovered_via = None;
         self.context_menu_pin = None;
         self.context_menu_part = None;
+        self.navigate_to_schematic = None;
         self.measurement.reset();
     }
 }
@@ -1384,6 +1387,17 @@ pub fn show_canvas(
                                     close_menu = true;
                                 }
 
+                                if !pin.net_name.is_empty() {
+                                    let schematic_net = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &pin.net_name);
+                                    if ui
+                                        .button(RichText::new(schematic_net).color(tokens.accent).strong())
+                                        .clicked()
+                                    {
+                                        canvas_state.navigate_to_schematic = Some(pin.net_name.clone());
+                                        close_menu = true;
+                                    }
+                                }
+
                                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                                     close_menu = true;
                                 }
@@ -1437,6 +1451,17 @@ pub fn show_canvas(
                                 });
 
                                 ui.add_space(6.0);
+                                ui.separator();
+
+                                let schematic_label = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &part.name);
+                                if ui
+                                    .button(RichText::new(schematic_label).color(tokens.accent).strong())
+                                    .clicked()
+                                {
+                                    canvas_state.navigate_to_schematic = Some(part.name.clone());
+                                    close_menu = true;
+                                }
+
                                 ui.separator();
 
                                 if ui

@@ -161,6 +161,8 @@
 	context_menu.copy_net_details	Copiar detalls de xarxa (TSV)
 	context_menu.paste	Enganxar
 	context_menu.clear	Netejar
+	context_menu.show_in_schematic	Mostrar en Esquema (PDF)
+	context_menu.show_in_pcb	Mostrar en PCB
 	pdf.title	Esquemàtic PDF
 	pdf.open	Obrir Esquemàtic PDF...
 	pdf.show	Mostrar Esquemàtic PDF

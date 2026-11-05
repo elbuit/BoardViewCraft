@@ -439,14 +439,17 @@ impl BoardViewApp {
 
 impl BoardViewApp {
     /// Reverse cross-probing: selects the part (or else the net) named by a schematic text token
-    /// and centers the board on it, staying on the PDF tab.
-    fn apply_pdf_token(&mut self, token: &str) {
+    /// and centers the board on it, optionally switching tabs to the PCB view.
+    fn apply_pdf_token(&mut self, token: &str, switch_to_pcb: bool) {
         let Some(board) = &self.board else { return };
         let token_raw = token.trim();
         let token_clean = pdf::SchematicIndex::normalize_key(token_raw);
+        let mut target_side: Option<Side> = None;
+
         // 1. Try matching component designator (e.g. C123, U5, R10)
         if let Some(part) = board.find_part_by_name(token_raw).or_else(|| board.find_part_by_name(&token_clean)) {
             let part_id = part.id;
+            target_side = Some(part.side);
             // Select only the part (no pin, via or net), as the side panel search does
             self.selected_part_idx = Some(part_id);
             self.selected_pin_idx = None;
@@ -455,7 +458,7 @@ impl BoardViewApp {
             // Already shown in the PDF: don't cross-probe it back to its first hit
             self.pdf_viewer.probed_part = Some(part_id);
             self.status_msg = format!("Selected part {} from schematic PDF", part.name);
-            self.focus_part(part_id, false);
+            self.focus_part(part_id, switch_to_pcb);
         }
         // 2. Try matching net name (e.g. PP3V3_S5, GND, +12V)
         else if let Some(net) = board.get_net(token_raw).or_else(|| board.get_net(&token_clean)) {
@@ -466,8 +469,17 @@ impl BoardViewApp {
             self.selected_part_idx = first_pin.map(|p| p.part_id);
             self.status_msg = format!("Selected net {} ({} pins) from schematic PDF", net.name, net.pin_indices.len());
             if let Some((pos, side)) = first_pin.map(|p| (p.pos, p.side)) {
-                self.focus_point(pos, side, false);
+                target_side = Some(side);
+                self.focus_point(pos, side, switch_to_pcb);
             }
+        }
+
+        if switch_to_pcb {
+            let target_tab = match target_side {
+                Some(Side::Bottom) => BoardTab::Bottom,
+                _ => BoardTab::Top,
+            };
+            self.set_tab(target_tab);
         }
     }
 
@@ -551,6 +563,19 @@ impl BoardViewApp {
             );
             if !is_active && canvas::activates_canvas(response.clicked(), response.secondary_clicked(), response.drag_started()) {
                 self.canvases.active = side;
+            }
+
+            // Check if user requested navigation to Schematic from PCB context menu
+            if let Some(target) = self.canvases.side_mut(side).navigate_to_schematic.take() {
+                if self.pdf_viewer.is_loaded() {
+                    self.pdf_viewer.search_input = target.clone();
+                    self.pdf_viewer.cross_probe(&target);
+                    self.set_tab(BoardTab::Pdf);
+                    self.status_msg = format!("Navigated to schematic for {}", target);
+                    ui.ctx().request_repaint();
+                } else {
+                    self.status_msg = "No schematic PDF loaded.".to_string();
+                }
             }
         }
         self.canvas_rects = rects.to_vec();
@@ -1062,7 +1087,11 @@ impl eframe::App for BoardViewApp {
                         self.pdf_viewer.close();
                     }
                     if let Some(occ) = out.clicked_token {
-                        self.apply_pdf_token(&occ.text);
+                        self.apply_pdf_token(&occ.text, false);
+                        ui.ctx().request_repaint();
+                    }
+                    if let Some(token) = out.navigate_to_pcb {
+                        self.apply_pdf_token(&token, true);
                         ui.ctx().request_repaint();
                     }
                 } else {
@@ -1436,15 +1465,19 @@ mod tab_tests {
     #[test]
     fn a_schematic_click_selects_and_centers_but_stays_on_the_pdf_tab() {
         let mut app = app_on(BoardTab::Pdf);
-        app.apply_pdf_token(" U2 ");
+        app.apply_pdf_token(" U2 ", false);
         assert_eq!(app.tab, BoardTab::Pdf);
         assert_eq!(app.selected_part_idx, Some(1));
         assert_eq!(app.pdf_viewer.probed_part, Some(1), "not cross-probed back");
         assert_eq!(app.canvases.bottom.viewport.center.x, 900.0, "ready when the Bottom tab is shown");
 
-        // From a single-side tab a schematic click centers the part's side without switching.
+        // When switch_to_pcb is true, tab switches to the part's side (Bottom)
+        app.apply_pdf_token("U2", true);
+        assert_eq!(app.tab, BoardTab::Bottom);
+
+        // From a single-side tab a schematic click centers the part's side without switching when false.
         let mut app = app_on(BoardTab::Top);
-        app.apply_pdf_token("U2");
+        app.apply_pdf_token("U2", false);
         assert_eq!(app.tab, BoardTab::Top);
         assert_eq!(app.canvases.bottom.viewport.center.x, 900.0);
     }

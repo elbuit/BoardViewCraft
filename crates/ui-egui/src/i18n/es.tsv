@@ -161,6 +161,8 @@
 	context_menu.copy_net_details	Copiar detalles de red (TSV)
 	context_menu.paste	Pegar
 	context_menu.clear	Limpiar
+	context_menu.show_in_schematic	Mostrar en Esquema (PDF)
+	context_menu.show_in_pcb	Mostrar en PCB
 	pdf.title	Esquemático PDF
 	pdf.open	Abrir Esquemático PDF...
 	pdf.show	Mostrar Esquemático PDF

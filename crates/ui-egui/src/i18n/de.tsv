@@ -161,6 +161,8 @@
 	context_menu.copy_net_details	Netzdetails kopieren (TSV)
 	context_menu.paste	Einfügen
 	context_menu.clear	Löschen
+	context_menu.show_in_schematic	Im Schaltplan anzeigen (PDF)
+	context_menu.show_in_pcb	Auf Leiterplatte anzeigen (PCB)
 	pdf.title	Schaltplan-PDF
 	pdf.open	Schaltplan-PDF öffnen...
 	pdf.show	Schaltplan-PDF anzeigen
