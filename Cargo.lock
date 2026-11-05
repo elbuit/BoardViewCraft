@@ -937,12 +937,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
 
 [[package]]
-name = "fearless_simd"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "629c9d6b6f30b5604089e0980f4d924a013aacb1654a6cdf5d3d852224f68651"
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1290,7 +1284,7 @@ dependencies = [
 [[package]]
 name = "hayro"
 version = "0.7.1"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "bytemuck",
  "hayro-interpret",
@@ -1308,15 +1302,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f4d0e94ddd48749f06bbe4e5389fb9799a0c45bcaf00495042076ef05e3241a"
 
 [[package]]
-name = "hayro-ccitt"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2866f0d976e76497480b853d5e258dab6e4b89ecfe991124e08f15dfa8fd03ad"
-
-[[package]]
 name = "hayro-cmap"
 version = "0.1.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "brotli",
  "hayro-postscript",
@@ -1325,7 +1313,7 @@ dependencies = [
 [[package]]
 name = "hayro-interpret"
 version = "0.7.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "bitflags 2.13.2",
  "hayro-cmap",
@@ -1342,12 +1330,12 @@ dependencies = [
 
 [[package]]
 name = "hayro-jbig2"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "000e025850f4592ddcaee85640db70704151f2bafd43b6f431aa5b6a2c6a35a9"
+version = "0.3.0"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
- "fearless_simd 1.2.0",
- "hayro-ccitt 0.4.0",
+ "fearless_simd",
+ "hayro-ccitt",
+ "image",
 ]
 
 [[package]]
@@ -1356,21 +1344,21 @@ version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c75ab947623ef4ccaa7acf0579edf7cbb5a73838e3839a7be73335e522f433a1"
 dependencies = [
- "fearless_simd 0.4.1",
+ "fearless_simd",
 ]
 
 [[package]]
 name = "hayro-postscript"
 version = "0.1.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 
 [[package]]
 name = "hayro-syntax"
 version = "0.7.2"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "flate2",
- "hayro-ccitt 0.3.0",
+ "hayro-ccitt",
  "hayro-jbig2",
  "hayro-jpeg2000",
  "memchr",
@@ -1665,7 +1653,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "lopdf"
 version = "0.45.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "aes",
  "bitflags 2.13.2",
@@ -2269,8 +2257,8 @@ dependencies = [
 
 [[package]]
 name = "pdfcraft-cos"
-version = "0.15.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+version = "0.18.1"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "chrono",
  "pdfcraft-crypt",
@@ -2280,8 +2268,8 @@ dependencies = [
 
 [[package]]
 name = "pdfcraft-crypt"
-version = "0.15.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+version = "0.18.1"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "aes",
  "md-5",
@@ -2292,19 +2280,20 @@ dependencies = [
 
 [[package]]
 name = "pdfcraft-filters"
-version = "0.15.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+version = "0.18.1"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "fax",
  "flate2",
- "hayro-ccitt 0.3.0",
+ "hayro-ccitt",
+ "hayro-jbig2",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "pdfcraft-fonts"
-version = "0.15.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+version = "0.18.1"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "harfrust",
  "pdfcraft-cos",
@@ -2314,8 +2303,8 @@ dependencies = [
 
 [[package]]
 name = "pdfcraft-render"
-version = "0.15.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+version = "0.18.1"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "bytemuck",
  "getrandom 0.4.3",
@@ -2327,6 +2316,7 @@ dependencies = [
  "pdfcraft-cos",
  "pdfcraft-fonts",
  "serde",
+ "skrifa 0.44.0",
  "thiserror 2.0.21",
 ]
 
@@ -3362,10 +3352,10 @@ dependencies = [
 [[package]]
 name = "vello_common"
 version = "0.0.8"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "bytemuck",
- "fearless_simd 0.4.1",
+ "fearless_simd",
  "guillotiere",
  "hashbrown 0.17.1",
  "log",
@@ -3382,7 +3372,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19d672facaa2d697285a786cd9d44d614cd2ce54cdc022504bf339f8fff3b750"
 dependencies = [
  "bytemuck",
- "fearless_simd 0.4.1",
+ "fearless_simd",
  "guillotiere",
  "hashbrown 0.17.1",
  "log",
@@ -3399,7 +3389,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbb2141a2bca6e6d598e471fd4d1d7eed8e020aad6a28187edda07f091a325dd"
 dependencies = [
  "bytemuck",
- "fearless_simd 0.4.1",
+ "fearless_simd",
  "guillotiere",
  "log",
  "peniko",
@@ -3410,7 +3400,7 @@ dependencies = [
 [[package]]
 name = "vello_cpu"
 version = "0.0.8"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
+source = "git+https://github.com/storytold/pdfcraft?rev=04cee34b#04cee34bfe1f6c64fb581a625b145c5a04391d6f"
 dependencies = [
  "bytemuck",
  "glifo 0.1.1",
@@ -4319,8 +4309,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
-
-[[patch.unused]]
-name = "hayro-jbig2"
-version = "0.3.0"
-source = "git+https://github.com/storytold/pdfcraft?rev=fa5f9f8c#fa5f9f8c3b3add965f7ec82c743cf02207c55c93"
