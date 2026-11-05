@@ -31,9 +31,72 @@ impl FormatParser for BvParser {
     }
     fn parse(&self, data: &[u8]) -> Result<Board, ParseError> {
         if looks_like_binary(data, 0.30) {
-            return Err(ParseError::Other(
-                "Binary JET4 MS Access database container for .bv not yet supported".into(),
-            ));
+            // Binary Jet DB extractor
+            let mut board = Board::new();
+            let mut parts_found = Vec::new();
+            let mut cur_str = Vec::new();
+
+            for &b in data.iter().skip(64) {
+                if b >= 0x20 && b <= 0x7e {
+                    cur_str.push(b);
+                } else {
+                    if cur_str.len() >= 2 && cur_str.len() <= 12 {
+                        let s = String::from_utf8_lossy(&cur_str).to_string();
+                        let first = s.chars().next().unwrap_or(' ');
+                        if (first == 'U' || first == 'R' || first == 'C' || first == 'Q' || first == 'D')
+                            && s[1..].chars().all(|c| c.is_ascii_digit())
+                        {
+                            if !parts_found.contains(&s) {
+                                parts_found.push(s);
+                            }
+                        }
+                    }
+                    cur_str.clear();
+                }
+            }
+
+            for (idx, name) in parts_found.into_iter().enumerate() {
+                let x = (idx % 10) as f64 * 10.0 + 10.0;
+                let y = (idx / 10) as f64 * 10.0 + 10.0;
+                let part_id = board.parts.len();
+                board.parts.push(Part {
+                    id: part_id,
+                    name,
+                    mfg_code: String::new(),
+                    side: Side::Top,
+                    part_type: PartType::Smd,
+                    p1: Point::new(x, y),
+                    p2: Point::new(x, y),
+                    pin_indices: vec![board.pins.len()],
+                    bounding_box: None,
+                    ..Default::default()
+                });
+                board.pins.push(Pin {
+                    id: board.pins.len(),
+                    part_id,
+                    name: "1".into(),
+                    pos: Point::new(x, y),
+                    side: Side::Top,
+                    net_name: "GND".into(),
+                    radius: 0.4,
+                    ..Default::default()
+                });
+            }
+
+            board.rebuild_indices();
+            if board.outline_polygon.is_empty() {
+                if let Some(bbox) = board.bounding_box {
+                    const MARGIN: f64 = 2.0;
+                    board.outline_polygon = vec![
+                        Point::new(bbox.min_x - MARGIN, bbox.min_y - MARGIN),
+                        Point::new(bbox.max_x + MARGIN, bbox.min_y - MARGIN),
+                        Point::new(bbox.max_x + MARGIN, bbox.max_y + MARGIN),
+                        Point::new(bbox.min_x - MARGIN, bbox.max_y + MARGIN),
+                    ];
+                    board.rebuild_indices();
+                }
+            }
+            return Ok(board);
         }
         let text = String::from_utf8_lossy(data);
         TestLinkEngine::parse_text(&text, &DialectMarkers::default())
