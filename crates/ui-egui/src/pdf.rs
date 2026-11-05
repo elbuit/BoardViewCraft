@@ -190,6 +190,14 @@ pub struct PdfSchematicViewer {
     pub pan_offset: Vec2,
     pub pending_center_on_match: bool,
 
+    // Jump page input buffer
+    pub page_jump_input: String,
+
+    // Rectangular text selection (page-local coordinates in PDF points)
+    pub selection_rect: Option<Rect>,
+    pub selected_text: Option<String>,
+    pub context_menu_pos: Option<Pos2>,
+
     // Page text layers indexed so far for whole-document search (0-based page index -> PageText)
     pub page_texts: HashMap<usize, Arc<PageText>>,
 
@@ -250,6 +258,10 @@ impl Default for PdfSchematicViewer {
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
             pending_center_on_match: false,
+            page_jump_input: String::new(),
+            selection_rect: None,
+            selected_text: None,
+            context_menu_pos: None,
             page_texts: HashMap::new(),
             text_failed: HashSet::new(),
             text_slots: 1,
@@ -306,6 +318,10 @@ impl PdfSchematicViewer {
         self.text_failed.clear();
         self.search_jump_pending = false;
         self.search_is_fallback = false;
+        self.page_jump_input = "1".to_string();
+        self.selection_rect = None;
+        self.selected_text = None;
+        self.context_menu_pos = None;
         self.zoom = 1.0;
         self.pan_offset = Vec2::ZERO;
 
@@ -376,6 +392,38 @@ impl PdfSchematicViewer {
             })
         } else {
             None
+        }
+    }
+
+    /// Extracts text contained within a rectangular area (in PDF points) on `page`.
+    /// Returns the reconstructed column/tabular text and the glyph bounding boxes.
+    pub fn extract_text_in_rect(&self, page: usize, rect_pt: Rect) -> (String, Vec<[f32; 4]>) {
+        let page_0 = page.saturating_sub(1);
+        let Some(text) = self.page_texts.get(&page_0) else {
+            return (String::new(), Vec::new());
+        };
+
+        let rect_arr = [rect_pt.min.x, rect_pt.min.y, rect_pt.max.x, rect_pt.max.y];
+        let glyphs = text.glyphs_in(rect_arr);
+        if glyphs.is_empty() {
+            return (String::new(), Vec::new());
+        }
+
+        let extracted = text.column_text(&glyphs);
+        let boxes = text.glyph_rects(&glyphs);
+        (extracted, boxes)
+    }
+
+    /// Sets the current page, clamping to valid page bounds and synchronizing the jump input buffer.
+    pub fn go_to_page(&mut self, page: usize) {
+        let target = page.clamp(1, self.total_pages.max(1));
+        if self.current_page != target {
+            self.current_page = target;
+            self.page_jump_input = target.to_string();
+            self.selection_rect = None;
+            self.selected_text = None;
+            self.context_menu_pos = None;
+            self.force_settle = true;
         }
     }
 

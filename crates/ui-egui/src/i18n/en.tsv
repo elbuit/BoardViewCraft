@@ -167,6 +167,9 @@
 	pdf.page_prev	Previous page
 	pdf.page_next	Next page
 	pdf.page_counter	Page {} of {}
+	pdf.jump_page_hint	Go to page...
+	pdf.copy_selection	Copy Selected Text
+	pdf.select_all	Select Page Text
 	pdf.hits	hits
 	pdf.hit_prev	Prev
 	pdf.hit_next	Next

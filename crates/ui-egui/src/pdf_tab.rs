@@ -48,14 +48,27 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
     // Navigation bar
     ui.horizontal(|ui| {
         if ui.button("⏴").on_hover_text(i18n::tr(lang, "pdf.page_prev")).clicked() && viewer.current_page > 1 {
-            viewer.current_page -= 1;
+            viewer.go_to_page(viewer.current_page - 1);
         }
-        let page_counter_text = i18n::tr(lang, "pdf.page_counter")
-            .replacen("{}", &viewer.current_page.to_string(), 1)
-            .replacen("{}", &viewer.total_pages.to_string(), 1);
-        ui.label(page_counter_text);
+
+        let jump_edit = ui.add(
+            egui::TextEdit::singleline(&mut viewer.page_jump_input)
+                .desired_width(38.0)
+                .align(egui::Align2::CENTER_CENTER)
+                .hint_text(viewer.current_page.to_string()),
+        );
+        let entered_page = jump_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if entered_page {
+            if let Ok(target) = viewer.page_jump_input.trim().parse::<usize>() {
+                viewer.go_to_page(target);
+            } else {
+                viewer.page_jump_input = viewer.current_page.to_string();
+            }
+        }
+        ui.label(format!("/ {}", viewer.total_pages));
+
         if ui.button("⏵").on_hover_text(i18n::tr(lang, "pdf.page_next")).clicked() && viewer.current_page < viewer.total_pages {
-            viewer.current_page += 1;
+            viewer.go_to_page(viewer.current_page + 1);
         }
 
         ui.separator();
@@ -136,7 +149,8 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
     let painter = ui.painter().with_clip_rect(rect);
     painter.rect_filled(rect, 4.0, Color32::from_rgb(255, 255, 255));
 
-    if resp.dragged() {
+    // Pan with Middle or Secondary (Right) drag
+    if resp.dragged_by(egui::PointerButton::Middle) || resp.dragged_by(egui::PointerButton::Secondary) {
         viewer.pan_offset += resp.drag_delta();
     }
 
@@ -263,8 +277,9 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
             }
         }
 
-        // Reverse cross-probing: the text token under a click goes back to the board.
+        // Reverse cross-probing: the text token under a click goes back to the board (only when not selecting a rectangle).
         if resp.clicked() {
+            viewer.context_menu_pos = None;
             let click_opt = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).or_else(|| ui.input(|i| i.pointer.interact_pos()));
             if let Some(click_pos) = click_opt
                 && rect.contains(click_pos)
@@ -276,6 +291,114 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
                     rel_screen.y / (crate::pdf::PT * display_scale),
                 );
                 out.clicked_token = viewer.find_token_at(viewer.current_page, clicked_pdf_pt);
+                viewer.selection_rect = None;
+                viewer.selected_text = None;
+            }
+        }
+
+        // Rectangular text selection with primary mouse drag
+        let to_pdf = |screen_pt: Pos2| -> Pos2 {
+            let rel = screen_pt - render_pos;
+            Pos2::new(
+                rel.x / (crate::pdf::PT * display_scale),
+                rel.y / (crate::pdf::PT * display_scale),
+            )
+        };
+
+        if resp.drag_started_by(egui::PointerButton::Primary) {
+            viewer.context_menu_pos = None;
+            if let Some(origin) = ui.input(|i| i.pointer.press_origin()) {
+                let origin_pdf = to_pdf(origin);
+                viewer.selection_rect = Some(Rect::from_two_pos(origin_pdf, origin_pdf));
+                viewer.selected_text = None;
+            }
+        } else if resp.dragged_by(egui::PointerButton::Primary) {
+            if let (Some(origin), Some(curr)) = (ui.input(|i| i.pointer.press_origin()), ui.input(|i| i.pointer.interact_pos())) {
+                let origin_pdf = to_pdf(origin);
+                let curr_pdf = to_pdf(curr);
+                let sel_rect = Rect::from_two_pos(origin_pdf, curr_pdf);
+                viewer.selection_rect = Some(sel_rect);
+                let (text, _) = viewer.extract_text_in_rect(viewer.current_page, sel_rect);
+                viewer.selected_text = if text.trim().is_empty() { None } else { Some(text) };
+            }
+        }
+
+        // Secondary click (right click) opens the context menu
+        if resp.secondary_clicked() {
+            if let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos())) {
+                viewer.context_menu_pos = Some(mouse_pos);
+            }
+        }
+
+        // Draw active selection box and highlighted text glyph boxes
+        if let Some(sel_rect) = viewer.selection_rect {
+            let sel_screen = Rect::from_min_max(to_screen(sel_rect.min), to_screen(sel_rect.max));
+            painter.rect_filled(sel_screen, 1.0, Color32::from_rgba_unmultiplied(60, 140, 255, 45));
+            painter.rect_stroke(
+                sel_screen,
+                1.0,
+                egui::Stroke::new(1.0, Color32::from_rgb(60, 140, 255)),
+                egui::StrokeKind::Outside,
+            );
+
+            // Highlight glyph runs inside selection
+            let (_, boxes) = viewer.extract_text_in_rect(viewer.current_page, sel_rect);
+            for b in boxes {
+                let glyph_screen = Rect::from_min_max(to_screen(Pos2::new(b[0], b[1])), to_screen(Pos2::new(b[2], b[3])));
+                painter.rect_filled(glyph_screen, 1.0, Color32::from_rgba_unmultiplied(80, 160, 255, 90));
+            }
+        }
+
+        // Context menu for copying selection or selecting all
+        if let Some(menu_pos) = viewer.context_menu_pos {
+            let mut close_menu = false;
+            let menu_id = egui::Id::unique("pdf_selection_context_menu");
+            let area_response = egui::Area::new(menu_id)
+                .fixed_pos(menu_pos)
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::menu(ui.style())
+                        .fill(tokens.chrome)
+                        .stroke(egui::Stroke::new(1.0, tokens.border))
+                        .corner_radius(4.0)
+                        .inner_margin(8.0)
+                        .show(ui, |ui| {
+                            ui.set_min_width(160.0);
+                            let has_text = viewer.selected_text.as_ref().is_some_and(|s| !s.trim().is_empty());
+                            let copy_btn = egui::Button::new(
+                                RichText::new(i18n::tr(lang, "pdf.copy_selection"))
+                                    .color(if has_text { tokens.text } else { tokens.text_dim() }),
+                            );
+                            if ui.add_enabled(has_text, copy_btn).clicked() {
+                                if let Some(ref text) = viewer.selected_text {
+                                    ui.ctx().copy_text(text.clone());
+                                }
+                                close_menu = true;
+                            }
+
+                            if ui
+                                .button(RichText::new(i18n::tr(lang, "pdf.select_all")).color(tokens.text))
+                                .clicked()
+                            {
+                                let s = viewer.page_size_pts(viewer.current_page);
+                                let full_rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(s.x, s.y));
+                                viewer.selection_rect = Some(full_rect);
+                                let (text, _) = viewer.extract_text_in_rect(viewer.current_page, full_rect);
+                                viewer.selected_text = if text.trim().is_empty() { None } else { Some(text) };
+                                close_menu = true;
+                            }
+
+                            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                                close_menu = true;
+                            }
+                        });
+                });
+
+            let clicked_outside = ui.input(|i| i.pointer.any_pressed())
+                && ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| !area_response.response.rect.contains(p));
+
+            if close_menu || clicked_outside {
+                viewer.context_menu_pos = None;
             }
         }
     } else {
@@ -291,3 +414,36 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_go_to_page_clamps_and_syncs_buffer() {
+        let mut viewer = PdfSchematicViewer::default();
+        viewer.total_pages = 10;
+        viewer.current_page = 1;
+
+        viewer.go_to_page(5);
+        assert_eq!(viewer.current_page, 5);
+        assert_eq!(viewer.page_jump_input, "5");
+
+        viewer.go_to_page(15);
+        assert_eq!(viewer.current_page, 10);
+        assert_eq!(viewer.page_jump_input, "10");
+
+        viewer.go_to_page(0);
+        assert_eq!(viewer.current_page, 1);
+        assert_eq!(viewer.page_jump_input, "1");
+    }
+
+    #[test]
+    fn test_extract_text_empty_when_no_text_layer() {
+        let viewer = PdfSchematicViewer::default();
+        let (text, boxes) = viewer.extract_text_in_rect(1, Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 100.0)));
+        assert!(text.is_empty());
+        assert!(boxes.is_empty());
+    }
+}
+
