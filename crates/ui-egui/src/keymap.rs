@@ -29,11 +29,12 @@ pub enum Action {
     PanLeft,
     PanRight,
     TogglePreferences,
+    Measure,
 }
 
 impl Action {
     /// Every action, in display order.
-    pub const ALL: [Action; 13] = [
+    pub const ALL: [Action; 14] = [
         Action::RotateCw,
         Action::RotateCcw,
         Action::FlipSide,
@@ -47,6 +48,7 @@ impl Action {
         Action::PanLeft,
         Action::PanRight,
         Action::TogglePreferences,
+        Action::Measure,
     ];
 
     /// Translation key of the action's label.
@@ -65,6 +67,7 @@ impl Action {
             Action::PanLeft => "shortcut.pan_left",
             Action::PanRight => "shortcut.pan_right",
             Action::TogglePreferences => "shortcut.toggle_preferences",
+            Action::Measure => "shortcut.measure",
         }
     }
 
@@ -85,6 +88,7 @@ impl Action {
             Action::PanLeft => plain(Key::ArrowLeft),
             Action::PanRight => plain(Key::ArrowRight),
             Action::TogglePreferences => vec![Binding::new(Key::Comma, Mods::COMMAND)],
+            Action::Measure => plain(Key::Q),
         }
     }
 }
@@ -366,6 +370,7 @@ mod tests {
             (Action::PanLeft, vec![b(Key::ArrowLeft, Mods::NONE)]),
             (Action::PanRight, vec![b(Key::ArrowRight, Mods::NONE)]),
             (Action::TogglePreferences, vec![b(Key::Comma, Mods::COMMAND)]),
+            (Action::Measure, vec![b(Key::Q, Mods::NONE)]),
         ];
         assert_eq!(expect.len(), Action::ALL.len());
         for (action, bindings) in expect {

@@ -38,6 +38,7 @@
 	actions.mirror_x	Miroir X [Horizontal]
 	actions.mirror_y	Miroir Y [Vertical]
 	actions.reset	Réinitialiser l'orientation
+	actions.measure	Mesure (pied à coulisse 2D)
 	actions.adjust_overlay	Ajuster la photo superposée
 	side_panel.no_board_loaded	Aucun circuit chargé
 	side_panel.back_to_search	⏴ Recherche
@@ -147,6 +148,7 @@
 	shortcut.pan_left	Défiler vers la gauche
 	shortcut.pan_right	Défiler vers la droite
 	shortcut.toggle_preferences	Ouvrir/fermer les Préférences
+	shortcut.measure	Outil de mesure (pied à coulisse 2D)
 	context_menu.pin_title	Informations sur la broche
 	context_menu.net	Réseau :
 	context_menu.side	Côté :

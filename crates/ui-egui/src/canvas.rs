@@ -379,6 +379,36 @@ pub enum MeshSync {
 /// The displayed view: centre, scale and canvas centre.
 type DisplayedView = (Point, u32, Pos2);
 
+/// 2D Point-to-Point Caliper measurement tool state.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MeasurementTool {
+    pub active: bool,
+    pub start: Option<Point>,
+    pub end: Option<Point>,
+}
+
+impl MeasurementTool {
+    pub fn is_measuring(&self) -> bool {
+        self.active && self.start.is_some() && self.end.is_none()
+    }
+
+    pub fn has_measurement(&self) -> bool {
+        self.start.is_some() && self.end.is_some()
+    }
+
+    pub fn reset(&mut self) {
+        self.start = None;
+        self.end = None;
+    }
+
+    pub fn toggle(&mut self) {
+        self.active = !self.active;
+        if !self.active {
+            self.reset();
+        }
+    }
+}
+
 pub struct CanvasState {
     pub viewport: Viewport,
     pub hovered_pin: Option<usize>,
@@ -392,6 +422,7 @@ pub struct CanvasState {
     displayed_view: Option<DisplayedView>,
     pub context_menu_pin: Option<(usize, Pos2)>,
     pub context_menu_part: Option<(usize, Pos2)>,
+    pub measurement: MeasurementTool,
 }
 
 /// Brings `state.cached_meshes` up to date for `vp`: keeps them, re-maps the cached base for a
@@ -440,6 +471,7 @@ impl Default for CanvasState {
             displayed_view: None,
             context_menu_pin: None,
             context_menu_part: None,
+            measurement: MeasurementTool::default(),
         }
     }
 }
@@ -460,6 +492,7 @@ impl CanvasState {
         self.hovered_via = None;
         self.context_menu_pin = None;
         self.context_menu_part = None;
+        self.measurement.reset();
     }
 }
 
@@ -549,6 +582,22 @@ impl BoardCanvases {
         let mirror = !self.mirror_y();
         for state in self.each_mut() {
             state.viewport.mirror_y = mirror;
+        }
+    }
+
+    pub fn toggle_measure(&mut self) {
+        let active = !self.active_state().measurement.active;
+        for state in self.each_mut() {
+            state.measurement.active = active;
+            if !active {
+                state.measurement.reset();
+            }
+        }
+    }
+
+    pub fn clear_measurement(&mut self) {
+        for state in self.each_mut() {
+            state.measurement.reset();
         }
     }
 
@@ -874,10 +923,14 @@ pub fn show_canvas(
     canvas_state.hovered_pin = current_hover_pin;
     canvas_state.hovered_via = current_hover_via;
 
-    // Selection and Context Menu on click (or pin alignment calibration click interceptor)
+    // Selection and Context Menu on click (or pin alignment calibration / measurement click interceptor)
     let is_ctrl_down = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
     let secondary_clicked = response.secondary_clicked();
     let is_context_trigger = secondary_clicked || (response.clicked() && is_ctrl_down);
+
+    if canvas_state.measurement.active {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    }
 
     if is_calibrating && response.clicked() {
         if let Some(hover_pos) = response.hover_pos() {
@@ -910,6 +963,28 @@ pub fn show_canvas(
                 }
                 _ => {}
             }
+        }
+    } else if canvas_state.measurement.active && response.clicked() {
+        if let Some(hover_pos) = response.hover_pos() {
+            // Snap to pin or via center if close enough (within 15px)
+            let snapped_point = current_hover_pin
+                .and_then(|idx| board.and_then(|b| b.pins.get(idx).map(|p| p.pos)))
+                .or_else(|| {
+                    current_hover_via.and_then(|idx| board.and_then(|b| b.vias.get(idx).map(|v| v.pos)))
+                })
+                .unwrap_or_else(|| vp.screen_to_world(hover_pos, rect));
+
+            if canvas_state.measurement.start.is_none() {
+                canvas_state.measurement.start = Some(snapped_point);
+                canvas_state.measurement.end = None;
+            } else if canvas_state.measurement.end.is_none() {
+                canvas_state.measurement.end = Some(snapped_point);
+            } else {
+                // If a completed measurement was already displayed, restart with a new first point
+                canvas_state.measurement.start = Some(snapped_point);
+                canvas_state.measurement.end = None;
+            }
+            ui.ctx().request_repaint();
         }
     } else if is_context_trigger {
         if let Some(pin_idx) = current_hover_pin {
@@ -1408,6 +1483,21 @@ pub fn show_canvas(
         );
     }
 
+    // Render 2D Measurement Caliper Overlay
+    if canvas_state.measurement.active || canvas_state.measurement.has_measurement() {
+        render_measurement_overlay(
+            &painter,
+            rect,
+            &canvas_state.viewport,
+            &canvas_state.measurement,
+            board,
+            current_hover_pin,
+            current_hover_via,
+            response.hover_pos(),
+            tokens,
+        );
+    }
+
     response
 }
 
@@ -1565,6 +1655,144 @@ pub fn render_calibration_overlays(
             banner_text,
             FontId::proportional(13.0),
             text_color,
+        );
+    }
+}
+
+/// Helper function to stroke a dashed line between two points in screen space.
+fn stroke_dashed_line(
+    painter: &egui::Painter,
+    p1: Pos2,
+    p2: Pos2,
+    stroke: Stroke,
+    dash_len: f32,
+    gap_len: f32,
+) {
+    let dir = p2 - p1;
+    let dist = dir.length();
+    if dist < 1e-3 {
+        return;
+    }
+    let unit = dir / dist;
+    let period = dash_len + gap_len;
+    let mut traveled = 0.0;
+
+    while traveled < dist {
+        let seg_start = p1 + unit * traveled;
+        let seg_len = dash_len.min(dist - traveled);
+        let seg_end = seg_start + unit * seg_len;
+        painter.line_segment([seg_start, seg_end], stroke);
+        traveled += period;
+    }
+}
+
+/// Renders 2D caliper measurement line, snap circles and floating measurement badge.
+pub fn render_measurement_overlay(
+    painter: &egui::Painter,
+    canvas_rect: EguiRect,
+    vp: &Viewport,
+    measurement: &MeasurementTool,
+    board: Option<&Board>,
+    hover_pin: Option<usize>,
+    hover_via: Option<usize>,
+    hover_pos: Option<Pos2>,
+    tokens: &Tokens,
+) {
+    let amber = tokens.accent;
+    let cyan = Color32::from_rgb(0x00, 0xe5, 0xff);
+
+    // Live snap candidate if hovering pin/via during measurement
+    if measurement.active && measurement.end.is_none() {
+        if let Some(pin_idx) = hover_pin {
+            if let Some(pin) = board.and_then(|b| b.pins.get(pin_idx)) {
+                let pin_scr = vp.world_to_screen(pin.pos, canvas_rect);
+                painter.circle_stroke(pin_scr, 9.0, Stroke::new(1.5, cyan));
+            }
+        } else if let Some(via_idx) = hover_via {
+            if let Some(via) = board.and_then(|b| b.vias.get(via_idx)) {
+                let via_scr = vp.world_to_screen(via.pos, canvas_rect);
+                painter.circle_stroke(via_scr, 9.0, Stroke::new(1.5, cyan));
+            }
+        }
+    }
+
+    let start_world = measurement.start;
+    if start_world.is_none() {
+        return;
+    }
+    let p1_world = start_world.unwrap();
+    let p1_scr = vp.world_to_screen(p1_world, canvas_rect);
+
+    // Draw start marker
+    painter.circle_filled(p1_scr, 4.0, amber);
+    painter.circle_stroke(p1_scr, 8.0, Stroke::new(1.5, amber));
+
+    // Determine second point (either fixed end or live cursor/snapped position)
+    let p2_world = measurement.end.or_else(|| {
+        if !measurement.active {
+            return None;
+        }
+        hover_pin
+            .and_then(|idx| board.and_then(|b| b.pins.get(idx).map(|p| p.pos)))
+            .or_else(|| hover_via.and_then(|idx| board.and_then(|b| b.vias.get(idx).map(|v| v.pos))))
+            .or_else(|| hover_pos.map(|h| vp.screen_to_world(h, canvas_rect)))
+    });
+
+    if let Some(p2_world) = p2_world {
+        let p2_scr = vp.world_to_screen(p2_world, canvas_rect);
+
+        // Draw dashed measurement line
+        stroke_dashed_line(painter, p1_scr, p2_scr, Stroke::new(1.5, amber), 6.0, 4.0);
+
+        // Draw end marker
+        painter.circle_filled(p2_scr, 4.0, amber);
+        painter.circle_stroke(p2_scr, 8.0, Stroke::new(1.5, amber));
+
+        // Compute distances:
+        // World coordinates in bvc-core are in mils (1 mil = 0.0254 mm).
+        let dx_mils = (p2_world.x - p1_world.x).abs();
+        let dy_mils = (p2_world.y - p1_world.y).abs();
+        let dist_mils = (dx_mils * dx_mils + dy_mils * dy_mils).sqrt();
+
+        let dx_mm = dx_mils * 0.0254;
+        let dy_mm = dy_mils * 0.0254;
+        let dist_mm = dist_mils * 0.0254;
+
+        // Render measurement badge at midpoint
+        let mid_scr = Pos2::new(
+            (p1_scr.x + p2_scr.x) * 0.5,
+            (p1_scr.y + p2_scr.y) * 0.5 - 20.0,
+        );
+
+        let label_text = format!("{dist_mm:.3} mm ({dist_mils:.1} mils)");
+        let delta_text = format!("ΔX: {dx_mm:.2} mm  ΔY: {dy_mm:.2} mm");
+
+        let badge_w = 175.0;
+        let badge_h = 36.0;
+        let badge_rect = EguiRect::from_center_size(mid_scr, egui::vec2(badge_w, badge_h));
+
+        painter.rect(
+            badge_rect,
+            6.0,
+            Color32::from_rgba_unmultiplied(0x1a, 0x1d, 0x24, 235),
+            Stroke::new(1.2, amber),
+            egui::StrokeKind::Outside,
+        );
+
+        painter.text(
+            Pos2::new(badge_rect.center().x, badge_rect.min.y + 10.0),
+            egui::Align2::CENTER_CENTER,
+            label_text,
+            FontId::monospace(11.5),
+            Color32::WHITE,
+        );
+
+        painter.text(
+            Pos2::new(badge_rect.center().x, badge_rect.min.y + 24.0),
+            egui::Align2::CENTER_CENTER,
+            delta_text,
+            FontId::monospace(9.5),
+            amber,
         );
     }
 }
@@ -2278,6 +2506,32 @@ mod tests {
         assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::ArrowUp, none)])).0, egui::Vec2::ZERO);
         assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::Z, Modifiers::SHIFT)])), (egui::Vec2::ZERO, false, true));
         assert_eq!(keyboard_pan_zoom(&km, &key_input(&[(Key::Minus, none)])), (egui::Vec2::ZERO, false, false));
+    }
+
+    #[test]
+    fn test_measurement_tool_lifecycle() {
+        let mut tool = MeasurementTool::default();
+        assert!(!tool.active);
+        assert!(!tool.has_measurement());
+
+        tool.toggle();
+        assert!(tool.active);
+        assert!(!tool.has_measurement());
+
+        tool.start = Some(Point::new(100.0, 100.0));
+        assert!(tool.is_measuring());
+        assert!(!tool.has_measurement());
+
+        tool.end = Some(Point::new(200.0, 100.0));
+        assert!(!tool.is_measuring());
+        assert!(tool.has_measurement());
+
+        tool.reset();
+        assert!(!tool.has_measurement());
+        assert!(tool.active); // Tool remains active for the next measurement until toggled off
+
+        tool.toggle();
+        assert!(!tool.active);
     }
 
     #[test]
