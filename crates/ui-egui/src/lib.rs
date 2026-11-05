@@ -3,6 +3,7 @@
 mod about;
 mod board_tabs;
 mod canvas;
+pub mod file_filter;
 mod i18n;
 pub mod keymap;
 mod overlay;
@@ -17,6 +18,7 @@ mod theme;
 use board_tabs::{BoardTab, BothLayout};
 use bvc_core::{Board, ParserRegistry, Point, Side};
 use canvas::{BoardCanvases, show_canvas};
+use file_filter::AddFilterAnyCase;
 use keymap::{Action, Keymap};
 use overlay::OverlayManager;
 use overlay_align::AlignmentSession;
@@ -288,18 +290,18 @@ impl BoardViewApp {
 
     pub fn open_file_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter(
+            .add_filter_any_case(
                 "All Supported Boardviews (*.cad, *.tvw, *.brd, *.fz, *.pcb, *.bdv, *.asc, *.bv, *.bvr, *.cst, *.gr, *.f2b)",
                 &["cad", "tvw", "brd", "fz", "pcb", "bdv", "asc", "bv", "bvr", "cst", "gr", "f2b"],
             )
-            .add_filter("CAD files (*.cad)", &["cad"])
-            .add_filter("TestView files (*.tvw)", &["tvw"])
-            .add_filter("Eagle / BRD files (*.brd)", &["brd"])
-            .add_filter("Foxconn files (*.fz)", &["fz"])
-            .add_filter("XZZ PCB files (*.pcb)", &["pcb"])
-            .add_filter("BDV files (*.bdv)", &["bdv"])
-            .add_filter("ASC files (*.asc)", &["asc"])
-            .add_filter("Other Boardviews (*.bv, *.bvr, *.cst, *.gr, *.f2b)", &["bv", "bvr", "cst", "gr", "f2b"])
+            .add_filter_any_case("CAD files (*.cad)", &["cad"])
+            .add_filter_any_case("TestView files (*.tvw)", &["tvw"])
+            .add_filter_any_case("Eagle / BRD files (*.brd)", &["brd"])
+            .add_filter_any_case("Foxconn files (*.fz)", &["fz"])
+            .add_filter_any_case("XZZ PCB files (*.pcb)", &["pcb"])
+            .add_filter_any_case("BDV files (*.bdv)", &["bdv"])
+            .add_filter_any_case("ASC files (*.asc)", &["asc"])
+            .add_filter_any_case("Other Boardviews (*.bv, *.bvr, *.cst, *.gr, *.f2b)", &["bv", "bvr", "cst", "gr", "f2b"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         {
@@ -309,7 +311,7 @@ impl BoardViewApp {
 
     pub fn open_photo_dialog(&mut self, ctx: &egui::Context, side: Side) {
         if let Some(path) = rfd::FileDialog::new()
-            .add_filter("Images (*.png, *.jpg, *.jpeg, *.webp, *.bmp)", &["png", "jpg", "jpeg", "webp", "bmp"])
+            .add_filter_any_case("Images (*.png, *.jpg, *.jpeg, *.webp, *.bmp)", &["png", "jpg", "jpeg", "webp", "bmp"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         {
@@ -338,7 +340,7 @@ impl BoardViewApp {
     /// Asks for a schematic PDF and opens it in the PDF tab. Returns whether one was opened.
     pub fn open_pdf_dialog(&mut self) -> bool {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter("PDF Schematics (*.pdf)", &["pdf"])
+            .add_filter_any_case("PDF Schematics (*.pdf)", &["pdf"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         else {
