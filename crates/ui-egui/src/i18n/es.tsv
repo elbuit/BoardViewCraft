@@ -20,12 +20,21 @@
 	tabs.bottom	Inferior
 	tabs.both	Ambas
 	tabs.pdf	Esquemático PDF
+	tabs.split	Dividido (Placa + PDF)
 	tabs.hover	Pestañas de vista de la placa ({key} alterna Superior/Inferior)
 	layout.label	Disposición:
 	layout.auto	Auto
 	layout.vertical	Vertical (superior arriba, inferior abajo)
 	layout.horizontal	Horizontal (superior a la izquierda, inferior a la derecha)
 	layout.hover	Disposición de las dos caras; Auto las apila cuando la placa girada es más ancha que alta
+	split.layout_label	División:
+	split.horizontal	Horizontal (en paralelo)
+	split.vertical	Vertical (apilado)
+	split.reset_ratio	50/50
+	split.side_label	Placa:
+	split.side_top	Superior
+	split.side_bottom	Inferior
+	split.side_both	Ambas
 	toolbar.pins	Pines
 	toolbar.vias	Vías
 	toolbar.load_photo	Cargar Foto Superpuesta...

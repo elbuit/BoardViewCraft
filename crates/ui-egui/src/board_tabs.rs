@@ -14,11 +14,12 @@ pub enum BoardTab {
     Bottom,
     Both,
     Pdf,
+    Split,
 }
 
 impl BoardTab {
     /// Tabs in display order.
-    pub const ALL: [BoardTab; 4] = [BoardTab::Top, BoardTab::Bottom, BoardTab::Both, BoardTab::Pdf];
+    pub const ALL: [BoardTab; 5] = [BoardTab::Top, BoardTab::Bottom, BoardTab::Both, BoardTab::Pdf, BoardTab::Split];
 
     pub fn label(self, lang: Language) -> &'static str {
         match self {
@@ -26,6 +27,7 @@ impl BoardTab {
             BoardTab::Bottom => i18n::tr(lang, "tabs.bottom"),
             BoardTab::Both => i18n::tr(lang, "tabs.both"),
             BoardTab::Pdf => i18n::tr(lang, "tabs.pdf"),
+            BoardTab::Split => i18n::tr(lang, "tabs.split"),
         }
     }
 
@@ -36,22 +38,23 @@ impl BoardTab {
             BoardTab::Bottom => &[Side::Bottom],
             BoardTab::Both => &[Side::Top, Side::Bottom],
             BoardTab::Pdf => &[],
+            BoardTab::Split => &[Side::Top],
         }
     }
 
-    /// The single-side tab of `side` (`Both` maps to Top).
+    /// The single-side tab of `side` (`Both` and `Split` map to Top).
     pub fn for_side(side: Side) -> Self {
         if side == Side::Bottom { BoardTab::Bottom } else { BoardTab::Top }
     }
 
-    /// Space: Top <-> Bottom; from Both or PDF, Top.
+    /// Space: Top <-> Bottom; from Both, PDF or Split, Top.
     pub fn flipped(self) -> Self {
         if self == BoardTab::Top { BoardTab::Bottom } else { BoardTab::Top }
     }
 
-    /// The tab restored at startup: the PDF tab needs a document, which is not open yet.
+    /// The tab restored at startup: PDF and Split tabs need a document, which is not open yet.
     pub fn at_startup(self, pdf_loaded: bool) -> Self {
-        if self == BoardTab::Pdf && !pdf_loaded { BoardTab::Top } else { self }
+        if (self == BoardTab::Pdf || self == BoardTab::Split) && !pdf_loaded { BoardTab::Top } else { self }
     }
 }
 
@@ -99,6 +102,29 @@ impl BothLayout {
 /// Space between the two canvases of the Both tab, where a separator line is drawn.
 pub const BOTH_GAP: f32 = 6.0;
 
+/// Space between the two panes in split view, where a draggable separator or divider is drawn.
+pub const SPLIT_GAP: f32 = 6.0;
+
+/// Rectangles of the board area and PDF area in Split tab inside `area`.
+/// `split_ratio` is between 0.1 and 0.9 (default ~0.5), representing board's share of width/height.
+pub fn split_rects(area: Rect, horizontal: bool, split_ratio: f32) -> (Rect, Rect) {
+    let ratio = split_ratio.clamp(0.15, 0.85);
+    let half_gap = SPLIT_GAP * 0.5;
+    if horizontal {
+        // Left is Board, Right is PDF
+        let split_x = area.min.x + area.width() * ratio;
+        let board_rect = Rect::from_min_max(area.min, egui::pos2((split_x - half_gap).max(area.min.x), area.max.y));
+        let pdf_rect = Rect::from_min_max(egui::pos2((split_x + half_gap).min(area.max.x), area.min.y), area.max);
+        (board_rect, pdf_rect)
+    } else {
+        // Top is Board, Bottom is PDF
+        let split_y = area.min.y + area.height() * ratio;
+        let board_rect = Rect::from_min_max(area.min, egui::pos2(area.max.x, (split_y - half_gap).max(area.min.y)));
+        let pdf_rect = Rect::from_min_max(egui::pos2(area.min.x, (split_y + half_gap).min(area.max.y)), area.max);
+        (board_rect, pdf_rect)
+    }
+}
+
 /// Rectangles of the top and bottom canvases of the Both tab inside `area`: two halves split
 /// along the resolved layout, `BOTH_GAP` apart.
 pub fn both_rects(area: Rect, layout: BothLayout, bbox: Option<bvc_core::Rect>, rotation: Rotation) -> (Rect, Rect) {
@@ -135,6 +161,7 @@ pub fn canvas_rects(
             vec![(Side::Top, top), (Side::Bottom, bottom)]
         }
         BoardTab::Pdf => Vec::new(),
+        BoardTab::Split => vec![(Side::Top, area)],
     }
 }
 
@@ -217,11 +244,28 @@ mod tests {
         assert_eq!(BoardTab::Bottom.flipped(), BoardTab::Top);
         assert_eq!(BoardTab::Both.flipped(), BoardTab::Top);
         assert_eq!(BoardTab::Pdf.flipped(), BoardTab::Top);
+        assert_eq!(BoardTab::Split.flipped(), BoardTab::Top);
         assert_eq!(BoardTab::for_side(Side::Bottom), BoardTab::Bottom);
         assert_eq!(BoardTab::for_side(Side::Both), BoardTab::Top);
         assert_eq!(BoardTab::Pdf.at_startup(false), BoardTab::Top);
         assert_eq!(BoardTab::Pdf.at_startup(true), BoardTab::Pdf);
+        assert_eq!(BoardTab::Split.at_startup(false), BoardTab::Top);
+        assert_eq!(BoardTab::Split.at_startup(true), BoardTab::Split);
         assert_eq!(BoardTab::Both.at_startup(false), BoardTab::Both);
+    }
+
+    #[test]
+    fn split_rects_respect_gap_and_ratio() {
+        let area = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 600.0));
+        let (board_h, pdf_h) = split_rects(area, true, 0.5);
+        assert!((board_h.width() - (500.0 - SPLIT_GAP * 0.5)).abs() < 1e-4);
+        assert!((pdf_h.width() - (500.0 - SPLIT_GAP * 0.5)).abs() < 1e-4);
+        assert!(pdf_h.min.x > board_h.max.x);
+
+        let (board_v, pdf_v) = split_rects(area, false, 0.4);
+        assert!((board_v.height() - (240.0 - SPLIT_GAP * 0.5)).abs() < 1e-4);
+        assert!((pdf_v.height() - (360.0 - SPLIT_GAP * 0.5)).abs() < 1e-4);
+        assert!(pdf_v.min.y > board_v.max.y);
     }
 
     #[test]

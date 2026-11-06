@@ -20,12 +20,21 @@
 	tabs.bottom	Bottom
 	tabs.both	Both
 	tabs.pdf	Schematic PDF
+	tabs.split	Split (Board + PDF)
 	tabs.hover	Board view tabs ({key} switches Top/Bottom)
 	layout.label	Layout:
 	layout.auto	Auto
 	layout.vertical	Vertical (top above bottom)
 	layout.horizontal	Horizontal (top left, bottom right)
 	layout.hover	Arrangement of the two sides; Auto stacks them when the rotated board is wider than tall
+	split.layout_label	Split:
+	split.horizontal	Horizontal (side by side)
+	split.vertical	Vertical (stacked)
+	split.reset_ratio	50/50
+	split.side_label	Board:
+	split.side_top	Top
+	split.side_bottom	Bottom
+	split.side_both	Both
 	toolbar.pins	Pins
 	toolbar.vias	Vias
 	toolbar.load_photo	Load Overlay Photo...

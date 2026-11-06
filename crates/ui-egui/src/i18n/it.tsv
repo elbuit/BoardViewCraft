@@ -20,12 +20,21 @@
 	tabs.bottom	Inferiore
 	tabs.both	Entrambi
 	tabs.pdf	Schema PDF
+	tabs.split	Diviso (Circuito + PDF)
 	tabs.hover	Schede di vista della scheda ({key} alterna Superiore/Inferiore)
 	layout.label	Disposizione:
 	layout.auto	Auto
 	layout.vertical	Verticale (superiore sopra, inferiore sotto)
 	layout.horizontal	Orizzontale (superiore a sinistra, inferiore a destra)
 	layout.hover	Disposizione dei due lati; Auto li impila quando la scheda ruotata è più larga che alta
+	split.layout_label	Divisione:
+	split.horizontal	Orizzontale (fianco a fianco)
+	split.vertical	Verticale (sovrapposto)
+	split.reset_ratio	50/50
+	split.side_label	Circuito:
+	split.side_top	Superiore
+	split.side_bottom	Inferiore
+	split.side_both	Entrambi
 	toolbar.pins	Pin
 	toolbar.vias	Via
 	toolbar.load_photo	Carica foto sovrapposta...

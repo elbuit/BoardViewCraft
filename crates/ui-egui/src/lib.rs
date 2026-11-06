@@ -549,6 +549,24 @@ impl BoardViewApp {
                             self.preferences.both_layout = layout;
                             self.save_prefs_pending = true;
                         }
+                    } else if self.tab == BoardTab::Split {
+                        ui.separator();
+                        ui.label(i18n::tr(lang, "split.layout_label"));
+                        let current_split_label = if self.preferences.split_horizontal {
+                            i18n::tr(lang, "split.horizontal")
+                        } else {
+                            i18n::tr(lang, "split.vertical")
+                        };
+                        egui::ComboBox::from_id_salt("split_layout_selector")
+                            .selected_text(current_split_label)
+                            .show_ui(ui, |ui: &mut Ui| {
+                                ui.selectable_value(&mut self.preferences.split_horizontal, true, i18n::tr(lang, "split.horizontal"));
+                                ui.selectable_value(&mut self.preferences.split_horizontal, false, i18n::tr(lang, "split.vertical"));
+                            });
+                        if ui.small_button(i18n::tr(lang, "split.reset_ratio")).clicked() {
+                            self.preferences.split_ratio = 0.5;
+                            self.save_prefs_pending = true;
+                        }
                     }
                 });
             });
@@ -1128,6 +1146,107 @@ impl eframe::App for BoardViewApp {
                     }
                     if let Some(token) = out.navigate_to_pcb {
                         self.apply_pdf_token(&token, true);
+                        ui.ctx().request_repaint();
+                    }
+                } else if self.tab == BoardTab::Split {
+                    let area = ui.available_rect_before_wrap();
+                    let (board_rect, pdf_rect) = board_tabs::split_rects(
+                        area,
+                        self.preferences.split_horizontal,
+                        self.preferences.split_ratio,
+                    );
+
+                    // Draggable divider handle between board and PDF
+                    let divider_rect = if self.preferences.split_horizontal {
+                        Rect::from_min_max(
+                            egui::pos2(board_rect.max.x, area.min.y),
+                            egui::pos2(pdf_rect.min.x, area.max.y),
+                        )
+                    } else {
+                        Rect::from_min_max(
+                            egui::pos2(area.min.x, board_rect.max.y),
+                            egui::pos2(area.max.x, pdf_rect.min.y),
+                        )
+                    };
+
+                    let divider_id = egui::Id::unique("split_view_divider");
+                    let divider_resp = ui.interact(
+                        divider_rect,
+                        divider_id,
+                        egui::Sense::click_and_drag(),
+                    );
+                    if self.preferences.split_horizontal {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                    } else {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                    }
+
+                    if divider_resp.dragged() {
+                        let delta = divider_resp.drag_delta();
+                        if self.preferences.split_horizontal && area.width() > 10.0 {
+                            let new_ratio = self.preferences.split_ratio + (delta.x / area.width());
+                            self.preferences.split_ratio = new_ratio.clamp(0.15, 0.85);
+                            self.save_prefs_pending = true;
+                        } else if !self.preferences.split_horizontal && area.height() > 10.0 {
+                            let new_ratio = self.preferences.split_ratio + (delta.y / area.height());
+                            self.preferences.split_ratio = new_ratio.clamp(0.15, 0.85);
+                            self.save_prefs_pending = true;
+                        }
+                    }
+
+                    // Divider visual line
+                    let stroke = if divider_resp.hovered() || divider_resp.dragged() {
+                        egui::Stroke::new(2.0, self.tokens.accent())
+                    } else {
+                        let nonint = ui.visuals().widgets.noninteractive.bg_stroke;
+                        egui::Stroke::new(nonint.width.max(1.0), nonint.color)
+                    };
+                    if self.preferences.split_horizontal {
+                        let mid_x = divider_rect.center().x;
+                        ui.painter().line_segment(
+                            [egui::pos2(mid_x, area.min.y), egui::pos2(mid_x, area.max.y)],
+                            stroke,
+                        );
+                    } else {
+                        let mid_y = divider_rect.center().y;
+                        ui.painter().line_segment(
+                            [egui::pos2(area.min.x, mid_y), egui::pos2(area.max.x, mid_y)],
+                            stroke,
+                        );
+                    }
+
+                    // Render board pane
+                    self.show_board_tab(ui, board_rect);
+
+                    // Render PDF pane
+                    let out = ui.scope_builder(
+                        egui::UiBuilder::new()
+                            .max_rect(pdf_rect)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                        |ui: &mut Ui| {
+                            egui::Frame::NONE
+                                .fill(ui.visuals().panel_fill)
+                                .inner_margin(egui::Margin::same(6))
+                                .show(ui, |ui: &mut Ui| {
+                                    ui.set_min_size(pdf_rect.size());
+                                    pdf_tab::show_pdf_tab(ui, &self.tokens, lang, &mut self.pdf_viewer)
+                                })
+                                .inner
+                        },
+                    ).inner;
+
+                    if out.open_requested {
+                        self.open_pdf_dialog();
+                    }
+                    if out.close_requested {
+                        self.pdf_viewer.close();
+                    }
+                    if let Some(occ) = out.clicked_token {
+                        self.apply_pdf_token(&occ.text, false);
+                        ui.ctx().request_repaint();
+                    }
+                    if let Some(token) = out.navigate_to_pcb {
+                        self.apply_pdf_token(&token, false);
                         ui.ctx().request_repaint();
                     }
                 } else {
