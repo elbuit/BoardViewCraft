@@ -388,6 +388,7 @@ pub struct MeasurementTool {
 }
 
 impl MeasurementTool {
+    #[allow(dead_code)]
     pub fn is_measuring(&self) -> bool {
         self.active && self.start.is_some() && self.end.is_none()
     }
@@ -401,6 +402,7 @@ impl MeasurementTool {
         self.end = None;
     }
 
+    #[allow(dead_code)]
     pub fn toggle(&mut self) {
         self.active = !self.active;
         if !self.active {
