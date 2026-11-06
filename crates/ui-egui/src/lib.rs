@@ -1054,8 +1054,9 @@ impl eframe::App for BoardViewApp {
                 self.pdf_viewer.probed_part = None;
             }
         }
-        // The PDF tab paints (and drives) the viewer; hidden, its text indexing keeps going.
-        if self.pdf_viewer.is_loaded() && self.tab != BoardTab::Pdf {
+        // The PDF tab paints (and drives) the viewer; when completely hidden (not in Pdf or Split),
+        // its text indexing keeps going in the background.
+        if self.pdf_viewer.is_loaded() && self.tab != BoardTab::Pdf && self.tab != BoardTab::Split {
             self.pdf_viewer.pump_background(ui.ctx());
         }
 
@@ -1175,10 +1176,12 @@ impl eframe::App for BoardViewApp {
                         divider_id,
                         egui::Sense::click_and_drag(),
                     );
-                    if self.preferences.split_horizontal {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                    } else {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                    if divider_resp.hovered() || divider_resp.dragged() {
+                        if self.preferences.split_horizontal {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                        } else {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+                        }
                     }
 
                     if divider_resp.dragged() {
