@@ -20,12 +20,21 @@
 	tabs.bottom	Inferior
 	tabs.both	Ambdues
 	tabs.pdf	Esquemàtic PDF
+	tabs.split	Dividit (Placa + PDF)
 	tabs.hover	Pestanyes de vista de la placa ({key} alterna Superior/Inferior)
 	layout.label	Disposició:
 	layout.auto	Auto
 	layout.vertical	Vertical (superior a dalt, inferior a baix)
 	layout.horizontal	Horitzontal (superior a l'esquerra, inferior a la dreta)
 	layout.hover	Disposició de les dues cares; Auto les apila quan la placa girada és més ampla que alta
+	split.layout_label	Divisió:
+	split.horizontal	Horitzontal (costat a costat)
+	split.vertical	Vertical (apilat)
+	split.reset_ratio	50/50
+	split.side_label	Placa:
+	split.side_top	Superior
+	split.side_bottom	Inferior
+	split.side_both	Ambdues
 	toolbar.pins	Pins
 	toolbar.vias	Vies
 	toolbar.load_photo	Carregar Foto Superposada...

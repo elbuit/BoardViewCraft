@@ -23,6 +23,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_split_ratio() -> f32 {
+    0.5
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ViaDisplayMode {
     #[default]
@@ -82,12 +86,18 @@ pub struct Preferences {
     /// Each board's schematic PDF, most recently used first (at most `MAX_BOARD_SCHEMATICS`).
     #[serde(default)]
     pub board_schematics: Vec<BoardSchematic>,
-    /// Central-area tab shown last (Top, Bottom, Both or PDF).
+    /// Central-area tab shown last (Top, Bottom, Both, PDF or Split).
     #[serde(default)]
     pub board_tab: BoardTab,
     /// Arrangement of the two sides in the Both tab.
     #[serde(default)]
     pub both_layout: BothLayout,
+    /// Split view orientation: true for horizontal (board left, PDF right), false for vertical.
+    #[serde(default = "default_true")]
+    pub split_horizontal: bool,
+    /// Split view ratio for board pane (between 0.15 and 0.85).
+    #[serde(default = "default_split_ratio")]
+    pub split_ratio: f32,
     /// Keyboard shortcuts; missing or invalid entries fall back to the default keys.
     #[serde(default)]
     pub keymap: Keymap,
@@ -114,6 +124,8 @@ impl Default for Preferences {
             board_schematics: Vec::new(),
             board_tab: BoardTab::Top,
             both_layout: BothLayout::Auto,
+            split_horizontal: true,
+            split_ratio: 0.5,
             keymap: Keymap::default(),
         }
     }
@@ -778,6 +790,8 @@ mod tests {
             }],
             board_tab: BoardTab::Pdf,
             both_layout: BothLayout::Vertical,
+            split_horizontal: false,
+            split_ratio: 0.6,
             keymap: Keymap::default(),
         };
 

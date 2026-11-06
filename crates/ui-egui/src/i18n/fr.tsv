@@ -20,12 +20,21 @@
 	tabs.bottom	Dessous
 	tabs.both	Les deux
 	tabs.pdf	Schéma PDF
+	tabs.split	Divisé (Circuit + PDF)
 	tabs.hover	Onglets de vue de la carte ({key} bascule Dessus/Dessous)
 	layout.label	Disposition :
 	layout.auto	Auto
 	layout.vertical	Verticale (dessus en haut, dessous en bas)
 	layout.horizontal	Horizontale (dessus à gauche, dessous à droite)
 	layout.hover	Disposition des deux faces ; Auto les empile quand la carte pivotée est plus large que haute
+	split.layout_label	Division :
+	split.horizontal	Horizontale (côte à côte)
+	split.vertical	Verticale (superposée)
+	split.reset_ratio	50/50
+	split.side_label	Carte :
+	split.side_top	Dessus
+	split.side_bottom	Dessous
+	split.side_both	Les deux
 	toolbar.pins	Broches
 	toolbar.vias	Vias
 	toolbar.load_photo	Charger une photo superposée...
