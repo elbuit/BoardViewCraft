@@ -171,7 +171,7 @@ jobs:
           usesh: true
           sync: sshfs
           prepare: |
-            pkg install -y rust cargo pkgconf libX11 libXcursor libXrandr libXi libXinerama wayland libxkbcommon
+            pkg install -y rust pkgconf libX11 libXcursor libXrandr libXi libXinerama wayland libxkbcommon
           run: |
             chmod +x packaging/freebsd/package.sh
             packaging/freebsd/package.sh
