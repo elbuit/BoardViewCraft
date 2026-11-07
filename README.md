@@ -4,41 +4,42 @@
 
 > High-performance, modern, pure Rust viewer for hardware repair and PCB inspection.
 
-BoardViewCraft is an open-source boardview inspection application built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It is designed to provide fluid navigation, clear part and pad rendering, and intuitive diagnostics for dense multi-layer PCB designs, with the board schematic PDF one tab away.
+BoardViewCraft is an open-source boardview and schematic inspection workbench built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It provides ultra-fast navigation, clear component rendering, real pad geometries, camera overlay photo alignment, and native dual-pane split inspection with PDF and vector CAD schematics.
 
-![BoardViewCraft Both tab: top and bottom sides of a graphics card stacked, with the 1V8 net selected and its flight lines and pin list](docs/screenshots/board-tabs-both-net.png)
+![BoardViewCraft: Split view with board layout on the left, PDF schematic on the right with page scrubber, and side panel](docs/screenshots/boardviewcraft-v020.png)
 
 ---
 
 ## Features
 
-- **Fast Canvas**: Parallel spatial grid queries (`Rayon`) and tessellated meshes (`Lyon`). Cached meshes are re-mapped while zooming and panning, so navigation stays smooth even on boards with tens of thousands of pins and vias.
-- **Readable Board Rendering**: Filled part bodies, component outlines, and real pad shapes (round, rectangular, rotated) read from GenCAD `$PADS` data, so connectors such as PCIe edge fingers look like the physical board.
-- **Board Tabs**: **Top**, **Bottom**, **Both** and **PDF** tabs. **Both** shows the top and bottom sides as two separate views, stacked or side by side (**Auto** picks stacked for boards wider than tall and side by side otherwise). Only the active tab is drawn, and each side keeps its own cached meshes, so switching tabs is instant.
+- **Fast Canvas**: Parallel spatial grid queries (`Rayon`) and hardware-accelerated tessellation (`Lyon`). Cached geometry meshes are re-mapped during pan/zoom for 60+ FPS navigation on dense PCBs with tens of thousands of pins and vias.
+- **Flexible Layouts & Dual-Pane Split View**:
+  - **Single Pane**, **Split Vertical** (side by side), or **Split Horizontal** (stacked).
+  - Any pane can display **Top**, **Bottom**, **Both** (top and bottom with synchronized or independent view), **PDF Schematic**, or **CAD Schematic**.
+  - Interactive resizable divider with reset shortcut.
+- **Readable Board Rendering**: Filled part bodies, component outlines, pin names, and physical pad geometries (round, rectangular, rotated) read from GenCAD `$PADS` and CAD records.
 - **Bijective Coordinates**: Pan, zoom, flip (TOP/BOTTOM), rotate (90° / 180°), and horizontal/vertical mirror with consistent coordinate mapping.
-- **Component Search**: Search parts and nets from the side panel. Picking a result selects only that part and centers it on the board.
+- **Advanced Search**:
+  - Filter parts and nets with full wildcard matching (`*`, `?`), prefix chips (`U`, `R`, `C`, `Q`, `D`, `L`, `F`, `J`), comma-separated OR queries, and side filters (Top, Bottom, All).
 - **Schematic PDF Viewer**:
-  - Tiled rendering of zoomed pages, background text indexing, and page previews for instant jumps.
-  - Shown in its own **PDF** tab; text keeps being indexed while another tab is active.
-  - Text search box inside the PDF tab (`Enter` jumps to the next hit).
-  - Cross-probing: selecting a part on the board finds it in the schematic, and clicking a part in the PDF selects it on the board. Exact designators win: `C212` never lists `BC212` or `MC212` while an exact `C212` exists.
-  - Each board remembers its own schematic PDF; opening another board closes the current PDF and restores the one associated with the new board.
-- **Net Flight Lines**:
-  - **Radial Mode**: Direct flight lines radiating from the selected pin/via.
-  - **Web Mode**: Minimum Spanning Tree (MST) linking all nodes on the active net.
-  - Invisible when nothing is selected to prevent visual clutter.
-- **Visual Pin Net Identification**:
-  - Selected pins are rendered as an outline circle with the connected net name (e.g. `GND`, `+12V_GPU`) centered inside in high contrast.
-  - Opposite-side pins of the selected net rendered in hollow outline X-Ray mode.
-- **Overlay Photos**: Align a photo of the real board under each side and adjust it from the Actions menu. The photo stays opaque and the **Board opacity** slider fades the board drawn over it, so pins can be lined up with the photo.
-- **Focused Side Panel**: Shows only the active tool (part details, net details, search, or photo adjustment).
+  - Tiled multi-threaded rendering of zoomed pages, background text indexing, and vertical scrubber slider with preview badge for instant page jumping.
+  - Bidirectional cross-probing: clicking a part or net on the board navigates to the schematic, and clicking references in the PDF navigates and centers the PCB.
+  - Wheel scrolling for clean page turning and `Ctrl + Wheel` / pinch for precision zooming.
+- **Vector CAD Schematics**:
+  - Native vector parsing and rendering for KiCad (`.kicad_sch`) and Eagle (`.sch`) files.
+  - Sheet switching, symbol graphics, net label inspection, and cross-probing.
+- **Technician Notes & Measurements**:
+  - Attach structured inspection notes and physical test readings (voltage, resistance, diode drop) to individual components or specific pins.
+  - Visual `📝` badges in virtualized pin lists for quick test point identification.
+  - Export full service inspection reports and complete Bill of Materials (BOM) in TSV.
+- **Camera Overlays**:
+  - Load real PCB inspection photos over Top and Bottom views.
+  - Interactive multi-point pin alignment with opacity blending.
 - **Independent Theming**:
-  - **Application UI**: Light and Dark modes.
-  - **PCB Themes**: Light, Dark, Warm, Sweet Cold, Cadcraft, and a fully customizable **Custom** theme with editable color tokens and custom name persistence.
-- **Multilingual Support**: English, Spanish, Catalan, French, German, and Italian. **Auto** (the default) follows the system language.
-- **Board Formats**: GenCAD (`.cad`), TVW, KiCad, BRD/BRD2, BDV, ASC, CPD, FZ, and XZZ boards.
-
-![Part details on a single board side, with filled part bodies and pads](docs/screenshots/board-view-gpu-card.png)
+  - Application UI (Light/Dark) and PCB themes (Light, Dark, Warm, Sweet Cold, Cadcraft, and Custom with customizable color tokens).
+- **Extensive Format Support**:
+  - GenCAD (`.cad`), TVW, KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2), ODB++, IPC-2581, and IPC-D-356.
+- **Multilingual Support**: English, Spanish, Catalan, French, German, and Italian.
 
 ---
 
