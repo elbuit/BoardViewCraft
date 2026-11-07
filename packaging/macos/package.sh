@@ -23,8 +23,8 @@ done
 
 case "$ARCH" in
   universal) TARGETS=(aarch64-apple-darwin x86_64-apple-darwin) ;;
-  aarch64) TARGETS=(aarch64-apple-darwin) ;;
-  x86_64) TARGETS=(x86_64-apple-darwin) ;;
+  aarch64 | arm64) TARGETS=(aarch64-apple-darwin); ARCH=arm64 ;;
+  x86_64 | x64) TARGETS=(x86_64-apple-darwin); ARCH=x86_64 ;;
   *) echo "unknown --arch $ARCH" >&2; exit 2 ;;
 esac
 
