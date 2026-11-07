@@ -20,6 +20,9 @@
 	tabs.bottom	Bottom
 	tabs.both	Both
 	tabs.pdf	Schematic PDF
+	tabs.cad_schematic	CAD Schematic
+	schematic.open_cad	Open CAD Schematic...
+	schematic.show_cad	Show CAD Schematic
 	tabs.split	Split (Board + PDF)
 	tabs.hover	Board view tabs ({key} switches Top/Bottom)
 	layout.label	Layout:
@@ -27,14 +30,26 @@
 	layout.vertical	Vertical (top above bottom)
 	layout.horizontal	Horizontal (top left, bottom right)
 	layout.hover	Arrangement of the two sides; Auto stacks them when the rotated board is wider than tall
-	split.layout_label	Split:
-	split.horizontal	Horizontal (side by side)
-	split.vertical	Vertical (stacked)
+	split.layout_label	Layout:
+	split.horizontal	Split Horizontal
+	split.vertical	Split Vertical
 	split.reset_ratio	50/50
 	split.side_label	Board:
 	split.side_top	Top
 	split.side_bottom	Bottom
 	split.side_both	Both
+	view.divisions	Layout:
+	view.one_pane	Single Pane
+	view.two_panes	Split
+	view.split_vertical	Split Vertical
+	view.split_horizontal	Split Horizontal
+	view.pane_left	Left:
+	view.pane_right	Right:
+	view.pane_top	Top:
+	view.pane_bottom	Bottom:
+	view.pane_content	View:
+	view.lock_zoom	🔒 Lock Zoom
+	view.lock_zoom_hover	Synchronize zoom between PCB sides
 	toolbar.pins	Pins
 	toolbar.vias	Vias
 	toolbar.load_photo	Load Overlay Photo...
@@ -54,6 +69,10 @@
 	side_panel.pins_on_net	Pins on Net:
 	side_panel.vias_on_net	Vias on Net:
 	side_panel.search_parts	Search Parts:
+	side_panel.search_parts_side	Side:
+	side_panel.search_side_all	All
+	side_panel.search_side_top	Top
+	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Search Nets:
 	side_panel.search_parts_hint	Type part name (e.g. U1, R*, *12)...
 	side_panel.search_nets_hint	Type net name (e.g. *VCC*, GND, PP3V3*)...

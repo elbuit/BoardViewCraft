@@ -20,6 +20,9 @@
 	tabs.bottom	Inferiore
 	tabs.both	Entrambi
 	tabs.pdf	Schema PDF
+	tabs.cad_schematic	Schema CAD
+	schematic.open_cad	Apri schema CAD...
+	schematic.show_cad	Mostra schema CAD
 	tabs.split	Diviso (Circuito + PDF)
 	tabs.hover	Schede di vista della scheda ({key} alterna Superiore/Inferiore)
 	layout.label	Disposizione:
@@ -27,14 +30,26 @@
 	layout.vertical	Verticale (superiore sopra, inferiore sotto)
 	layout.horizontal	Orizzontale (superiore a sinistra, inferiore a destra)
 	layout.hover	Disposizione dei due lati; Auto li impila quando la scheda ruotata è più larga che alta
-	split.layout_label	Divisione:
-	split.horizontal	Orizzontale (fianco a fianco)
-	split.vertical	Verticale (sovrapposto)
+	split.layout_label	Disposizione:
+	split.horizontal	Dividi orizzontalmente
+	split.vertical	Dividi verticalmente
 	split.reset_ratio	50/50
 	split.side_label	Circuito:
 	split.side_top	Superiore
 	split.side_bottom	Inferiore
 	split.side_both	Entrambi
+	view.divisions	Disposizione:
+	view.one_pane	Pannello singolo
+	view.two_panes	Diviso
+	view.split_vertical	Dividi verticalmente
+	view.split_horizontal	Dividi orizzontalmente
+	view.pane_left	Sinistra:
+	view.pane_right	Destra:
+	view.pane_top	In alto:
+	view.pane_bottom	In basso:
+	view.pane_content	Vista:
+	view.lock_zoom	🔒 Blocca Zoom
+	view.lock_zoom_hover	Sincronizza lo zoom tra i lati del circuito
 	toolbar.pins	Pin
 	toolbar.vias	Via
 	toolbar.load_photo	Carica foto sovrapposta...
@@ -54,6 +69,10 @@
 	side_panel.pins_on_net	Pin sulla rete:
 	side_panel.vias_on_net	Via sulla rete:
 	side_panel.search_parts	Cerca componenti:
+	side_panel.search_parts_side	Lato:
+	side_panel.search_side_all	Tutti
+	side_panel.search_side_top	Top
+	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Cerca reti:
 	side_panel.search_parts_hint	Digita componente (es. U1, R*, *12)...
 	side_panel.search_nets_hint	Digita rete (es. *VCC*, GND, PP3V3*)...

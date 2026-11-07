@@ -576,6 +576,13 @@ impl BoardCanvases {
         self.set_rotation(self.rotation().rotate_180());
     }
 
+    /// Scales the other canvas by the same factor when zoom locking is active.
+    pub fn sync_zoom(&mut self, source_side: Side, zoom_factor: f32) {
+        let other_side = if source_side == Side::Top { Side::Bottom } else { Side::Top };
+        let other_vp = &mut self.side_mut(other_side).viewport;
+        other_vp.scale = (other_vp.scale * zoom_factor).clamp(0.001, 100.0);
+    }
+
     pub fn toggle_mirror_x(&mut self) {
         let mirror = !self.mirror_x();
         for state in self.each_mut() {
@@ -690,6 +697,7 @@ pub fn show_canvas(
     selected_net: &mut Option<String>,
     renderer: &mut Renderer,
     prefs: &Preferences,
+    zoom_delta: &mut Option<(Side, f32)>,
 ) -> Response {
     // A stable id per side keeps drag state across frames whatever else is laid out around it.
     let canvas_id = egui::Id::unique(("board_canvas", canvas_state.viewport.side));
@@ -886,11 +894,15 @@ pub fn show_canvas(
         }
 
         if plus {
-            vp.scale = (vp.scale * 1.25).clamp(0.001, 100.0);
+            let factor = 1.25;
+            vp.scale = (vp.scale * factor).clamp(0.001, 100.0);
+            *zoom_delta = Some((vp.side, factor));
             ui.ctx().request_repaint();
         }
         if minus {
-            vp.scale = (vp.scale / 1.25).clamp(0.001, 100.0);
+            let factor = 1.0 / 1.25;
+            vp.scale = (vp.scale * factor).clamp(0.001, 100.0);
+            *zoom_delta = Some((vp.side, factor));
             ui.ctx().request_repaint();
         }
     }
@@ -901,7 +913,9 @@ pub fn show_canvas(
         if let Some(hover_pos) = response.hover_pos() {
             let mouse_world_before = vp.screen_to_world(hover_pos, rect);
             let line_points = ui.ctx().options(|o| o.input_options.line_scroll_speed);
-            vp.scale = (vp.scale * wheel_zoom_factor(scroll_y, line_points)).clamp(0.001, 100.0);
+            let factor = wheel_zoom_factor(scroll_y, line_points);
+            vp.scale = (vp.scale * factor).clamp(0.001, 100.0);
+            *zoom_delta = Some((vp.side, factor));
             let mouse_world_after = vp.screen_to_world(hover_pos, rect);
 
             vp.center.x += mouse_world_before.x - mouse_world_after.x;

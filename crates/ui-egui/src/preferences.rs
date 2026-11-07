@@ -1,9 +1,10 @@
 //! User preferences and settings dialog.
 
-use crate::board_tabs::{BoardTab, BothLayout};
+use crate::board_tabs::{BoardTab, BothLayout, PaneContent};
 use crate::i18n::{self, Language, LanguagePref};
 use crate::keymap::{Action, CaptureOutcome, Keymap};
 use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
+use bvc_core::Side;
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,6 +26,18 @@ fn default_true() -> bool {
 
 fn default_split_ratio() -> f32 {
     0.5
+}
+
+fn default_divisions() -> u8 {
+    1
+}
+
+fn default_pane_first() -> PaneContent {
+    PaneContent::Top
+}
+
+fn default_pane_second() -> PaneContent {
+    PaneContent::Pdf
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -98,6 +111,21 @@ pub struct Preferences {
     /// Split view ratio for board pane (between 0.15 and 0.85).
     #[serde(default = "default_split_ratio")]
     pub split_ratio: f32,
+    /// Side of the PCB shown in the split view (Top or Bottom).
+    #[serde(default)]
+    pub split_side: Side,
+    /// Number of divisions in the central view: 1 or 2.
+    #[serde(default = "default_divisions")]
+    pub view_divisions: u8,
+    /// Content of the first division pane (left or top).
+    #[serde(default = "default_pane_first")]
+    pub pane_first: PaneContent,
+    /// Content of the second division pane (right or bottom).
+    #[serde(default = "default_pane_second")]
+    pub pane_second: PaneContent,
+    /// Whether zoom between PCB canvases (Top/Bottom) is locked/synchronized.
+    #[serde(default)]
+    pub lock_zoom: bool,
     /// Keyboard shortcuts; missing or invalid entries fall back to the default keys.
     #[serde(default)]
     pub keymap: Keymap,
@@ -126,6 +154,11 @@ impl Default for Preferences {
             both_layout: BothLayout::Auto,
             split_horizontal: true,
             split_ratio: 0.5,
+            split_side: Side::Top,
+            view_divisions: 1,
+            pane_first: PaneContent::Top,
+            pane_second: PaneContent::Pdf,
+            lock_zoom: false,
             keymap: Keymap::default(),
         }
     }
@@ -792,6 +825,11 @@ mod tests {
             both_layout: BothLayout::Vertical,
             split_horizontal: false,
             split_ratio: 0.6,
+            split_side: Side::Bottom,
+            view_divisions: 2,
+            pane_first: PaneContent::Both,
+            pane_second: PaneContent::Pdf,
+            lock_zoom: true,
             keymap: Keymap::default(),
         };
 
@@ -914,12 +952,28 @@ mod tests {
         let object = value.as_object_mut().unwrap();
         object.remove("board_tab");
         object.remove("both_layout");
+        object.remove("split_side");
+        object.remove("view_divisions");
+        object.remove("pane_first");
+        object.remove("pane_second");
+        object.remove("lock_zoom");
         let prefs: Preferences = serde_json::from_value(value).expect("old preferences still load");
-        assert_eq!((prefs.board_tab, prefs.both_layout), (BoardTab::Top, BothLayout::Auto));
+        assert_eq!((prefs.board_tab, prefs.both_layout, prefs.split_side), (BoardTab::Top, BothLayout::Auto, Side::Top));
+        assert_eq!((prefs.view_divisions, prefs.pane_first, prefs.pane_second, prefs.lock_zoom), (1, PaneContent::Top, PaneContent::Pdf, false));
 
-        let saved = Preferences { board_tab: BoardTab::Both, both_layout: BothLayout::Horizontal, ..Preferences::default() };
+        let saved = Preferences {
+            board_tab: BoardTab::Both,
+            both_layout: BothLayout::Horizontal,
+            split_side: Side::Bottom,
+            view_divisions: 2,
+            pane_first: PaneContent::Both,
+            pane_second: PaneContent::Bottom,
+            lock_zoom: true,
+            ..Preferences::default()
+        };
         let loaded: Preferences = serde_json::from_str(&serde_json::to_string(&saved).unwrap()).unwrap();
-        assert_eq!((loaded.board_tab, loaded.both_layout), (BoardTab::Both, BothLayout::Horizontal));
+        assert_eq!((loaded.board_tab, loaded.both_layout, loaded.split_side), (BoardTab::Both, BothLayout::Horizontal, Side::Bottom));
+        assert_eq!((loaded.view_divisions, loaded.pane_first, loaded.pane_second, loaded.lock_zoom), (2, PaneContent::Both, PaneContent::Bottom, true));
     }
 
     #[test]

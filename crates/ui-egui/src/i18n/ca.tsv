@@ -20,6 +20,9 @@
 	tabs.bottom	Inferior
 	tabs.both	Ambdues
 	tabs.pdf	Esquemàtic PDF
+	tabs.cad_schematic	Esquemàtic CAD
+	schematic.open_cad	Obrir Esquemàtic CAD...
+	schematic.show_cad	Mostrar Esquemàtic CAD
 	tabs.split	Dividit (Placa + PDF)
 	tabs.hover	Pestanyes de vista de la placa ({key} alterna Superior/Inferior)
 	layout.label	Disposició:
@@ -27,14 +30,26 @@
 	layout.vertical	Vertical (superior a dalt, inferior a baix)
 	layout.horizontal	Horitzontal (superior a l'esquerra, inferior a la dreta)
 	layout.hover	Disposició de les dues cares; Auto les apila quan la placa girada és més ampla que alta
-	split.layout_label	Divisió:
-	split.horizontal	Horitzontal (costat a costat)
-	split.vertical	Vertical (apilat)
+	split.layout_label	Disposició:
+	split.horizontal	Dividir horitzontal
+	split.vertical	Dividir vertical
 	split.reset_ratio	50/50
 	split.side_label	Placa:
 	split.side_top	Superior
 	split.side_bottom	Inferior
 	split.side_both	Ambdues
+	view.divisions	Disposició:
+	view.one_pane	Panell únic
+	view.two_panes	Dividit
+	view.split_vertical	Dividir vertical
+	view.split_horizontal	Dividir horitzontal
+	view.pane_left	Esquerra:
+	view.pane_right	Dreta:
+	view.pane_top	A dalt:
+	view.pane_bottom	A baix:
+	view.pane_content	Vista:
+	view.lock_zoom	🔒 Bloquejar Zoom
+	view.lock_zoom_hover	Sincronitzar zoom entre cares de la PCB
 	toolbar.pins	Pins
 	toolbar.vias	Vies
 	toolbar.load_photo	Carregar Foto Superposada...
@@ -54,6 +69,10 @@
 	side_panel.pins_on_net	Pins a la Xarxa:
 	side_panel.vias_on_net	Vies a la Xarxa:
 	side_panel.search_parts	Cercar Components:
+	side_panel.search_parts_side	Cara:
+	side_panel.search_side_all	Totes
+	side_panel.search_side_top	Top
+	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Cercar Xarxes:
 	side_panel.search_parts_hint	Escriure component (ex. U1, R*, *12)...
 	side_panel.search_nets_hint	Escriure xarxa (ex. *VCC*, GND, PP3V3*)...

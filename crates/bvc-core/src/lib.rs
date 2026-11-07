@@ -6,6 +6,7 @@ pub mod board;
 pub mod model;
 pub mod notes;
 pub mod parser;
+pub mod schematic;
 pub mod spatial;
 
 pub use board::Board;

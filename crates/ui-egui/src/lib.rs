@@ -10,12 +10,14 @@ mod overlay;
 pub mod overlay_align;
 pub mod pdf;
 mod pdf_tab;
+pub mod schematic_viewer;
+mod cad_schematic_tab;
 mod preferences;
 mod render;
 mod side_panel;
 mod theme;
 
-use board_tabs::{BoardTab, BothLayout};
+use board_tabs::{BoardTab, BothLayout, PaneContent};
 use bvc_core::{Board, ParserRegistry, Point, Side};
 use canvas::{BoardCanvases, show_canvas};
 use file_filter::AddFilterAnyCase;
@@ -31,28 +33,30 @@ use egui::{CentralPanel, Panel, Rect, RichText, Ui};
 use std::sync::Arc;
 
 
-/// Searches for a co-located PDF schematic file matching the given boardview file path.
-/// Checks `<stem>.pdf`, `<stem>.PDF`, and falls back to a case-insensitive directory scan.
-pub fn find_matching_schematic_pdf(board_path: &std::path::Path) -> Option<std::path::PathBuf> {
+/// Searches for a co-located schematic file (CAD vector .kicad_sch, .sch, or PDF) matching the given boardview file path.
+pub fn find_matching_schematic(board_path: &std::path::Path) -> Option<std::path::PathBuf> {
     let parent = board_path.parent()?;
     let stem = board_path.file_stem()?.to_str()?;
 
-    // 1. Direct candidate checks
-    for ext in &["pdf", "PDF"] {
+    // 1. Direct candidate checks (prefer vector CAD over PDF)
+    for ext in &["kicad_sch", "sch", "pdf", "PDF"] {
         let candidate = parent.join(format!("{stem}.{ext}"));
         if candidate.is_file() {
             return Some(candidate);
         }
     }
 
-    // 2. Directory scan fallback (case-insensitive for mixed extensions on Linux)
+    // 2. Directory scan fallback (case-insensitive)
     if let Ok(entries) = std::fs::read_dir(parent) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
                 if let (Some(entry_stem), Some(entry_ext)) = (path.file_stem(), path.extension()) {
+                    let ext_str = entry_ext.to_string_lossy();
                     if entry_stem.to_string_lossy().eq_ignore_ascii_case(stem)
-                        && entry_ext.to_string_lossy().eq_ignore_ascii_case("pdf")
+                        && (ext_str.eq_ignore_ascii_case("kicad_sch")
+                            || ext_str.eq_ignore_ascii_case("sch")
+                            || ext_str.eq_ignore_ascii_case("pdf"))
                     {
                         return Some(path);
                     }
@@ -62,6 +66,11 @@ pub fn find_matching_schematic_pdf(board_path: &std::path::Path) -> Option<std::
     }
 
     None
+}
+
+/// Backward compatibility alias for PDF search.
+pub fn find_matching_schematic_pdf(board_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    find_matching_schematic(board_path)
 }
 
 /// The schematic PDF remembered for `board_path`, when that file still exists.
@@ -106,6 +115,9 @@ pub struct BoardViewApp {
     pdf_viewer: pdf::PdfSchematicViewer,
     pending_schematic_prompt: Option<std::path::PathBuf>,
 
+    // CAD Schematic integration
+    cad_schematic_viewer: schematic_viewer::CadSchematicViewer,
+
     // Technician notes and reference measurements
     notes_store: bvc_core::BoardNotesStore,
 }
@@ -137,6 +149,7 @@ impl Default for BoardViewApp {
             board_path: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
             pending_schematic_prompt: None,
+            cad_schematic_viewer: schematic_viewer::CadSchematicViewer::default(),
             notes_store: bvc_core::BoardNotesStore::default(),
         }
     }
@@ -243,9 +256,22 @@ impl BoardViewApp {
         }
     }
 
-    /// Opens a schematic PDF and, when a board file is loaded, remembers it as that board's
-    /// schematic. Returns whether the PDF was opened.
+    /// Opens a schematic file (.kicad_sch, .sch, or .pdf) and, when a board file is loaded,
+    /// remembers it as that board's schematic. Returns whether it was opened.
     pub fn open_schematic(&mut self, path: &std::path::Path) -> bool {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if ext == "kicad_sch" || ext == "sch" {
+            if let Err(err) = self.cad_schematic_viewer.open_file(path) {
+                self.status_msg = format!("Failed to open CAD schematic: {err}");
+                return false;
+            }
+            self.status_msg = format!("Opened CAD schematic: {}", path.display());
+            if self.remember_schematic(path) {
+                let _ = self.preferences.save_atomic();
+            }
+            return true;
+        }
+
         if let Err(err) = self.pdf_viewer.open_file(path) {
             self.status_msg = format!("Failed to open schematic PDF: {err}");
             return false;
@@ -372,10 +398,10 @@ impl BoardViewApp {
         }
     }
 
-    /// Asks for a schematic PDF and opens it in the PDF tab. Returns whether one was opened.
+    /// Asks for a schematic file (PDF or vector CAD) and opens it in the schematic tab.
     pub fn open_pdf_dialog(&mut self) -> bool {
         let Some(path) = rfd::FileDialog::new()
-            .add_filter_any_case("PDF Schematics (*.pdf)", &["pdf"])
+            .add_filter_any_case("Schematics (*.kicad_sch, *.sch, *.pdf)", &["kicad_sch", "sch", "pdf"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         else {
@@ -383,16 +409,140 @@ impl BoardViewApp {
         };
         let opened = self.open_schematic(&path);
         if opened {
-            self.set_tab(BoardTab::Pdf);
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            if ext == "kicad_sch" || ext == "sch" {
+                if self.preferences.view_divisions == 1 {
+                    self.preferences.pane_first = PaneContent::CadSchematic;
+                } else {
+                    self.preferences.pane_second = PaneContent::CadSchematic;
+                }
+            } else {
+                self.set_tab(BoardTab::Pdf);
+            }
         }
         opened
     }
 
-    /// Shows `tab`, keeps the active canvas among the visible ones and remembers the tab.
+    /// Asks for a vector CAD schematic file (.kicad_sch, .sch) and opens it.
+    pub fn open_cad_schematic_dialog(&mut self) -> bool {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter_any_case("CAD Schematics (*.kicad_sch, *.sch)", &["kicad_sch", "sch"])
+            .add_filter("All files (*.*)", &["*"])
+            .pick_file()
+        else {
+            return false;
+        };
+        let opened = self.open_schematic(&path);
+        if opened {
+            if self.preferences.view_divisions == 1 {
+                self.preferences.pane_first = PaneContent::CadSchematic;
+            } else {
+                self.preferences.pane_second = PaneContent::CadSchematic;
+            }
+            self.save_prefs_pending = true;
+        }
+        opened
+    }
+
+    /// Normalizes the tab enum and divisions/panes.
+    /// Returns the sides visible for the current configuration.
+    fn tab_sides(&self) -> Vec<Side> {
+        if self.preferences.view_divisions == 2 {
+            let mut s = Vec::new();
+            for side in self.preferences.pane_first.sides() {
+                if !s.contains(side) { s.push(*side); }
+            }
+            for side in self.preferences.pane_second.sides() {
+                if !s.contains(side) { s.push(*side); }
+            }
+            s
+        } else {
+            self.preferences.pane_first.sides().to_vec()
+        }
+    }
+
+    /// Normalized PCB side shown in Split tab (either Top or Bottom).
+    fn split_side(&self) -> Side {
+        if self.preferences.split_side == Side::Bottom {
+            Side::Bottom
+        } else {
+            Side::Top
+        }
+    }
+
+    /// Sets the side shown in Split view.
+    fn set_split_side(&mut self, side: Side) {
+        let normalized = if side == Side::Bottom { Side::Bottom } else { Side::Top };
+        if self.preferences.split_side != normalized {
+            self.preferences.split_side = normalized;
+            self.save_prefs_pending = true;
+        }
+        if self.preferences.view_divisions == 2 {
+            let target_content = if normalized == Side::Bottom { PaneContent::Bottom } else { PaneContent::Top };
+            if self.preferences.pane_first != PaneContent::Pdf {
+                self.preferences.pane_first = target_content;
+            } else if self.preferences.pane_second != PaneContent::Pdf {
+                self.preferences.pane_second = target_content;
+            }
+        }
+        if self.tab == BoardTab::Split {
+            self.canvases.active = normalized;
+        }
+    }
+
+    /// Synchronizes legacy `tab` enum with `view_divisions` and panes.
+    fn sync_tab_from_panes(&mut self) {
+        if self.preferences.view_divisions == 2 {
+            self.tab = BoardTab::Split;
+        } else {
+            match self.preferences.pane_first {
+                PaneContent::Top => self.tab = BoardTab::Top,
+                PaneContent::Bottom => self.tab = BoardTab::Bottom,
+                PaneContent::Both => self.tab = BoardTab::Both,
+                PaneContent::Pdf | PaneContent::CadSchematic => self.tab = BoardTab::Pdf,
+            }
+        }
+        self.preferences.board_tab = self.tab;
+        let visible_sides = self.tab_sides();
+        if let Some(&first) = visible_sides.first()
+            && !visible_sides.contains(&self.canvases.active)
+        {
+            self.canvases.active = first;
+        }
+    }
+
+    /// Sets the tab and updates the pane contents accordingly.
     fn set_tab(&mut self, tab: BoardTab) {
         self.tab = tab;
-        if let Some(&first) = tab.sides().first()
-            && !tab.sides().contains(&self.canvases.active)
+        match tab {
+            BoardTab::Top => {
+                self.preferences.view_divisions = 1;
+                self.preferences.pane_first = PaneContent::Top;
+            }
+            BoardTab::Bottom => {
+                self.preferences.view_divisions = 1;
+                self.preferences.pane_first = PaneContent::Bottom;
+            }
+            BoardTab::Both => {
+                self.preferences.view_divisions = 1;
+                self.preferences.pane_first = PaneContent::Both;
+            }
+            BoardTab::Pdf => {
+                self.preferences.view_divisions = 1;
+                self.preferences.pane_first = PaneContent::Pdf;
+            }
+            BoardTab::Split => {
+                self.preferences.view_divisions = 2;
+                // If neither pane was PDF, ensure one pane is PCB and one is PDF
+                if self.preferences.pane_first != PaneContent::Pdf && self.preferences.pane_second != PaneContent::Pdf {
+                    self.preferences.pane_first = if self.split_side() == Side::Bottom { PaneContent::Bottom } else { PaneContent::Top };
+                    self.preferences.pane_second = PaneContent::Pdf;
+                }
+            }
+        }
+        let visible_sides = self.tab_sides();
+        if let Some(&first) = visible_sides.first()
+            && !visible_sides.contains(&self.canvases.active)
         {
             self.canvases.active = first;
         }
@@ -405,7 +555,9 @@ impl BoardViewApp {
     /// Makes the canvas of `side` visible (switching to its tab when needed) and active, for
     /// the overlay photo tools of that side.
     fn show_board_side(&mut self, side: Side) {
-        if !self.tab.sides().contains(&side) {
+        if self.tab == BoardTab::Split {
+            self.set_split_side(side);
+        } else if !self.tab.sides().contains(&side) {
             self.set_tab(BoardTab::for_side(side));
         }
         self.canvases.active = side;
@@ -445,15 +597,29 @@ impl BoardViewApp {
 
     /// Centers the board view on `center`, an item visible on `item_side`: the shown canvases
     /// that can show it are centered. When none can, the canvases of the item's side are
-    /// centered, and with `switch_side` a Top or Bottom tab switches to that side first (the
-    /// PDF tab stays where it is).
+    /// centered, and with `switch_side` a Top, Bottom or Split tab switches to that side first
+    /// (the PDF tab stays where it is).
     fn focus_point(&mut self, center: Point, item_side: Side, switch_side: bool) {
-        let mut targets: Vec<Side> = self.tab.sides().iter().copied().filter(|&s| item_side.visible_on(s)).collect();
+        let mut targets: Vec<Side> = self.tab_sides().iter().copied().filter(|&s| item_side.visible_on(s)).collect();
         if targets.is_empty() {
             targets = [Side::Top, Side::Bottom].into_iter().filter(|&s| item_side.visible_on(s)).collect();
             let single_side_tab = matches!(self.tab, BoardTab::Top | BoardTab::Bottom);
             if switch_side && single_side_tab && let Some(&side) = targets.first() {
                 self.set_tab(BoardTab::for_side(side));
+                targets.truncate(1);
+            } else if switch_side && self.preferences.view_divisions == 2 && let Some(&side) = targets.first() {
+                self.set_split_side(side);
+                let target_content = if side == Side::Bottom { PaneContent::Bottom } else { PaneContent::Top };
+                let p1_has = self.preferences.pane_first == target_content || self.preferences.pane_first == PaneContent::Both;
+                let p2_has = self.preferences.pane_second == target_content || self.preferences.pane_second == PaneContent::Both;
+                if !p1_has && !p2_has {
+                    if self.preferences.pane_first != PaneContent::Pdf {
+                        self.preferences.pane_first = target_content;
+                    } else if self.preferences.pane_second != PaneContent::Pdf {
+                        self.preferences.pane_second = target_content;
+                    }
+                    self.save_prefs_pending = true;
+                }
                 targets.truncate(1);
             }
         }
@@ -515,10 +681,30 @@ impl BoardViewApp {
                 _ => BoardTab::Top,
             };
             self.set_tab(target_tab);
+        } else if self.preferences.view_divisions == 2 {
+            if let Some(target) = target_side {
+                let target_clamped = if target == Side::Bottom { Side::Bottom } else { Side::Top };
+                self.set_split_side(target_clamped);
+                // Also, if neither pane is showing this target side (or Both), adapt the non-PDF pane to show it!
+                let target_content = if target_clamped == Side::Bottom { PaneContent::Bottom } else { PaneContent::Top };
+                let p1_has = self.preferences.pane_first == target_content || self.preferences.pane_first == PaneContent::Both;
+                let p2_has = self.preferences.pane_second == target_content || self.preferences.pane_second == PaneContent::Both;
+                if !p1_has && !p2_has {
+                    // Update whichever pane is not PDF
+                    if self.preferences.pane_first != PaneContent::Pdf {
+                        self.preferences.pane_first = target_content;
+                    } else if self.preferences.pane_second != PaneContent::Pdf {
+                        self.preferences.pane_second = target_content;
+                    } else {
+                        self.preferences.pane_first = target_content;
+                    }
+                    self.save_prefs_pending = true;
+                }
+            }
         }
     }
 
-    /// Tab bar of the central area, with the Both layout selector while the Both tab is shown.
+    /// Central area view selector: single pane vs 2 divisions, orientation, and pane content dropdowns.
     fn show_tab_bar(&mut self, ui: &mut Ui, lang: i18n::Language) {
         egui::Frame::NONE
             .fill(ui.visuals().panel_fill)
@@ -526,57 +712,245 @@ impl BoardViewApp {
             .show(ui, |ui: &mut Ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui: &mut Ui| {
-                    for tab in BoardTab::ALL {
-                        let label = RichText::new(tab.label(lang)).strong();
-                        if ui.selectable_label(self.tab == tab, label).on_hover_text(i18n::tr(lang, "tabs.hover").replace("{key}", &self.preferences.keymap.display(Action::FlipSide))).clicked() {
-                            self.set_tab(tab);
-                        }
-                    }
-                    if self.tab == BoardTab::Both {
-                        ui.separator();
-                        ui.label(i18n::tr(lang, "layout.label"));
-                        let mut layout = self.preferences.both_layout;
-                        egui::ComboBox::from_id_salt("both_layout_selector")
-                            .selected_text(layout.label(lang))
-                            .show_ui(ui, |ui: &mut Ui| {
-                                for choice in BothLayout::ALL {
-                                    ui.selectable_value(&mut layout, choice, choice.label(lang));
-                                }
-                            })
-                            .response
-                            .on_hover_text(i18n::tr(lang, "layout.hover"));
-                        if layout != self.preferences.both_layout {
-                            self.preferences.both_layout = layout;
-                            self.save_prefs_pending = true;
-                        }
-                    } else if self.tab == BoardTab::Split {
-                        ui.separator();
-                        ui.label(i18n::tr(lang, "split.layout_label"));
-                        let current_split_label = if self.preferences.split_horizontal {
-                            i18n::tr(lang, "split.horizontal")
+                    // Layout selector (Single Pane vs Split Vertical vs Split Horizontal)
+                    let current_layout_label = if self.preferences.view_divisions == 1 {
+                        i18n::tr(lang, "view.one_pane")
+                    } else if self.preferences.split_horizontal {
+                        i18n::tr(lang, "view.split_vertical")
+                    } else {
+                        i18n::tr(lang, "view.split_horizontal")
+                    };
+                    ui.label(RichText::new(i18n::tr(lang, "view.divisions")).strong());
+                    egui::ComboBox::from_id_salt("divisions_selector")
+                        .selected_text(current_layout_label)
+                        .show_ui(ui, |ui: &mut Ui| {
+                            let is_single = self.preferences.view_divisions == 1;
+                            let is_split_v = self.preferences.view_divisions == 2 && self.preferences.split_horizontal;
+                            let is_split_h = self.preferences.view_divisions == 2 && !self.preferences.split_horizontal;
+
+                            if ui.selectable_label(is_single, i18n::tr(lang, "view.one_pane")).clicked() {
+                                self.preferences.view_divisions = 1;
+                                self.sync_tab_from_panes();
+                                self.save_prefs_pending = true;
+                            }
+                            if ui.selectable_label(is_split_v, i18n::tr(lang, "view.split_vertical")).clicked() {
+                                self.preferences.view_divisions = 2;
+                                self.preferences.split_horizontal = true;
+                                self.sync_tab_from_panes();
+                                self.save_prefs_pending = true;
+                            }
+                            if ui.selectable_label(is_split_h, i18n::tr(lang, "view.split_horizontal")).clicked() {
+                                self.preferences.view_divisions = 2;
+                                self.preferences.split_horizontal = false;
+                                self.sync_tab_from_panes();
+                                self.save_prefs_pending = true;
+                            }
+                        });
+
+                    ui.separator();
+
+                    if self.preferences.view_divisions == 2 {
+                        // Pane 1 content
+                        let p1_label = if self.preferences.split_horizontal {
+                            i18n::tr(lang, "view.pane_left")
                         } else {
-                            i18n::tr(lang, "split.vertical")
+                            i18n::tr(lang, "view.pane_top")
                         };
-                        egui::ComboBox::from_id_salt("split_layout_selector")
-                            .selected_text(current_split_label)
+                        ui.label(p1_label);
+                        egui::ComboBox::from_id_salt("pane_first_selector")
+                            .selected_text(self.preferences.pane_first.label(lang))
                             .show_ui(ui, |ui: &mut Ui| {
-                                ui.selectable_value(&mut self.preferences.split_horizontal, true, i18n::tr(lang, "split.horizontal"));
-                                ui.selectable_value(&mut self.preferences.split_horizontal, false, i18n::tr(lang, "split.vertical"));
+                                for content in PaneContent::ALL {
+                                    if ui.selectable_label(self.preferences.pane_first == content, content.label(lang)).clicked() {
+                                        self.preferences.pane_first = content;
+                                        self.sync_tab_from_panes();
+                                        self.save_prefs_pending = true;
+                                    }
+                                }
                             });
+
+                        // Pane 2 content
+                        let p2_label = if self.preferences.split_horizontal {
+                            i18n::tr(lang, "view.pane_right")
+                        } else {
+                            i18n::tr(lang, "view.pane_bottom")
+                        };
+                        ui.label(p2_label);
+                        egui::ComboBox::from_id_salt("pane_second_selector")
+                            .selected_text(self.preferences.pane_second.label(lang))
+                            .show_ui(ui, |ui: &mut Ui| {
+                                for content in PaneContent::ALL {
+                                    if ui.selectable_label(self.preferences.pane_second == content, content.label(lang)).clicked() {
+                                        self.preferences.pane_second = content;
+                                        self.sync_tab_from_panes();
+                                        self.save_prefs_pending = true;
+                                    }
+                                }
+                            });
+
                         if ui.small_button(i18n::tr(lang, "split.reset_ratio")).clicked() {
                             self.preferences.split_ratio = 0.5;
                             self.save_prefs_pending = true;
                         }
+                    } else {
+                        // 1 Division content selector
+                        ui.label(i18n::tr(lang, "view.pane_content"));
+                        egui::ComboBox::from_id_salt("single_pane_content_selector")
+                            .selected_text(self.preferences.pane_first.label(lang))
+                            .show_ui(ui, |ui: &mut Ui| {
+                                for content in PaneContent::ALL {
+                                    if ui.selectable_label(self.preferences.pane_first == content, content.label(lang)).clicked() {
+                                        self.preferences.pane_first = content;
+                                        self.sync_tab_from_panes();
+                                        self.save_prefs_pending = true;
+                                    }
+                                }
+                            });
+
+                        if self.preferences.pane_first == PaneContent::Both {
+                            ui.separator();
+                            ui.label(i18n::tr(lang, "layout.label"));
+                            let mut layout = self.preferences.both_layout;
+                            egui::ComboBox::from_id_salt("both_layout_selector")
+                                .selected_text(layout.label(lang))
+                                .show_ui(ui, |ui: &mut Ui| {
+                                    for choice in BothLayout::ALL {
+                                        ui.selectable_value(&mut layout, choice, choice.label(lang));
+                                    }
+                                });
+                            if layout != self.preferences.both_layout {
+                                self.preferences.both_layout = layout;
+                                self.save_prefs_pending = true;
+                            }
+                        }
+                    }
+
+                    // Lock Zoom button
+                    ui.separator();
+                    let lock_text = if self.preferences.lock_zoom {
+                        RichText::new(i18n::tr(lang, "view.lock_zoom")).strong().color(self.tokens.accent())
+                    } else {
+                        RichText::new(i18n::tr(lang, "view.lock_zoom"))
+                    };
+                    if ui.selectable_label(self.preferences.lock_zoom, lock_text)
+                        .on_hover_text(i18n::tr(lang, "view.lock_zoom_hover"))
+                        .clicked()
+                    {
+                        self.preferences.lock_zoom = !self.preferences.lock_zoom;
+                        self.save_prefs_pending = true;
                     }
                 });
             });
     }
 
-    /// The board canvases of the current tab in `area`, with a separator line between the two
-    /// sides of the Both tab.
-    fn show_board_tab(&mut self, ui: &mut Ui, area: Rect) {
+    /// Renders a single pane within `rect` according to its `content` setting.
+    fn render_pane(&mut self, ui: &mut Ui, rect: Rect, content: PaneContent, split_horizontal: Option<bool>, lang: i18n::Language) {
+        if content == PaneContent::Pdf {
+            if self.cad_schematic_viewer.is_loaded() {
+                let out = ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .max_rect(rect)
+                        .layout(egui::Layout::top_down(egui::Align::Min)),
+                    |ui: &mut Ui| {
+                        egui::Frame::NONE
+                            .fill(ui.visuals().panel_fill)
+                            .inner_margin(egui::Margin::same(6))
+                            .show(ui, |ui: &mut Ui| {
+                                ui.set_min_size(rect.size());
+                                cad_schematic_tab::show_cad_schematic_tab(ui, &self.tokens, lang, &mut self.cad_schematic_viewer)
+                            })
+                            .inner
+                    },
+                ).inner;
+
+                if out.open_requested {
+                    self.open_pdf_dialog();
+                }
+                if out.close_requested {
+                    self.cad_schematic_viewer.close();
+                }
+                if let Some(token) = out.clicked_token {
+                    self.apply_pdf_token(&token, false);
+                    ui.ctx().request_repaint();
+                }
+                if let Some(token) = out.navigate_to_pcb {
+                    self.apply_pdf_token(&token, false);
+                    ui.ctx().request_repaint();
+                }
+                return;
+            }
+
+            let out = ui.scope_builder(
+                egui::UiBuilder::new()
+                    .max_rect(rect)
+                    .layout(egui::Layout::top_down(egui::Align::Min)),
+                |ui: &mut Ui| {
+                    egui::Frame::NONE
+                        .fill(ui.visuals().panel_fill)
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui: &mut Ui| {
+                            ui.set_min_size(rect.size());
+                            pdf_tab::show_pdf_tab(ui, &self.tokens, lang, &mut self.pdf_viewer)
+                        })
+                        .inner
+                },
+            ).inner;
+
+            if out.open_requested {
+                self.open_pdf_dialog();
+            }
+            if out.close_requested {
+                self.pdf_viewer.close();
+            }
+            if let Some(occ) = out.clicked_token {
+                self.apply_pdf_token(&occ.text, false);
+                ui.ctx().request_repaint();
+            }
+            if let Some(token) = out.navigate_to_pcb {
+                self.apply_pdf_token(&token, false);
+                ui.ctx().request_repaint();
+            }
+        } else if content == PaneContent::CadSchematic {
+            let out = ui.scope_builder(
+                egui::UiBuilder::new()
+                    .max_rect(rect)
+                    .layout(egui::Layout::top_down(egui::Align::Min)),
+                |ui: &mut Ui| {
+                    egui::Frame::NONE
+                        .fill(ui.visuals().panel_fill)
+                        .inner_margin(egui::Margin::same(6))
+                        .show(ui, |ui: &mut Ui| {
+                            ui.set_min_size(rect.size());
+                            cad_schematic_tab::show_cad_schematic_tab(ui, &self.tokens, lang, &mut self.cad_schematic_viewer)
+                        })
+                        .inner
+                },
+            ).inner;
+
+            if out.open_requested {
+                self.open_cad_schematic_dialog();
+            }
+            if out.close_requested {
+                self.cad_schematic_viewer.close();
+            }
+            if let Some(token) = out.clicked_token.or(out.navigate_to_pcb) {
+                self.apply_pdf_token(&token, false);
+                ui.ctx().request_repaint();
+            }
+        } else {
+            self.show_pane_content(ui, rect, content, split_horizontal);
+        }
+    }
+    fn show_pane_content(&mut self, ui: &mut Ui, area: Rect, content: PaneContent, split_horizontal: Option<bool>) {
         let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
-        let rects = board_tabs::canvas_rects(self.tab, area, self.preferences.both_layout, bbox, self.canvases.rotation());
+        let rects = board_tabs::pane_canvas_rects(
+            content,
+            area,
+            split_horizontal,
+            self.preferences.both_layout,
+            bbox,
+            self.canvases.rotation(),
+        );
         if let [(_, a), (_, b)] = rects.as_slice() {
             let stroke = ui.visuals().widgets.noninteractive.bg_stroke;
             let line = if a.max.x <= b.min.x {
@@ -591,10 +965,13 @@ impl BoardViewApp {
         self.show_board_canvases(ui, &rects);
     }
 
+
+
     /// Draws the canvas of each `(side, rect)`, tracks the active canvas (last hovered or
     /// clicked) and applies a pending auto-fit to the real canvas rectangles.
     fn show_board_canvases(&mut self, ui: &mut Ui, rects: &[(Side, Rect)]) {
         let overlay_mode_active = self.side_panel_state.overlay_editing;
+        let mut zoom_delta: Option<(Side, f32)> = None;
         for &(side, rect) in rects {
             let is_active = self.canvases.active == side;
             let response = show_canvas(
@@ -613,6 +990,7 @@ impl BoardViewApp {
                 &mut self.selected_net,
                 &mut self.renderer,
                 &self.preferences,
+                &mut zoom_delta,
             );
             if !is_active && canvas::activates_canvas(response.clicked(), response.secondary_clicked(), response.drag_started()) {
                 self.canvases.active = side;
@@ -620,18 +998,38 @@ impl BoardViewApp {
 
             // Check if user requested navigation to Schematic from PCB context menu
             if let Some(target) = self.canvases.side_mut(side).navigate_to_schematic.take() {
-                if self.pdf_viewer.is_loaded() {
+                if self.cad_schematic_viewer.is_loaded() {
+                    self.cad_schematic_viewer.search_input = target.clone();
+                    self.cad_schematic_viewer.cross_probe(&target);
+                    self.set_tab(BoardTab::Pdf);
+                    self.status_msg = format!("Navigated to CAD schematic for {}", target);
+                    ui.ctx().request_repaint();
+                } else if self.pdf_viewer.is_loaded() {
                     self.pdf_viewer.search_input = target.clone();
                     self.pdf_viewer.cross_probe(&target);
                     self.set_tab(BoardTab::Pdf);
                     self.status_msg = format!("Navigated to schematic for {}", target);
                     ui.ctx().request_repaint();
                 } else {
-                    self.status_msg = "No schematic PDF loaded.".to_string();
+                    self.status_msg = "No schematic loaded.".to_string();
                 }
             }
         }
-        self.canvas_rects = rects.to_vec();
+
+        // Apply synchronized zoom when lock_zoom preference is enabled
+        if self.preferences.lock_zoom && let Some((source_side, factor)) = zoom_delta {
+            self.canvases.sync_zoom(source_side, factor);
+            ui.ctx().request_repaint();
+        }
+
+        // Accumulate canvas_rects for all visible canvases in the frame
+        for &(side, r) in rects {
+            if let Some(existing) = self.canvas_rects.iter_mut().find(|(s, _)| *s == side) {
+                *existing = (side, r);
+            } else {
+                self.canvas_rects.push((side, r));
+            }
+        }
 
         if self.pending_auto_fit
             && let Some(&(_, first)) = rects.first()
@@ -684,7 +1082,7 @@ impl eframe::App for BoardViewApp {
                                 }
                             }
                         }
-                        "pdf" => {
+                        "pdf" | "kicad_sch" | "sch" => {
                             if self.open_schematic(path) {
                                 self.set_tab(BoardTab::Pdf);
                             }
@@ -762,7 +1160,14 @@ impl eframe::App for BoardViewApp {
                 match action {
                     Action::RotateCw => self.canvases.rotate_cw(),
                     Action::RotateCcw => self.canvases.rotate_ccw(),
-                    Action::FlipSide => self.set_tab(self.tab.flipped()),
+                    Action::FlipSide => {
+                        if self.tab == BoardTab::Split {
+                            let next = if self.split_side() == Side::Bottom { Side::Top } else { Side::Bottom };
+                            self.set_split_side(next);
+                        } else {
+                            self.set_tab(self.tab.flipped());
+                        }
+                    }
                     Action::MirrorX => self.canvases.toggle_mirror_x(),
                     Action::MirrorY => self.canvases.toggle_mirror_y(),
                     Action::FitView if self.fit_shown_canvases(ui.clip_rect()) => {
@@ -867,6 +1272,23 @@ impl eframe::App for BoardViewApp {
                         }
                         ui.close();
                     }
+                    let cad_sch_label = if self.cad_schematic_viewer.is_loaded() {
+                        i18n::tr(lang, "schematic.show_cad")
+                    } else {
+                        i18n::tr(lang, "schematic.open_cad")
+                    };
+                    if ui.button(cad_sch_label).clicked() {
+                        if self.cad_schematic_viewer.is_loaded() {
+                            if self.preferences.view_divisions == 1 {
+                                self.preferences.pane_first = PaneContent::CadSchematic;
+                            } else {
+                                self.preferences.pane_second = PaneContent::CadSchematic;
+                            }
+                        } else {
+                            self.open_cad_schematic_dialog();
+                        }
+                        ui.close();
+                    }
                     ui.separator();
                     if ui.button(self.preferences.keymap.hint(i18n::tr(lang, "actions.rotate_cw"), Action::RotateCw)).clicked() {
                         self.canvases.rotate_cw();
@@ -907,8 +1329,35 @@ impl eframe::App for BoardViewApp {
                     }
                 });
 
-                // View menu: zoom presets and pin/via visibility
+                // View menu: layout presets, zoom presets, and pin/via visibility
                 ui.menu_button(i18n::tr(lang, "menu.view"), |ui| {
+                    let is_single = self.preferences.view_divisions == 1;
+                    let is_split_v = self.preferences.view_divisions == 2 && self.preferences.split_horizontal;
+                    let is_split_h = self.preferences.view_divisions == 2 && !self.preferences.split_horizontal;
+
+                    if ui.selectable_label(is_single, i18n::tr(lang, "view.one_pane")).clicked() {
+                        self.preferences.view_divisions = 1;
+                        self.sync_tab_from_panes();
+                        self.save_prefs_pending = true;
+                        ui.close();
+                    }
+                    if ui.selectable_label(is_split_v, i18n::tr(lang, "view.split_vertical")).clicked() {
+                        self.preferences.view_divisions = 2;
+                        self.preferences.split_horizontal = true;
+                        self.sync_tab_from_panes();
+                        self.save_prefs_pending = true;
+                        ui.close();
+                    }
+                    if ui.selectable_label(is_split_h, i18n::tr(lang, "view.split_horizontal")).clicked() {
+                        self.preferences.view_divisions = 2;
+                        self.preferences.split_horizontal = false;
+                        self.sync_tab_from_panes();
+                        self.save_prefs_pending = true;
+                        ui.close();
+                    }
+
+                    ui.separator();
+
                     ui.menu_button(i18n::tr(lang, "toolbar.zoom"), |ui| {
                         let rect = ui.clip_rect();
                         if ui.button(self.preferences.keymap.hint(i18n::tr(lang, "toolbar.zoom_fit_window"), Action::FitView)).clicked() {
@@ -1124,49 +1573,27 @@ impl eframe::App for BoardViewApp {
         CentralPanel::default()
             .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
             .show(ui, |ui: &mut Ui| {
+                self.canvas_rects.clear();
                 self.show_tab_bar(ui, lang);
-                if self.tab == BoardTab::Pdf {
-                    self.canvas_rects.clear();
-                    let out = egui::Frame::NONE
-                        .fill(ui.visuals().panel_fill)
-                        .inner_margin(egui::Margin::same(6))
-                        .show(ui, |ui: &mut Ui| {
-                            ui.set_min_size(ui.available_size());
-                            pdf_tab::show_pdf_tab(ui, &self.tokens, lang, &mut self.pdf_viewer)
-                        })
-                        .inner;
-                    if out.open_requested {
-                        self.open_pdf_dialog();
-                    }
-                    if out.close_requested {
-                        self.pdf_viewer.close();
-                    }
-                    if let Some(occ) = out.clicked_token {
-                        self.apply_pdf_token(&occ.text, false);
-                        ui.ctx().request_repaint();
-                    }
-                    if let Some(token) = out.navigate_to_pcb {
-                        self.apply_pdf_token(&token, true);
-                        ui.ctx().request_repaint();
-                    }
-                } else if self.tab == BoardTab::Split {
+
+                if self.preferences.view_divisions == 2 {
                     let area = ui.available_rect_before_wrap();
-                    let (board_rect, pdf_rect) = board_tabs::split_rects(
+                    let (first_rect, second_rect) = board_tabs::split_rects(
                         area,
                         self.preferences.split_horizontal,
                         self.preferences.split_ratio,
                     );
 
-                    // Draggable divider handle between board and PDF
+                    // Draggable divider handle between first and second pane
                     let divider_rect = if self.preferences.split_horizontal {
                         Rect::from_min_max(
-                            egui::pos2(board_rect.max.x, area.min.y),
-                            egui::pos2(pdf_rect.min.x, area.max.y),
+                            egui::pos2(first_rect.max.x, area.min.y),
+                            egui::pos2(second_rect.min.x, area.max.y),
                         )
                     } else {
                         Rect::from_min_max(
-                            egui::pos2(area.min.x, board_rect.max.y),
-                            egui::pos2(area.max.x, pdf_rect.min.y),
+                            egui::pos2(area.min.x, first_rect.max.y),
+                            egui::pos2(area.max.x, second_rect.min.y),
                         )
                     };
 
@@ -1218,43 +1645,13 @@ impl eframe::App for BoardViewApp {
                         );
                     }
 
-                    // Render board pane
-                    self.show_board_tab(ui, board_rect);
-
-                    // Render PDF pane
-                    let out = ui.scope_builder(
-                        egui::UiBuilder::new()
-                            .max_rect(pdf_rect)
-                            .layout(egui::Layout::top_down(egui::Align::Min)),
-                        |ui: &mut Ui| {
-                            egui::Frame::NONE
-                                .fill(ui.visuals().panel_fill)
-                                .inner_margin(egui::Margin::same(6))
-                                .show(ui, |ui: &mut Ui| {
-                                    ui.set_min_size(pdf_rect.size());
-                                    pdf_tab::show_pdf_tab(ui, &self.tokens, lang, &mut self.pdf_viewer)
-                                })
-                                .inner
-                        },
-                    ).inner;
-
-                    if out.open_requested {
-                        self.open_pdf_dialog();
-                    }
-                    if out.close_requested {
-                        self.pdf_viewer.close();
-                    }
-                    if let Some(occ) = out.clicked_token {
-                        self.apply_pdf_token(&occ.text, false);
-                        ui.ctx().request_repaint();
-                    }
-                    if let Some(token) = out.navigate_to_pcb {
-                        self.apply_pdf_token(&token, false);
-                        ui.ctx().request_repaint();
-                    }
+                    let split_h = self.preferences.split_horizontal;
+                    // Render first and second panes
+                    self.render_pane(ui, first_rect, self.preferences.pane_first, Some(split_h), lang);
+                    self.render_pane(ui, second_rect, self.preferences.pane_second, Some(split_h), lang);
                 } else {
                     let area = ui.available_rect_before_wrap();
-                    self.show_board_tab(ui, area);
+                    self.render_pane(ui, area, self.preferences.pane_first, None, lang);
                 }
             });
 
@@ -1417,6 +1814,7 @@ mod focus_tests {
             board_path: None,
             pdf_viewer: pdf::PdfSchematicViewer::default(),
             pending_schematic_prompt: None,
+            cad_schematic_viewer: schematic_viewer::CadSchematicViewer::default(),
             notes_store: bvc_core::BoardNotesStore::default(),
         };
 
@@ -1664,7 +2062,7 @@ mod tab_tests {
         let mut app = app_on(BoardTab::Both);
         let area = Rect::from_min_size(egui::pos2(0.0, 30.0), egui::vec2(1000.0, 800.0));
         let bbox = app.board.as_ref().unwrap().bounding_box;
-        app.canvas_rects = board_tabs::canvas_rects(BoardTab::Both, area, BothLayout::Vertical, bbox, app.canvases.rotation());
+        app.canvas_rects = board_tabs::canvas_rects(BoardTab::Both, area, BothLayout::Vertical, bbox, app.canvases.rotation(), app.split_side());
         assert!(app.fit_shown_canvases(area));
         let mut expected = canvas::Viewport::default();
         expected.fit_to_rect(bbox.unwrap(), app.canvas_rects[0].1);
@@ -1672,5 +2070,89 @@ mod tab_tests {
         assert_eq!(app.canvases.bottom.viewport.scale, expected.scale);
         app.set_tab(BoardTab::Pdf);
         assert!(!app.fit_shown_canvases(area), "nothing to fit on the PDF tab");
+    }
+
+    #[test]
+    fn split_view_side_switching_and_focus() {
+        let mut app = app_on(BoardTab::Split);
+        assert_eq!(app.split_side(), Side::Top);
+        assert_eq!(app.tab_sides(), vec![Side::Top]);
+
+        // Flip side toggles split_side
+        let next = if app.split_side() == Side::Bottom { Side::Top } else { Side::Bottom };
+        app.set_split_side(next);
+        assert_eq!(app.split_side(), Side::Bottom);
+        assert_eq!(app.tab_sides(), vec![Side::Bottom]);
+        assert_eq!(app.canvases.active, Side::Bottom);
+
+        // Reset to Top
+        app.set_split_side(Side::Top);
+
+        // Focusing a bottom part (id 1) while in split view switches split_side to Bottom
+        assert!(app.focus_part(1, true));
+        assert_eq!(app.tab, BoardTab::Split, "tab stays Split");
+        assert_eq!(app.split_side(), Side::Bottom, "split side switched to Bottom");
+        assert_eq!(app.canvases.active, Side::Bottom);
+        assert_eq!(app.canvases.bottom.viewport.center.x, 900.0);
+
+        // Applying a token from PDF when in Split switches split_side
+        app.set_split_side(Side::Top);
+        app.apply_pdf_token("U2", false); // U2 is part 1 on Bottom
+        assert_eq!(app.split_side(), Side::Bottom);
+        assert_eq!(app.selected_part_idx, Some(1));
+    }
+
+    #[test]
+    fn test_lock_zoom_synchronization() {
+        let mut app = app_on(BoardTab::Both);
+        app.preferences.lock_zoom = true;
+        let initial_top_scale = app.canvases.top.viewport.scale;
+        let initial_bottom_scale = app.canvases.bottom.viewport.scale;
+
+        // Sync zoom 1.5x from Top to Bottom
+        app.canvases.sync_zoom(Side::Top, 1.5);
+        assert!((app.canvases.bottom.viewport.scale - initial_bottom_scale * 1.5).abs() < 1e-4);
+
+        // Sync zoom 0.5x from Bottom to Top
+        app.canvases.sync_zoom(Side::Bottom, 0.5);
+        assert!((app.canvases.top.viewport.scale - initial_top_scale * 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_two_divisions_pane_configurations() {
+        let mut app = app_on(BoardTab::Split);
+        app.preferences.view_divisions = 2;
+        app.preferences.split_horizontal = true;
+        app.preferences.pane_first = PaneContent::Pdf;
+        app.preferences.pane_second = PaneContent::Both;
+        assert_eq!(app.tab_sides(), vec![Side::Top, Side::Bottom]);
+
+        // When split is horizontal, Both arranges plates vertically (opposite)
+        let area = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 800.0));
+        let rects = board_tabs::pane_canvas_rects(
+            PaneContent::Both,
+            area,
+            Some(true),
+            BothLayout::Auto,
+            None,
+            canvas::Rotation::Deg0,
+        );
+        assert_eq!(rects.len(), 2);
+        let top_rect = rects[0].1;
+        let bottom_rect = rects[1].1;
+        assert!(top_rect.max.y <= bottom_rect.min.y, "Plates arranged vertically when split is horizontal");
+
+        // When split is vertical, Both arranges plates horizontally (opposite)
+        let rects_v = board_tabs::pane_canvas_rects(
+            PaneContent::Both,
+            area,
+            Some(false),
+            BothLayout::Auto,
+            None,
+            canvas::Rotation::Deg0,
+        );
+        let top_rect_v = rects_v[0].1;
+        let bottom_rect_v = rects_v[1].1;
+        assert!(top_rect_v.max.x <= bottom_rect_v.min.x, "Plates arranged horizontally when split is vertical");
     }
 }

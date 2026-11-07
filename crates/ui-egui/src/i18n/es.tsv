@@ -20,6 +20,9 @@
 	tabs.bottom	Inferior
 	tabs.both	Ambas
 	tabs.pdf	Esquemático PDF
+	tabs.cad_schematic	Esquemático CAD
+	schematic.open_cad	Abrir Esquemático CAD...
+	schematic.show_cad	Mostrar Esquemático CAD
 	tabs.split	Dividido (Placa + PDF)
 	tabs.hover	Pestañas de vista de la placa ({key} alterna Superior/Inferior)
 	layout.label	Disposición:
@@ -27,14 +30,26 @@
 	layout.vertical	Vertical (superior arriba, inferior abajo)
 	layout.horizontal	Horizontal (superior a la izquierda, inferior a la derecha)
 	layout.hover	Disposición de las dos caras; Auto las apila cuando la placa girada es más ancha que alta
-	split.layout_label	División:
-	split.horizontal	Horizontal (en paralelo)
-	split.vertical	Vertical (apilado)
+	split.layout_label	Disposición:
+	split.horizontal	Dividir horizontal
+	split.vertical	Dividir vertical
 	split.reset_ratio	50/50
 	split.side_label	Placa:
 	split.side_top	Superior
 	split.side_bottom	Inferior
 	split.side_both	Ambas
+	view.divisions	Disposición:
+	view.one_pane	Panel único
+	view.two_panes	Dividido
+	view.split_vertical	Dividir vertical
+	view.split_horizontal	Dividir horizontal
+	view.pane_left	Izquierda:
+	view.pane_right	Derecha:
+	view.pane_top	Arriba:
+	view.pane_bottom	Abajo:
+	view.pane_content	Vista:
+	view.lock_zoom	🔒 Bloquear Zoom
+	view.lock_zoom_hover	Sincronizar zoom entre caras de la PCB
 	toolbar.pins	Pines
 	toolbar.vias	Vías
 	toolbar.load_photo	Cargar Foto Superpuesta...
@@ -54,6 +69,10 @@
 	side_panel.pins_on_net	Pines en la Red:
 	side_panel.vias_on_net	Vías en la Red:
 	side_panel.search_parts	Buscar Componentes:
+	side_panel.search_parts_side	Cara:
+	side_panel.search_side_all	Todas
+	side_panel.search_side_top	Top
+	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Buscar Redes:
 	side_panel.search_parts_hint	Escribir componente (ej. U1, R*, *12)...
 	side_panel.search_nets_hint	Escribir red (ej. *VCC*, GND, PP3V3*)...

@@ -20,6 +20,9 @@
 	tabs.bottom	Dessous
 	tabs.both	Les deux
 	tabs.pdf	Schéma PDF
+	tabs.cad_schematic	Schéma CAD
+	schematic.open_cad	Ouvrir un schéma CAD...
+	schematic.show_cad	Afficher le schéma CAD
 	tabs.split	Divisé (Circuit + PDF)
 	tabs.hover	Onglets de vue de la carte ({key} bascule Dessus/Dessous)
 	layout.label	Disposition :
@@ -27,14 +30,26 @@
 	layout.vertical	Verticale (dessus en haut, dessous en bas)
 	layout.horizontal	Horizontale (dessus à gauche, dessous à droite)
 	layout.hover	Disposition des deux faces ; Auto les empile quand la carte pivotée est plus large que haute
-	split.layout_label	Division :
-	split.horizontal	Horizontale (côte à côte)
-	split.vertical	Verticale (superposée)
+	split.layout_label	Disposition :
+	split.horizontal	Scinder horizontalement
+	split.vertical	Scinder verticalement
 	split.reset_ratio	50/50
 	split.side_label	Carte :
 	split.side_top	Dessus
 	split.side_bottom	Dessous
 	split.side_both	Les deux
+	view.divisions	Disposition :
+	view.one_pane	Panneau unique
+	view.two_panes	Scindé
+	view.split_vertical	Scinder verticalement
+	view.split_horizontal	Scinder horizontalement
+	view.pane_left	Gauche :
+	view.pane_right	Droite :
+	view.pane_top	Haut :
+	view.pane_bottom	Bas :
+	view.pane_content	Vue :
+	view.lock_zoom	🔒 Verrouiller zoom
+	view.lock_zoom_hover	Synchroniser le zoom entre les faces du circuit
 	toolbar.pins	Broches
 	toolbar.vias	Vias
 	toolbar.load_photo	Charger une photo superposée...
@@ -54,6 +69,10 @@
 	side_panel.pins_on_net	Broches sur le réseau :
 	side_panel.vias_on_net	Vias sur le réseau :
 	side_panel.search_parts	Rechercher des composants :
+	side_panel.search_parts_side	Côté :
+	side_panel.search_side_all	Tous
+	side_panel.search_side_top	Haut
+	side_panel.search_side_bottom	Bas
 	side_panel.search_nets	Rechercher des réseaux :
 	side_panel.search_parts_hint	Saisir un composant (ex. U1, R*, *12)...
 	side_panel.search_nets_hint	Saisir un réseau (ex. *VCC*, GND, PP3V3*)...

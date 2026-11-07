@@ -4,7 +4,7 @@
 use crate::i18n::{self, Language};
 use crate::pdf::{PdfSchematicViewer, SchematicOccurrence};
 use crate::theme::Tokens;
-use egui::{Color32, Pos2, Rect, RichText, Ui};
+use egui::{Color32, Pos2, Rect, RichText, Stroke, Ui};
 
 /// What the PDF tab asks the app to do this frame.
 #[derive(Default)]
@@ -156,25 +156,59 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
         viewer.pan_offset += resp.drag_delta();
     }
 
-    // Mouse wheel zoom centered under cursor with gentle sensitivity
+    // Mouse wheel: Ctrl + Wheel for zoom, bare Wheel for page turn (PDF-only behavior)
     if resp.hovered() {
-        let scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll_y != 0.0 {
-            let old_zoom = viewer.zoom;
-            // Gentle 1.07 factor per tick instead of aggressive 1.15
-            let zoom_factor = if scroll_y > 0.0 { 1.07 } else { 1.0 / 1.07 };
-            let new_zoom = (old_zoom * zoom_factor).clamp(0.2, 30.0);
+        let zoom_delta = ui.input(|i| i.zoom_delta());
+        let ctrl_pressed = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
+        let smooth_scroll_y = ui.input(|i| i.smooth_scroll_delta.y);
 
+        // In egui, when Ctrl is held with mouse wheel, egui translates the wheel
+        // directly into `i.zoom_delta()` and zeroes out `smooth_scroll_delta`.
+        if ctrl_pressed && zoom_delta != 1.0 {
+            let old_zoom = viewer.zoom;
+            let new_zoom = (old_zoom * zoom_delta).clamp(0.2, 30.0);
             if let Some(hover_pos) = resp.hover_pos() {
-                // Keep the document point under the mouse invariant:
-                // hover_pos = rect.center() + pan_offset_new + (hover_pos - rect.center() - pan_offset_old) * (new_zoom / old_zoom)
                 let cursor_rel = hover_pos - rect.center() - viewer.pan_offset;
                 let scale_ratio = new_zoom / old_zoom;
                 viewer.pan_offset = hover_pos - rect.center() - cursor_rel * scale_ratio;
             }
-
             viewer.zoom = new_zoom;
             ui.ctx().request_repaint();
+        } else if ctrl_pressed && smooth_scroll_y != 0.0 {
+            // Fallback for platforms/backends where smooth_scroll_delta is not zeroed
+            let factor = if smooth_scroll_y > 0.0 { 1.10 } else { 1.0 / 1.10 };
+            let old_zoom = viewer.zoom;
+            let new_zoom = (old_zoom * factor).clamp(0.2, 30.0);
+            if let Some(hover_pos) = resp.hover_pos() {
+                let cursor_rel = hover_pos - rect.center() - viewer.pan_offset;
+                let scale_ratio = new_zoom / old_zoom;
+                viewer.pan_offset = hover_pos - rect.center() - cursor_rel * scale_ratio;
+            }
+            viewer.zoom = new_zoom;
+            ui.ctx().request_repaint();
+        } else if !ctrl_pressed && smooth_scroll_y != 0.0 {
+            // 2. Normal Wheel turns pages in the PDF with threshold accumulator
+            // Use egui's temp data to accumulate wheel deltas so one notch turns exactly 1 page
+            let accum_id = egui::Id::unique("pdf_wheel_accum");
+            let mut accum: f32 = ui.data(|d| d.get_temp(accum_id)).unwrap_or(0.0);
+            accum += smooth_scroll_y;
+
+            // Typical mouse wheel tick in egui smooth_scroll_delta is ~20 to 50
+            const WHEEL_THRESHOLD: f32 = 40.0;
+            if accum <= -WHEEL_THRESHOLD {
+                if viewer.current_page < viewer.total_pages {
+                    viewer.go_to_page(viewer.current_page + 1);
+                    ui.ctx().request_repaint();
+                }
+                accum = 0.0;
+            } else if accum >= WHEEL_THRESHOLD {
+                if viewer.current_page > 1 {
+                    viewer.go_to_page(viewer.current_page - 1);
+                    ui.ctx().request_repaint();
+                }
+                accum = 0.0;
+            }
+            ui.data_mut(|d| d.insert_temp(accum_id, accum));
         }
 
         // Keyboard navigation inside PDF panel when hovered, unless a text field
@@ -416,6 +450,103 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
             Color32::from_rgb(100, 100, 110),
         );
     }
+
+    // Interactive lateral page scrollbar / scrubber
+    if viewer.doc_info.is_some() && viewer.total_pages > 1 {
+        let bar_width = 14.0;
+        let track_rect = Rect::from_min_max(
+            Pos2::new(rect.max.x - bar_width - 3.0, rect.min.y + 6.0),
+            Pos2::new(rect.max.x - 3.0, rect.max.y - 6.0),
+        );
+
+        let total = viewer.total_pages as f32;
+        let thumb_height = (track_rect.height() / total).clamp(20.0, 60.0);
+        let available_travel = (track_rect.height() - thumb_height).max(0.0);
+
+        let page_fraction = if viewer.total_pages > 1 {
+            ((viewer.current_page - 1) as f32) / (total - 1.0)
+        } else {
+            0.0
+        };
+
+        let thumb_top = track_rect.min.y + page_fraction * available_travel;
+        let thumb_rect = Rect::from_min_max(
+            Pos2::new(track_rect.min.x, thumb_top),
+            Pos2::new(track_rect.max.x, thumb_top + thumb_height),
+        );
+
+        let scrollbar_id = egui::Id::unique("pdf_page_scrollbar");
+        let bar_resp = ui.interact(track_rect, scrollbar_id, egui::Sense::click_and_drag());
+
+        let mut hovered_or_dragged_page: Option<usize> = None;
+
+        if bar_resp.dragged() || bar_resp.clicked() {
+            if let Some(pos) = bar_resp.interact_pointer_pos().or_else(|| bar_resp.hover_pos()) {
+                let frac = ((pos.y - track_rect.min.y - thumb_height * 0.5) / available_travel.max(1.0)).clamp(0.0, 1.0);
+                let target_page = ((frac * (total - 1.0)).round() as usize + 1).clamp(1, viewer.total_pages);
+                if target_page != viewer.current_page {
+                    viewer.go_to_page(target_page);
+                    ui.ctx().request_repaint();
+                }
+                hovered_or_dragged_page = Some(target_page);
+            }
+        } else if bar_resp.hovered() {
+            if let Some(pos) = bar_resp.hover_pos() {
+                let frac = ((pos.y - track_rect.min.y - thumb_height * 0.5) / available_travel.max(1.0)).clamp(0.0, 1.0);
+                let target_page = ((frac * (total - 1.0)).round() as usize + 1).clamp(1, viewer.total_pages);
+                hovered_or_dragged_page = Some(target_page);
+            }
+        }
+
+        // Render scrollbar track and thumb
+        let is_hovered = bar_resp.hovered() || bar_resp.dragged();
+        let track_bg = if is_hovered {
+            Color32::from_rgba_unmultiplied(20, 20, 25, 120)
+        } else {
+            Color32::from_rgba_unmultiplied(20, 20, 25, 40)
+        };
+        let thumb_color = if bar_resp.dragged() {
+            Color32::from_rgba_unmultiplied(50, 120, 220, 240)
+        } else if is_hovered {
+            Color32::from_rgba_unmultiplied(70, 130, 200, 200)
+        } else {
+            Color32::from_rgba_unmultiplied(100, 110, 130, 150)
+        };
+
+        painter.rect_filled(track_rect, 4.0, track_bg);
+        painter.rect_filled(thumb_rect, 4.0, thumb_color);
+
+        // Show floating page badge next to thumb when hovering or dragging
+        if is_hovered {
+            let page_to_show = hovered_or_dragged_page.unwrap_or(viewer.current_page);
+            let badge_text = format!("{page_to_show} / {}", viewer.total_pages);
+            let font = egui::FontId::proportional(13.0);
+            let badge_pos = Pos2::new(track_rect.min.x - 10.0, thumb_top + thumb_height * 0.5);
+
+            // Compute background pill for text
+            let galley = painter.layout_no_wrap(badge_text.clone(), font.clone(), Color32::WHITE);
+            let badge_rect = Rect::from_center_size(
+                Pos2::new(badge_pos.x - galley.size().x * 0.5, badge_pos.y),
+                galley.size() + egui::vec2(16.0, 8.0),
+            );
+
+            painter.rect_filled(badge_rect, 4.0, Color32::from_rgb(30, 32, 40));
+            painter.rect_stroke(
+                badge_rect,
+                4.0,
+                Stroke::new(1.0, Color32::from_rgb(80, 130, 220)),
+                egui::StrokeKind::Middle,
+            );
+            painter.text(
+                badge_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                badge_text,
+                font,
+                Color32::WHITE,
+            );
+        }
+    }
+
     out
 }
 

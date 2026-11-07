@@ -6,6 +6,47 @@ use bvc_core::Side;
 use egui::Rect;
 use serde::{Deserialize, Serialize};
 
+/// What to show in a central view pane: Top, Bottom, Both sides together, Schematic PDF, or CAD Schematic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum PaneContent {
+    #[default]
+    Top,
+    Bottom,
+    Both,
+    Pdf,
+    CadSchematic,
+}
+
+impl PaneContent {
+    pub const ALL: [PaneContent; 5] = [
+        PaneContent::Top,
+        PaneContent::Bottom,
+        PaneContent::Both,
+        PaneContent::Pdf,
+        PaneContent::CadSchematic,
+    ];
+
+    pub fn label(self, lang: Language) -> &'static str {
+        match self {
+            PaneContent::Top => i18n::tr(lang, "tabs.top"),
+            PaneContent::Bottom => i18n::tr(lang, "tabs.bottom"),
+            PaneContent::Both => i18n::tr(lang, "tabs.both"),
+            PaneContent::Pdf => i18n::tr(lang, "tabs.pdf"),
+            PaneContent::CadSchematic => i18n::tr(lang, "tabs.cad_schematic"),
+        }
+    }
+
+    /// Board sides shown by this pane.
+    pub fn sides(self) -> &'static [Side] {
+        match self {
+            PaneContent::Top => &[Side::Top],
+            PaneContent::Bottom => &[Side::Bottom],
+            PaneContent::Both => &[Side::Top, Side::Bottom],
+            PaneContent::Pdf | PaneContent::CadSchematic => &[],
+        }
+    }
+}
+
 /// Tab shown in the central area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum BoardTab {
@@ -125,33 +166,68 @@ pub fn split_rects(area: Rect, horizontal: bool, split_ratio: f32) -> (Rect, Rec
     }
 }
 
+/// Rectangles of the top and bottom canvases when `Both` is displayed inside `area`.
+/// If `horizontal_layout` is true, top is left, bottom is right.
+/// If false, top is above, bottom is below.
+pub fn both_rects_oriented(area: Rect, horizontal_layout: bool) -> (Rect, Rect) {
+    let half_gap = BOTH_GAP * 0.5;
+    if horizontal_layout {
+        let mid = area.center().x;
+        let top = Rect::from_min_max(area.min, egui::pos2((mid - half_gap).max(area.min.x), area.max.y));
+        let bottom = Rect::from_min_max(egui::pos2((mid + half_gap).min(area.max.x), area.min.y), area.max);
+        (top, bottom)
+    } else {
+        let mid = area.center().y;
+        let top = Rect::from_min_max(area.min, egui::pos2(area.max.x, (mid - half_gap).max(area.min.y)));
+        let bottom = Rect::from_min_max(egui::pos2(area.min.x, (mid + half_gap).min(area.max.y)), area.max);
+        (top, bottom)
+    }
+}
+
 /// Rectangles of the top and bottom canvases of the Both tab inside `area`: two halves split
 /// along the resolved layout, `BOTH_GAP` apart.
 pub fn both_rects(area: Rect, layout: BothLayout, bbox: Option<bvc_core::Rect>, rotation: Rotation) -> (Rect, Rect) {
-    let half_gap = BOTH_GAP * 0.5;
-    match layout.resolve(bbox, rotation) {
-        BothLayout::Horizontal => {
-            let mid = area.center().x;
-            let top = Rect::from_min_max(area.min, egui::pos2((mid - half_gap).max(area.min.x), area.max.y));
-            let bottom = Rect::from_min_max(egui::pos2((mid + half_gap).min(area.max.x), area.min.y), area.max);
-            (top, bottom)
+    let is_horizontal = layout.resolve(bbox, rotation) == BothLayout::Horizontal;
+    both_rects_oriented(area, is_horizontal)
+}
+
+/// Returns the board canvases shown for a pane with content `content` inside `area`.
+/// `split_horizontal`: When inside a 2-division view, indicates whether the division was horizontal.
+/// If `Some(true)` (split horizontal), `Both` will arrange boards vertically (opposite: top above bottom).
+/// If `Some(false)` (split vertical), `Both` will arrange boards horizontally (opposite: top left, bottom right).
+/// If `None` (1 pane view), `Both` will use `layout.resolve(bbox, rotation)`.
+pub fn pane_canvas_rects(
+    content: PaneContent,
+    area: Rect,
+    split_horizontal: Option<bool>,
+    layout: BothLayout,
+    bbox: Option<bvc_core::Rect>,
+    rotation: Rotation,
+) -> Vec<(Side, Rect)> {
+    match content {
+        PaneContent::Top => vec![(Side::Top, area)],
+        PaneContent::Bottom => vec![(Side::Bottom, area)],
+        PaneContent::Both => {
+            let (top, bottom) = match split_horizontal {
+                Some(true) => both_rects_oriented(area, false), // split horizontal -> plates vertical
+                Some(false) => both_rects_oriented(area, true), // split vertical -> plates horizontal
+                None => both_rects(area, layout, bbox, rotation),
+            };
+            vec![(Side::Top, top), (Side::Bottom, bottom)]
         }
-        _ => {
-            let mid = area.center().y;
-            let top = Rect::from_min_max(area.min, egui::pos2(area.max.x, (mid - half_gap).max(area.min.y)));
-            let bottom = Rect::from_min_max(egui::pos2(area.min.x, (mid + half_gap).min(area.max.y)), area.max);
-            (top, bottom)
-        }
+        PaneContent::Pdf | PaneContent::CadSchematic => Vec::new(),
     }
 }
 
 /// The canvases `tab` shows inside `area`, as `(side, rect)` (none for the PDF tab).
+#[allow(dead_code)]
 pub fn canvas_rects(
     tab: BoardTab,
     area: Rect,
     layout: BothLayout,
     bbox: Option<bvc_core::Rect>,
     rotation: Rotation,
+    split_side: Side,
 ) -> Vec<(Side, Rect)> {
     match tab {
         BoardTab::Top => vec![(Side::Top, area)],
@@ -161,7 +237,10 @@ pub fn canvas_rects(
             vec![(Side::Top, top), (Side::Bottom, bottom)]
         }
         BoardTab::Pdf => Vec::new(),
-        BoardTab::Split => vec![(Side::Top, area)],
+        BoardTab::Split => {
+            let side = if split_side == Side::Bottom { Side::Bottom } else { Side::Top };
+            vec![(side, area)]
+        }
     }
 }
 
@@ -227,7 +306,7 @@ mod tests {
     #[test]
     fn each_tab_shows_only_its_canvases() {
         let bbox = Some(wide_board());
-        let r = |tab| canvas_rects(tab, area(), BothLayout::Auto, bbox, Rotation::Deg0);
+        let r = |tab| canvas_rects(tab, area(), BothLayout::Auto, bbox, Rotation::Deg0, Side::Top);
         assert_eq!(r(BoardTab::Top), vec![(Side::Top, area())]);
         assert_eq!(r(BoardTab::Bottom), vec![(Side::Bottom, area())]);
         let both = r(BoardTab::Both);
@@ -236,6 +315,8 @@ mod tests {
         for tab in BoardTab::ALL {
             assert_eq!(r(tab).iter().map(|(s, _)| *s).collect::<Vec<_>>(), tab.sides());
         }
+        let split_bottom = canvas_rects(BoardTab::Split, area(), BothLayout::Auto, bbox, Rotation::Deg0, Side::Bottom);
+        assert_eq!(split_bottom, vec![(Side::Bottom, area())]);
     }
 
     #[test]

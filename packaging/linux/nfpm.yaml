@@ -1,0 +1,58 @@
+# .deb and .rpm packages (nfpm: https://nfpm.goreleaser.com)
+name: boardviewcraft
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+release: ${RELEASE}
+section: electronics
+priority: optional
+maintainer: ${BVC_MAINTAINER}
+vendor: BoardViewCraft
+homepage: https://github.com/elbuit/BoardViewCraft
+license: MIT OR Apache-2.0
+description: |-
+  Fast, modern, native PCB CAD and Boardview viewer in pure Rust.
+  Supports BRD, BDV, BV2, TVW, CAD, Eagle, KiCad, EasyEDA, PDF schematics, and camera overlays.
+
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.31)
+      - libgcc-s1
+      - libxkbcommon0
+      - libvulkan1 | libegl1
+    recommends:
+      - libwayland-client0
+      - libx11-6
+      - libx11-xcb1
+      - libxcursor1
+      - libxi6
+      - libxrandr2
+      - mesa-vulkan-drivers
+  rpm:
+    depends:
+      - libc.so.6()(64bit)
+      - libm.so.6()(64bit)
+      - libgcc_s.so.1()(64bit)
+      - libxkbcommon.so.0()(64bit)
+      - (libvulkan.so.1()(64bit) or libEGL.so.1()(64bit))
+    recommends:
+      - libwayland-client
+      - libX11
+      - libXcursor
+      - libXi
+      - libXrandr
+      - mesa-vulkan-drivers
+
+contents:
+  - src: ${STAGE}/usr/bin/boardviewcraft
+    dst: /usr/bin/boardviewcraft
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/share/
+    dst: /usr/share/
+    type: tree
+
+scripts:
+  postinstall: packaging/linux/postinst.sh
+  postremove: packaging/linux/postinst.sh

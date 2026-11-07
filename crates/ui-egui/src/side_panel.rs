@@ -30,6 +30,7 @@ pub struct SidePanelState {
     pub note_edit_resistance: String,
     pub note_edit_diode: String,
     pub note_active_target: Option<bvc_core::NoteTarget>,
+    pub note_target_is_pin: Option<bool>,
     pub note_dirty: bool,
 }
 
@@ -430,19 +431,25 @@ pub fn show_side_panel(
                     let row_height = 20.0;
                     ScrollArea::vertical()
                         .id_salt("part_pins_scroll")
+                        .max_height(220.0)
                         .show_rows(ui, row_height, part.pin_indices.len(), |ui, row_range| {
                             for row_idx in row_range {
                                 let pin_idx = part.pin_indices[row_idx];
                                 if let Some(pin) = b.pins.get(pin_idx) {
                                     let is_selected = *selected_pin_idx == Some(pin_idx);
+                                    let has_note = notes_store.notes.iter().any(|n| {
+                                        n.target.component_name == part.name && n.target.pin_name.as_deref() == Some(&pin.name)
+                                    });
+                                    let note_badge = if has_note { " 📝" } else { "" };
                                     let pin_label = format!(
-                                        "Pin {}: Net '{}'",
+                                        "Pin {}: Net '{}'{}",
                                         pin.name,
                                         if pin.net_name.is_empty() {
                                             "UNCONNECTED"
                                         } else {
                                             &pin.net_name
-                                        }
+                                        },
+                                        note_badge
                                     );
 
                                     if is_selected {
@@ -485,14 +492,33 @@ pub fn show_side_panel(
                         });
 
                     // Technician Notes & Reference Measurements Section
-                    let current_target = match (*selected_pin_idx).and_then(|idx| b.pins.get(idx)) {
-                        Some(pin) => bvc_core::NoteTarget::pin(&part.name, &pin.name),
-                        None => bvc_core::NoteTarget::component(&part.name),
-                    };
+                    let pin_target = (*selected_pin_idx)
+                        .and_then(|idx| b.pins.get(idx))
+                        .map(|pin| bvc_core::NoteTarget::pin(&part.name, &pin.name));
+                    let comp_target = bvc_core::NoteTarget::component(&part.name);
 
-                    ui.add_space(10.0);
+                    ui.add_space(8.0);
                     ui.separator();
                     ui.add_space(4.0);
+
+                    // If a pin is selected, allow toggling between editing the Pin's note or the Component's note
+                    let current_target = if let Some(pt) = pin_target {
+                        let is_pin_target = state.note_target_is_pin.unwrap_or(true);
+                        ui.horizontal(|ui| {
+                            let pin_btn = ui.selectable_label(is_pin_target, format!("📌 {}", pt.display_label()));
+                            if pin_btn.clicked() {
+                                state.note_target_is_pin = Some(true);
+                            }
+                            let comp_btn = ui.selectable_label(!is_pin_target, format!("📦 {}", comp_target.display_label()));
+                            if comp_btn.clicked() {
+                                state.note_target_is_pin = Some(false);
+                            }
+                        });
+                        if is_pin_target { pt } else { comp_target }
+                    } else {
+                        state.note_target_is_pin = Some(false);
+                        comp_target
+                    };
 
                     let target_label = current_target.display_label();
                     ui.heading(RichText::new(format!("📝 {}: {target_label}", i18n::tr(lang, "notes.title"))).color(tokens.accent()).small());

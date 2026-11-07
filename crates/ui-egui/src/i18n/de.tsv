@@ -20,6 +20,9 @@
 	tabs.bottom	Unten
 	tabs.both	Beide
 	tabs.pdf	Schaltplan-PDF
+	tabs.cad_schematic	CAD-Schaltplan
+	schematic.open_cad	CAD-Schaltplan öffnen...
+	schematic.show_cad	CAD-Schaltplan anzeigen
 	tabs.split	Geteilt (Platine + PDF)
 	tabs.hover	Ansichts-Tabs der Platine ({key} wechselt Oben/Unten)
 	layout.label	Anordnung:
@@ -27,14 +30,26 @@
 	layout.vertical	Vertikal (oben über unten)
 	layout.horizontal	Horizontal (oben links, unten rechts)
 	layout.hover	Anordnung der beiden Seiten; Auto stapelt sie, wenn die gedrehte Platine breiter als hoch ist
-	split.layout_label	Teilung:
-	split.horizontal	Horizontal (nebeneinander)
-	split.vertical	Vertikal (übereinander)
+	split.layout_label	Layout:
+	split.horizontal	Horizontal teilen
+	split.vertical	Vertikal teilen
 	split.reset_ratio	50/50
 	split.side_label	Platine:
 	split.side_top	Oben
 	split.side_bottom	Unten
 	split.side_both	Beide
+	view.divisions	Layout:
+	view.one_pane	Einzelbereich
+	view.two_panes	Geteilt
+	view.split_vertical	Vertikal teilen
+	view.split_horizontal	Horizontal teilen
+	view.pane_left	Links:
+	view.pane_right	Rechts:
+	view.pane_top	Oben:
+	view.pane_bottom	Unten:
+	view.pane_content	Ansicht:
+	view.lock_zoom	🔒 Zoom sperren
+	view.lock_zoom_hover	Zoom zwischen Platinenseiten synchronisieren
 	toolbar.pins	Pins
 	toolbar.vias	Vias
 	toolbar.load_photo	Overlay-Foto laden...
@@ -54,6 +69,10 @@
 	side_panel.pins_on_net	Pins im Netz:
 	side_panel.vias_on_net	Vias im Netz:
 	side_panel.search_parts	Bauteile suchen:
+	side_panel.search_parts_side	Seite:
+	side_panel.search_side_all	Alle
+	side_panel.search_side_top	Top
+	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Netze suchen:
 	side_panel.search_parts_hint	Bauteil eingeben (z. B. U1, R*, *12)...
 	side_panel.search_nets_hint	Netz eingeben (z. B. *VCC*, GND, PP3V3*)...
