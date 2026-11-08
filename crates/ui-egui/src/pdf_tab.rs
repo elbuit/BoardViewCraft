@@ -91,6 +91,10 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
             let current = viewer.selected_result_idx + 1;
             let hits_label = format!("{current}/{count} {}", i18n::tr(lang, "pdf.hits"));
 
+            if ui.button("⏴").on_hover_text(i18n::tr(lang, "pdf.hit_prev")).clicked() {
+                viewer.prev_match();
+            }
+
             let mut match_to_select = None;
             egui::ComboBox::from_id_salt("pdf_match_list")
                 .selected_text(RichText::new(hits_label).color(tokens.accent()))
@@ -108,10 +112,7 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
                 viewer.select_match(idx);
             }
 
-            if ui.button(i18n::tr(lang, "pdf.hit_prev")).clicked() {
-                viewer.prev_match();
-            }
-            if ui.button(i18n::tr(lang, "pdf.hit_next")).clicked() {
+            if ui.button("⏵").on_hover_text(i18n::tr(lang, "pdf.hit_next")).clicked() {
                 viewer.next_match();
             }
         }
