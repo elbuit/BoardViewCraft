@@ -138,6 +138,53 @@ impl Board {
         }
     }
 
+    /// Finds a pin whose physical pad geometry contains `world_pos` on the given side.
+    pub fn find_pin_at(&self, world_pos: Point, view_side: Side, min_radius: f64) -> Option<usize> {
+        let mut best: Option<(usize, f64)> = None;
+
+        if !self.spatial_grid.is_empty() {
+            let search_margin = (min_radius + 50.0).max(100.0);
+            let q_rect = Rect {
+                min_x: world_pos.x - search_margin,
+                max_x: world_pos.x + search_margin,
+                min_y: world_pos.y - search_margin,
+                max_y: world_pos.y + search_margin,
+            };
+            let candidates = self.spatial_grid.query_pins_in_rect(&q_rect);
+            for &idx in &candidates {
+                if let Some(pin) = self.pins.get(idx) {
+                    if !pin.side.visible_on(view_side) {
+                        continue;
+                    }
+                    if pin.contains_point(world_pos, min_radius) {
+                        let d = pin.pos.dist(world_pos);
+                        match best {
+                            None => best = Some((idx, d)),
+                            Some((_, best_d)) if d < best_d => best = Some((idx, d)),
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            return best.map(|(idx, _)| idx);
+        }
+
+        for (idx, pin) in self.pins.iter().enumerate() {
+            if !pin.side.visible_on(view_side) {
+                continue;
+            }
+            if pin.contains_point(world_pos, min_radius) {
+                let d = pin.pos.dist(world_pos);
+                match best {
+                    None => best = Some((idx, d)),
+                    Some((_, best_d)) if d < best_d => best = Some((idx, d)),
+                    _ => {}
+                }
+            }
+        }
+        best.map(|(idx, _)| idx)
+    }
+
     /// Finds a pin near `world_pos` on the given side within tolerance `max_dist`.
     pub fn find_pin_near(&self, world_pos: Point, view_side: Side, max_dist: f64) -> Option<usize> {
         let mut best: Option<(usize, f64)> = None;
@@ -368,5 +415,27 @@ mod tests {
         board.pins.push(a);
         board.rebuild_indices();
         assert_rect(board.parts[0].bounding_box.unwrap(), -10.0, -30.0, 10.0, 30.0);
+    }
+
+    #[test]
+    fn test_find_pin_at_strict_boundary() {
+        let mut a = pin(0, 100.0, 100.0);
+        a.width = Some(20.0);
+        a.height = Some(40.0);
+        a.shape = PadShape::Rect;
+        a.side = Side::Top;
+
+        let mut board = Board::new();
+        board.parts.push(Part::default());
+        board.pins.push(a);
+        board.rebuild_indices();
+
+        // Inside the pad rectangle: x in [90, 110], y in [80, 120]
+        assert_eq!(board.find_pin_at(Point::new(100.0, 100.0), Side::Top, 1.0), Some(0));
+        assert_eq!(board.find_pin_at(Point::new(109.0, 119.0), Side::Top, 1.0), Some(0));
+
+        // In vicinity (near) but outside pad geometry
+        assert_eq!(board.find_pin_at(Point::new(115.0, 100.0), Side::Top, 1.0), None);
+        assert_eq!(board.find_pin_near(Point::new(115.0, 100.0), Side::Top, 20.0), Some(0));
     }
 }

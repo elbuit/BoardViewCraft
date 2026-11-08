@@ -1006,7 +1006,15 @@ pub fn show_canvas(
             ui.ctx().request_repaint();
         }
     } else if is_context_trigger {
-        if let Some(pin_idx) = current_hover_pin {
+        let clicked_pin = if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
+            let world_pos = vp.screen_to_world(hover_pos, rect);
+            let min_r = (PAD_MARKER_PX / vp.scale) as f64;
+            b.find_pin_at(world_pos, vp.side, min_r)
+        } else {
+            None
+        };
+
+        if let Some(pin_idx) = clicked_pin {
             if let Some(b) = board {
                 if let Some(pin) = b.pins.get(pin_idx) {
                     *selected_pin_idx = Some(pin_idx);
@@ -1043,7 +1051,18 @@ pub fn show_canvas(
     } else if response.clicked() {
         canvas_state.context_menu_pin = None;
         canvas_state.context_menu_part = None;
-        if let Some(pin_idx) = current_hover_pin {
+
+        // When clicking, prioritize pin only if the click is strictly inside the pin's pad geometry.
+        // If clicking in the vicinity of a pin but outside its pad, check for component body instead.
+        let clicked_pin = if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
+            let world_pos = vp.screen_to_world(hover_pos, rect);
+            let min_r = (PAD_MARKER_PX / vp.scale) as f64;
+            b.find_pin_at(world_pos, vp.side, min_r)
+        } else {
+            None
+        };
+
+        if let Some(pin_idx) = clicked_pin {
             if *selected_pin_idx == Some(pin_idx) {
                 // Clicking the already-selected pin deselects it
                 *selected_pin_idx = None;
@@ -1062,8 +1081,22 @@ pub fn show_canvas(
                     };
                 }
             }
-        } else if let Some(via_idx) = current_hover_via {
-            if let Some(b) = board {
+        } else if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
+            let world_pos = vp.screen_to_world(hover_pos, rect);
+            if let Some(part_idx) = b.find_part_near(world_pos, vp.side) {
+                if *selected_part_idx == Some(part_idx) && selected_pin_idx.is_none() {
+                    // Clicking selected part body deselects it
+                    *selected_pin_idx = None;
+                    *selected_via_idx = None;
+                    *selected_part_idx = None;
+                    *selected_net = None;
+                } else {
+                    *selected_pin_idx = None;
+                    *selected_via_idx = None;
+                    *selected_part_idx = Some(part_idx);
+                    *selected_net = None;
+                }
+            } else if let Some(via_idx) = current_hover_via {
                 if let Some(via) = b.vias.get(via_idx) {
                     if *selected_via_idx == Some(via_idx) || (*selected_pin_idx == None && selected_net.as_deref() == Some(&via.net_name)) {
                         // Clicking the same via deselects
@@ -1079,23 +1112,6 @@ pub fn show_canvas(
                             Some(via.net_name.clone())
                         };
                     }
-                }
-            }
-        } else if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
-            // Hit-test component body/bounding box if neither pin nor via was clicked
-            let world_pos = vp.screen_to_world(hover_pos, rect);
-            if let Some(part_idx) = b.find_part_near(world_pos, vp.side) {
-                if *selected_part_idx == Some(part_idx) && selected_pin_idx.is_none() {
-                    // Clicking selected part body deselects it
-                    *selected_pin_idx = None;
-                    *selected_via_idx = None;
-                    *selected_part_idx = None;
-                    *selected_net = None;
-                } else {
-                    *selected_pin_idx = None;
-                    *selected_via_idx = None;
-                    *selected_part_idx = Some(part_idx);
-                    *selected_net = None;
                 }
             } else {
                 // Clicking empty canvas clears selection

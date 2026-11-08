@@ -202,6 +202,29 @@ impl Pin {
         let (cos, sin) = (cos.abs(), sin.abs());
         Some((w * 0.5 * cos + h * 0.5 * sin, w * 0.5 * sin + h * 0.5 * cos))
     }
+
+    /// Tests whether `p` lies strictly inside this pad's geometry.
+    /// If min_radius is provided (e.g. minimum visible pixel marker in world units),
+    /// pads that render with a minimum visual radius respect that threshold.
+    pub fn contains_point(&self, p: Point, min_radius: f64) -> bool {
+        if let Some((w, h)) = self.pad_size() {
+            if self.shape == PadShape::Round {
+                let r = (w.min(h) * 0.5).max(min_radius);
+                return self.pos.dist(p) <= r;
+            }
+            let half_w = (w * 0.5).max(min_radius);
+            let half_h = (h * 0.5).max(min_radius);
+            let dx = p.x - self.pos.x;
+            let dy = p.y - self.pos.y;
+            let (cos, sin) = quadrant(self.rotation_deg);
+            let local_x = dx * cos + dy * sin;
+            let local_y = -dx * sin + dy * cos;
+            local_x.abs() <= half_w && local_y.abs() <= half_h
+        } else {
+            let r = self.radius.max(min_radius);
+            self.pos.dist(p) <= r
+        }
+    }
 }
 
 /// Cosine and sine of `degrees`, exact for multiples of 90 degrees.
