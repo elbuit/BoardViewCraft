@@ -2,8 +2,8 @@
 
 <img src="boardviewcraft.svg" alt="BoardViewCraft app icon: a blue chip outline with a BV monogram on a dark tile" width="128">
 
-A chip outline with PCB traces and vias around a "BV" monogram and a small "c", in blue on a
-dark (`#14181b`) rounded tile. Source: the project owner's vector `BoardViewCraft_5B_exacto.svg`
+A chip outline with PCB traces and vias around a "BV" monogram and a small "c", in blue (`#387097`) on a
+light soft slate (`#eaf0f6`) rounded tile. Source: the project owner's vector `BoardViewCraft_5B_exacto.svg`
 (the master) and its background-less variant `BoardViewCraft_5B_transparente.svg` (the mark).
 
 **Tile:** `viewBox="0 0 1024 1024"`, a rounded square with `rx=96`; the corners outside it are

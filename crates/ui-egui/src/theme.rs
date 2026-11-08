@@ -33,20 +33,23 @@ impl AppTheme {
 pub enum PcbTheme {
     Light,
     #[default]
+    #[serde(alias = "Forest", alias = "Solarized", alias = "Monokai", alias = "Synthwave")]
     Dark,
     Warm,
     #[serde(alias = "SweetBlue", alias = "SweetCold")]
     BlueCarrot,
+    Cyberpunk,
     #[serde(alias = "CadcraftDark", alias = "Cadcraft")]
     Custom,
 }
 
 impl PcbTheme {
-    pub const ALL: [PcbTheme; 5] = [
+    pub const ALL: [PcbTheme; 6] = [
         PcbTheme::Dark,
         PcbTheme::Light,
         PcbTheme::Warm,
         PcbTheme::BlueCarrot,
+        PcbTheme::Cyberpunk,
         PcbTheme::Custom,
     ];
 
@@ -56,6 +59,7 @@ impl PcbTheme {
             PcbTheme::Light => "Light",
             PcbTheme::Warm => "Warm",
             PcbTheme::BlueCarrot => "Blue Carrot",
+            PcbTheme::Cyberpunk => "Cyberpunk",
             PcbTheme::Custom => "Custom...",
         }
     }
@@ -66,6 +70,7 @@ impl PcbTheme {
             PcbTheme::Light => PcbTokens::LIGHT,
             PcbTheme::Warm => PcbTokens::WARM,
             PcbTheme::BlueCarrot => PcbTokens::BLUE_CARROT,
+            PcbTheme::Cyberpunk => PcbTokens::CYBERPUNK,
             PcbTheme::Custom => PcbTokens::DARK,
         }
     }
@@ -314,6 +319,31 @@ impl PcbTokens {
         via_opp_side: Color32::from_rgb(0x5a, 0x48, 0x2c),
         via_highlight: Color32::from_rgb(0xff, 0xb4, 0x54),
         net_web: Color32::from_rgba_premultiplied(0xff, 0x9e, 0x3b, 0xd0),
+    };
+
+    pub const CYBERPUNK: PcbTokens = PcbTokens {
+        canvas: Color32::from_rgb(0x0c, 0x0d, 0x14),
+        grid_minor: Color32::from_rgb(0x18, 0x18, 0x26),
+        grid_major: Color32::from_rgb(0x28, 0x24, 0x40),
+        axis_x: Color32::from_rgb(0xa0, 0x20, 0x50),
+        axis_y: Color32::from_rgb(0x00, 0x90, 0x90),
+        text: Color32::from_rgb(0xf0, 0xf0, 0xff),
+        selection: Color32::from_rgb(0x00, 0xf0, 0xff),
+        hover: Color32::from_rgb(0xff, 0x00, 0x7f),
+
+        board_outline: Color32::from_rgb(0x00, 0xf0, 0xff),
+        board_fill: Color32::from_rgba_premultiplied(0x14, 0x10, 0x28, 0x99),
+        part_body: Color32::from_rgb(0x28, 0x1c, 0x42),
+        part_body_line: Color32::from_rgb(0x8a, 0x42, 0xb4),
+        part_text: Color32::from_rgb(0xee, 0xd0, 0xff),
+        pin_default: Color32::from_rgb(0x38, 0xd8, 0xd0),
+        pin_unconnected: Color32::from_rgb(0x60, 0x55, 0x78),
+        pin_highlight_cur_side: Color32::from_rgb(0xff, 0x00, 0x7f),
+        pin_highlight_opp_side: Color32::from_rgb(0x00, 0xf0, 0xff),
+        via_cur_side: Color32::from_rgb(0xff, 0xd0, 0x00),
+        via_opp_side: Color32::from_rgb(0x70, 0x55, 0x18),
+        via_highlight: Color32::from_rgb(0xff, 0x00, 0x7f),
+        net_web: Color32::from_rgba_premultiplied(0xff, 0x00, 0x7f, 0xd0),
     };
 }
 
