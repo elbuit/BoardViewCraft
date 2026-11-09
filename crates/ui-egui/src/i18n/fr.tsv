@@ -68,16 +68,19 @@
 	side_panel.back_to_search	⏴ Recherche
 	side_panel.pins_on_net	Broches sur le réseau :
 	side_panel.vias_on_net	Vias sur le réseau :
+	side_panel.search_parts	Rechercher des composants :
 	side_panel.search_parts_side	Côté :
 	side_panel.search_side_all	Tous
 	side_panel.search_side_top	Haut
 	side_panel.search_side_bottom	Bas
 	side_panel.search_nets	Rechercher des réseaux :
 	side_panel.notes_list	Notes
+	side_panel.tab_parts	Composants
 	side_panel.tab_nets	Réseaux
 	side_panel.tab_notes	Notes
 	side_panel.no_notes	Aucune note enregistrée sur ce circuit
 	side_panel.filter_notes_hint	Filtrer les notes...
+	side_panel.search_parts_hint	Saisir un composant (ex. U1, R*, *12)...
 	side_panel.search_nets_hint	Saisir un réseau (ex. *VCC*, GND, PP3V3*)...
 	side_panel.click_pin_view_net	Cliquez sur une broche ou un via pour voir son réseau.
 	side_panel.click_pin_view_part	Cliquez sur la broche d'un composant pour voir ses détails.

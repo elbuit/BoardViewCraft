@@ -7,7 +7,6 @@
 use crate::i18n::{self, Language};
 use crate::keymap::Action;
 use crate::preferences::Preferences;
-use crate::side_panel::{filter_part_indices, wildcard_match};
 use bvc_core::{Board, Side};
 use egui::{Button, ComboBox, PopupCloseBehavior, RichText, ScrollArea, TextEdit, Ui};
 
@@ -59,6 +58,17 @@ pub struct ToolbarContext<'a> {
     pub selected_net: Option<&'a str>,
 }
 
+/// Positions of the `names` containing `needle`, ignoring case (all of them for an empty needle).
+pub fn filter_names<'a>(names: impl IntoIterator<Item = &'a str>, needle: &str) -> Vec<usize> {
+    let needle = needle.trim().to_lowercase();
+    names
+        .into_iter()
+        .enumerate()
+        .filter(|(_, name)| needle.is_empty() || name.to_lowercase().contains(&needle))
+        .map(|(i, _)| i)
+        .collect()
+}
+
 /// Draws the toolbar row and returns the actions requested this frame. Quick preferences are
 /// edited in place on `prefs` (reported with [`ToolbarAction::PrefsChanged`]).
 pub fn show_toolbar(
@@ -94,8 +104,7 @@ pub fn show_toolbar(
         let part_text = cx.board.zip(cx.selected_part).and_then(|(b, i)| b.parts.get(i)).map_or("", |p| p.name.as_str());
         if let Some(i) = search_combo(ui, "toolbar_parts", has_board, part_text, &mut state.part_filter, lang, |needle| {
             let Some(b) = cx.board else { return Vec::new() };
-            let needle = needle.trim().to_ascii_uppercase();
-            filter_part_indices(b, &needle, None).into_iter().map(|i| (i, b.parts[i].name.as_str())).collect()
+            filter_names(b.parts.iter().map(|p| p.name.as_str()), needle).into_iter().map(|i| (i, b.parts[i].name.as_str())).collect()
         }) {
             actions.push(ToolbarAction::SelectPart(i));
         }
@@ -104,12 +113,8 @@ pub fn show_toolbar(
         let net_text = cx.selected_net.unwrap_or("");
         if let Some(name) = search_combo(ui, "toolbar_nets", has_board, net_text, &mut state.net_filter, lang, |needle| {
             let Some(b) = cx.board else { return Vec::new() };
-            let needle = needle.trim().to_ascii_uppercase();
-            b.nets
-                .keys()
-                .filter(|name| wildcard_match(&needle, &name.to_ascii_uppercase()))
-                .map(|name| (name.as_str(), name.as_str()))
-                .collect()
+            let names: Vec<&str> = b.nets.keys().map(String::as_str).collect();
+            filter_names(names.iter().copied(), needle).into_iter().map(|i| (names[i], names[i])).collect()
         }) {
             actions.push(ToolbarAction::SelectNet(name.to_string()));
         }
@@ -205,6 +210,15 @@ fn search_combo<'a, K>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_is_a_case_insensitive_substring_match() {
+        let names = ["U1", "u12", "R5", "PP3V3_S5"];
+        assert_eq!(filter_names(names, ""), vec![0, 1, 2, 3]);
+        assert_eq!(filter_names(names, "u1"), vec![0, 1]);
+        assert_eq!(filter_names(names, " 3v3 "), vec![3]);
+        assert!(filter_names(names, "zz").is_empty());
+    }
 
     #[test]
     fn toolbar_glyphs_render_with_bundled_fonts() {
