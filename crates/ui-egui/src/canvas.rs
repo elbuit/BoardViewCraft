@@ -697,6 +697,7 @@ pub fn show_canvas(
     selected_net: &mut Option<String>,
     renderer: &mut Renderer,
     prefs: &Preferences,
+    notes_store: Option<&bvc_core::BoardNotesStore>,
     zoom_delta: &mut Option<(Side, f32)>,
 ) -> Response {
     // A stable id per side keeps drag state across frames whatever else is laid out around it.
@@ -1207,10 +1208,18 @@ pub fn show_canvas(
                     let font_size = label_font_size(10.0 + (min_dim - 24.0).max(0.0) * 0.12, 10.0, 28.0);
 
                     let center = vp.world_to_screen(c_rect.center(), rect);
+                    let has_part_note = notes_store.is_some_and(|store| {
+                        store.notes.iter().any(|n| n.target.component_name == part.name && n.target.pin_name.is_none())
+                    });
+                    let label = if has_part_note {
+                        format!("{} 📝", part.name)
+                    } else {
+                        part.name.clone()
+                    };
                     painter.text(
                         center,
                         egui::Align2::CENTER_CENTER,
-                        &part.name,
+                        label,
                         FontId::proportional(font_size),
                         if is_selected {
                             tokens.selection
@@ -1312,10 +1321,20 @@ pub fn show_canvas(
                         tokens.text
                     };
 
+                    let has_pin_note = notes_store.is_some_and(|store| {
+                        let part_name = b.parts.get(pin.part_id).map(|p| p.name.as_str()).unwrap_or("");
+                        store.notes.iter().any(|n| n.target.component_name == part_name && n.target.pin_name.as_deref() == Some(&pin.name))
+                    });
+                    let pin_text = if has_pin_note {
+                        format!("{} 📝", pin.name)
+                    } else {
+                        pin.name.clone()
+                    };
+
                     painter.text(
                         screen_pos,
                         egui::Align2::CENTER_CENTER,
-                        &pin.name,
+                        pin_text,
                         FontId::monospace(font_size),
                         text_color,
                     );

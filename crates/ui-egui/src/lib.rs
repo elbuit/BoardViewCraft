@@ -326,8 +326,8 @@ impl BoardViewApp {
     pub fn open_file_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter_any_case(
-                "All Supported Boardviews (*.cad, *.tvw, *.brd, *.fz, *.pcb, *.bdv, *.asc, *.bv, *.bvr, *.cst, *.gr, *.f2b)",
-                &["cad", "tvw", "brd", "fz", "pcb", "bdv", "asc", "bv", "bvr", "cst", "gr", "f2b"],
+                "All Supported Boardviews (*.cad, *.tvw, *.brd, *.fz, *.pcb, *.bdv, *.asc, *.bv, *.bvr, *.cst, *.gr, *.f2b, *.zip)",
+                &["cad", "tvw", "brd", "fz", "pcb", "bdv", "asc", "bv", "bvr", "cst", "gr", "f2b", "zip"],
             )
             .add_filter_any_case("CAD files (*.cad)", &["cad"])
             .add_filter_any_case("TestView files (*.tvw)", &["tvw"])
@@ -336,6 +336,7 @@ impl BoardViewApp {
             .add_filter_any_case("XZZ PCB files (*.pcb)", &["pcb"])
             .add_filter_any_case("BDV files (*.bdv)", &["bdv"])
             .add_filter_any_case("ASC files (*.asc)", &["asc"])
+            .add_filter_any_case("ZIP archives (*.zip)", &["zip"])
             .add_filter_any_case("Other Boardviews (*.bv, *.bvr, *.cst, *.gr, *.f2b)", &["bv", "bvr", "cst", "gr", "f2b"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
@@ -990,6 +991,7 @@ impl BoardViewApp {
                 &mut self.selected_net,
                 &mut self.renderer,
                 &self.preferences,
+                Some(&self.notes_store),
                 &mut zoom_delta,
             );
             if !is_active && canvas::activates_canvas(response.clicked(), response.secondary_clicked(), response.drag_started()) {
@@ -1443,12 +1445,12 @@ impl eframe::App for BoardViewApp {
             ui.add_space(2.0);
         });
 
-        // Right side details / search panel
+        // Left side details / search panel
         let mut on_load_photo: Option<Side> = None;
         let overlay_side = self.overlay_side();
         let cur_rotation_rad = self.canvases.rotation().angle_rad();
         let (cur_sx, cur_sy) = self.canvases.side(overlay_side).viewport.effective_factors();
-        Panel::right("side_panel")
+        Panel::left("side_panel")
             .resizable(true)
             .default_size(320.0)
             .size_range(240.0..=500.0)

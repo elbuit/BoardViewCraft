@@ -7,10 +7,20 @@ use crate::theme::Tokens;
 use bvc_core::{Board, Point, Side};
 use egui::{Button, Color32, DragValue, RichText, ScrollArea, Slider, TextEdit, Ui};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SearchSubTab {
+    #[default]
+    Parts,
+    Nets,
+    Notes,
+}
+
 #[derive(Default)]
 pub struct SidePanelState {
     pub filter_part: String,
     pub filter_net: String,
+    pub filter_notes: String,
+    pub search_tab: SearchSubTab,
     /// Quick component prefix filter (e.g. "U", "R", "C", "Q", "D", "L", "F", "J").
     pub selected_prefix: Option<&'static str>,
     /// Photo overlay adjustment is in progress: the panel shows the overlay view
@@ -598,129 +608,259 @@ pub fn show_side_panel(
             }
         }
         Tab::Search => {
-            ui.label(RichText::new(i18n::tr(lang, "side_panel.search_parts")).strong());
-            let part_input = ui.add(
-                TextEdit::singleline(&mut state.filter_part)
-                    .hint_text(i18n::tr(lang, "side_panel.search_parts_hint")),
-            );
-            part_input.context_menu(|ui| {
-                if ui.button(i18n::tr(lang, "context_menu.paste")).clicked() {
-                    if let Some(text) = get_clipboard_text() {
-                        let text = text.replace("\r\n", "\n").replace('\n', " ");
-                        state.filter_part.push_str(text.trim());
-                    } else {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                    }
-                    ui.close();
+            // Sub-tabs: Components, Nets, Notes
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
+                let parts_active = state.search_tab == SearchSubTab::Parts;
+                let nets_active = state.search_tab == SearchSubTab::Nets;
+                let notes_active = state.search_tab == SearchSubTab::Notes;
+
+                let notes_count = notes_store.notes.len();
+                let notes_label = if notes_count > 0 {
+                    format!("📝 {} ({})", i18n::tr(lang, "side_panel.tab_notes"), notes_count)
+                } else {
+                    format!("📝 {}", i18n::tr(lang, "side_panel.tab_notes"))
+                };
+
+                if ui.selectable_label(parts_active, format!("🔍 {}", i18n::tr(lang, "side_panel.tab_parts"))).clicked() {
+                    state.search_tab = SearchSubTab::Parts;
                 }
-                if !state.filter_part.is_empty() && ui.button(i18n::tr(lang, "context_menu.clear")).clicked() {
-                    state.filter_part.clear();
-                    ui.close();
+                if ui.selectable_label(nets_active, format!("🌐 {}", i18n::tr(lang, "side_panel.tab_nets"))).clicked() {
+                    state.search_tab = SearchSubTab::Nets;
+                }
+                if ui.selectable_label(notes_active, notes_label).clicked() {
+                    state.search_tab = SearchSubTab::Notes;
                 }
             });
-
-            // Quick prefix filter chips: All, U, R, C, Q, D, L, F, J
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
-                let all_selected = state.selected_prefix.is_none();
-                if ui.selectable_label(all_selected, "All").clicked() {
-                    state.selected_prefix = None;
-                }
-                const PREFIXES: [&str; 8] = ["U", "R", "C", "Q", "D", "L", "F", "J"];
-                for &pfx in &PREFIXES {
-                    let is_active = state.selected_prefix == Some(pfx);
-                    if ui.selectable_label(is_active, pfx).clicked() {
-                        state.selected_prefix = if is_active { None } else { Some(pfx) };
-                    }
-                }
-            });
-
-            let row_height = ui.spacing().interact_size.y;
-            let part_matches = state.search.parts(b, &state.filter_part, state.selected_prefix);
-            let mut clicked_part = None;
-            ScrollArea::vertical()
-                .id_salt("search_parts_scroll")
-                .max_height(200.0)
-                .show_rows(ui, row_height, part_matches.len(), |ui, row_range| {
-                    for &idx in &part_matches[row_range] {
-                        let Some(part) = b.parts.get(idx) else { continue };
-                        let is_selected = *selected_part_idx == Some(part.id);
-                        let response = ui.selectable_label(is_selected, format!("{} ({:?})", part.name, part.side));
-                        if response.clicked() {
-                            clicked_part = Some(part.id);
-                        }
-                        response.context_menu(|ui| {
-                            if ui.button(i18n::tr(lang, "context_menu.copy_part_name")).clicked() {
-                                ui.ctx().copy_text(part.name.clone());
-                                ui.close();
-                            }
-                            if ui.button(i18n::tr(lang, "context_menu.copy_part_details")).clicked() {
-                                let tsv = export_part_details_tsv(b, part);
-                                ui.ctx().copy_text(tsv);
-                                ui.close();
-                            }
-                        });
-                    }
-                });
-            if let Some(part_id) = clicked_part {
-                select_part_only(part_id, selected_pin_idx, selected_via_idx, selected_part_idx, selected_net);
-                state.focus_part = Some(part_id);
-            }
-
             ui.separator();
-            ui.label(RichText::new(i18n::tr(lang, "side_panel.search_nets")).strong());
-            let net_input = ui.add(
-                TextEdit::singleline(&mut state.filter_net)
-                    .hint_text(i18n::tr(lang, "side_panel.search_nets_hint")),
-            );
-            net_input.context_menu(|ui| {
-                if ui.button(i18n::tr(lang, "context_menu.paste")).clicked() {
-                    if let Some(text) = get_clipboard_text() {
-                        let text = text.replace("\r\n", "\n").replace('\n', " ");
-                        state.filter_net.push_str(text.trim());
-                    } else {
-                        ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                    }
-                    ui.close();
-                }
-                if !state.filter_net.is_empty() && ui.button(i18n::tr(lang, "context_menu.clear")).clicked() {
-                    state.filter_net.clear();
-                    ui.close();
-                }
-            });
 
-            let row_height = ui.spacing().interact_size.y;
-            let net_matches = state.search.nets(b, &state.filter_net);
-            ScrollArea::vertical()
-                .id_salt("search_nets_scroll")
-                .show_rows(ui, row_height, net_matches.len(), |ui, row_range| {
-                    for name in &net_matches[row_range] {
-                        let Some(net) = b.nets.get(name) else { continue };
-                        let is_selected = selected_net.as_deref() == Some(name.as_str());
-                        let response = ui.selectable_label(
-                            is_selected,
-                            format!("{} ({} pins)", name, net.pin_indices.len()),
-                        );
-                        if response.clicked() {
-                            *selected_net = Some(name.clone());
-                            *selected_pin_idx = net.pin_indices.first().copied();
-                            if let Some(p_idx) = *selected_pin_idx {
-                                *selected_part_idx = b.pins.get(p_idx).map(|p| p.part_id);
+            match state.search_tab {
+                SearchSubTab::Parts => {
+                    ui.label(RichText::new(i18n::tr(lang, "side_panel.search_parts")).strong());
+                    let part_input = ui.add(
+                        TextEdit::singleline(&mut state.filter_part)
+                            .hint_text(i18n::tr(lang, "side_panel.search_parts_hint")),
+                    );
+                    part_input.context_menu(|ui| {
+                        if ui.button(i18n::tr(lang, "context_menu.paste")).clicked() {
+                            if let Some(text) = get_clipboard_text() {
+                                let text = text.replace("\r\n", "\n").replace('\n', " ");
+                                state.filter_part.push_str(text.trim());
+                            } else {
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                            }
+                            ui.close();
+                        }
+                        if !state.filter_part.is_empty() && ui.button(i18n::tr(lang, "context_menu.clear")).clicked() {
+                            state.filter_part.clear();
+                            ui.close();
+                        }
+                    });
+
+                    // Quick prefix filter chips: All, U, R, C, Q, D, L, F, J
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
+                        let all_selected = state.selected_prefix.is_none();
+                        if ui.selectable_label(all_selected, "All").clicked() {
+                            state.selected_prefix = None;
+                        }
+                        const PREFIXES: [&str; 8] = ["U", "R", "C", "Q", "D", "L", "F", "J"];
+                        for &pfx in &PREFIXES {
+                            let is_active = state.selected_prefix == Some(pfx);
+                            if ui.selectable_label(is_active, pfx).clicked() {
+                                state.selected_prefix = if is_active { None } else { Some(pfx) };
                             }
                         }
-                        response.context_menu(|ui| {
-                            if ui.button(i18n::tr(lang, "context_menu.copy_net")).clicked() {
-                                ui.ctx().copy_text(name.clone());
-                                ui.close();
-                            }
-                            if ui.button(i18n::tr(lang, "context_menu.copy_net_details")).clicked() {
-                                let tsv = export_net_details_tsv(b, name);
-                                ui.ctx().copy_text(tsv);
-                                ui.close();
+                    });
+
+                    let row_height = ui.spacing().interact_size.y;
+                    let part_matches = state.search.parts(b, &state.filter_part, state.selected_prefix);
+                    let mut clicked_part = None;
+                    ScrollArea::vertical()
+                        .id_salt("search_parts_scroll")
+                        .max_height(340.0)
+                        .show_rows(ui, row_height, part_matches.len(), |ui, row_range| {
+                            for &idx in &part_matches[row_range] {
+                                let Some(part) = b.parts.get(idx) else { continue };
+                                let is_selected = *selected_part_idx == Some(part.id);
+                                let has_note = notes_store.notes.iter().any(|n| n.target.component_name == part.name);
+                                let note_badge = if has_note { " 📝" } else { "" };
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    format!("{} ({:?}){}", part.name, part.side, note_badge),
+                                );
+                                if response.clicked() {
+                                    clicked_part = Some(part.id);
+                                }
+                                response.context_menu(|ui| {
+                                    if ui.button(i18n::tr(lang, "context_menu.copy_part_name")).clicked() {
+                                        ui.ctx().copy_text(part.name.clone());
+                                        ui.close();
+                                    }
+                                    if ui.button(i18n::tr(lang, "context_menu.copy_part_details")).clicked() {
+                                        let tsv = export_part_details_tsv(b, part);
+                                        ui.ctx().copy_text(tsv);
+                                        ui.close();
+                                    }
+                                });
                             }
                         });
+                    if let Some(part_id) = clicked_part {
+                        select_part_only(part_id, selected_pin_idx, selected_via_idx, selected_part_idx, selected_net);
+                        state.focus_part = Some(part_id);
                     }
-                });
+                }
+                SearchSubTab::Nets => {
+                    ui.label(RichText::new(i18n::tr(lang, "side_panel.search_nets")).strong());
+                    let net_input = ui.add(
+                        TextEdit::singleline(&mut state.filter_net)
+                            .hint_text(i18n::tr(lang, "side_panel.search_nets_hint")),
+                    );
+                    net_input.context_menu(|ui| {
+                        if ui.button(i18n::tr(lang, "context_menu.paste")).clicked() {
+                            if let Some(text) = get_clipboard_text() {
+                                let text = text.replace("\r\n", "\n").replace('\n', " ");
+                                state.filter_net.push_str(text.trim());
+                            } else {
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                            }
+                            ui.close();
+                        }
+                        if !state.filter_net.is_empty() && ui.button(i18n::tr(lang, "context_menu.clear")).clicked() {
+                            state.filter_net.clear();
+                            ui.close();
+                        }
+                    });
+
+                    let row_height = ui.spacing().interact_size.y;
+                    let net_matches = state.search.nets(b, &state.filter_net);
+                    ScrollArea::vertical()
+                        .id_salt("search_nets_scroll")
+                        .max_height(340.0)
+                        .show_rows(ui, row_height, net_matches.len(), |ui, row_range| {
+                            for name in &net_matches[row_range] {
+                                let Some(net) = b.nets.get(name) else { continue };
+                                let is_selected = selected_net.as_deref() == Some(name.as_str());
+                                let response = ui.selectable_label(
+                                    is_selected,
+                                    format!("{} ({} pins)", name, net.pin_indices.len()),
+                                );
+                                if response.clicked() {
+                                    *selected_net = Some(name.clone());
+                                    *selected_pin_idx = net.pin_indices.first().copied();
+                                    if let Some(p_idx) = *selected_pin_idx {
+                                        *selected_part_idx = b.pins.get(p_idx).map(|p| p.part_id);
+                                    }
+                                }
+                                response.context_menu(|ui| {
+                                    if ui.button(i18n::tr(lang, "context_menu.copy_net")).clicked() {
+                                        ui.ctx().copy_text(name.clone());
+                                        ui.close();
+                                    }
+                                    if ui.button(i18n::tr(lang, "context_menu.copy_net_details")).clicked() {
+                                        let tsv = export_net_details_tsv(b, name);
+                                        ui.ctx().copy_text(tsv);
+                                        ui.close();
+                                    }
+                                });
+                            }
+                        });
+                }
+                SearchSubTab::Notes => {
+                    ui.label(RichText::new(i18n::tr(lang, "side_panel.notes_list")).strong());
+                    ui.add(
+                        TextEdit::singleline(&mut state.filter_notes)
+                            .hint_text(i18n::tr(lang, "side_panel.filter_notes_hint")),
+                    );
+
+                    let filter_lower = state.filter_notes.trim().to_ascii_lowercase();
+                    let matching_notes: Vec<_> = notes_store
+                        .notes
+                        .iter()
+                        .filter(|note| {
+                            if filter_lower.is_empty() {
+                                return true;
+                            }
+                            let label = note.target.display_label().to_ascii_lowercase();
+                            let text = note.text.to_ascii_lowercase();
+                            label.contains(&filter_lower) || text.contains(&filter_lower)
+                        })
+                        .collect();
+
+                    if matching_notes.is_empty() {
+                        ui.add_space(8.0);
+                        ui.label(RichText::new(i18n::tr(lang, "side_panel.no_notes")).color(tokens.text_dim()).italics());
+                    } else {
+                        let mut target_to_select = None;
+                        ScrollArea::vertical()
+                            .id_salt("search_notes_scroll")
+                            .max_height(340.0)
+                            .show(ui, |ui| {
+                                for note in matching_notes {
+                                    let target_label = note.target.display_label();
+                                    let icon = if note.target.pin_name.is_some() { "📌" } else { "📦" };
+                                    let mut summary_parts = Vec::new();
+                                    if let Some(ref v) = note.measurements.voltage {
+                                        summary_parts.push(v.as_str());
+                                    }
+                                    if let Some(ref r) = note.measurements.resistance {
+                                        summary_parts.push(r.as_str());
+                                    }
+                                    if let Some(ref d) = note.measurements.diode_drop {
+                                        summary_parts.push(d.as_str());
+                                    }
+                                    let meas_str = if summary_parts.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(" [{}]", summary_parts.join(", "))
+                                    };
+
+                                    let header = format!("{icon} {target_label}{meas_str}");
+                                    let is_active = state.note_active_target.as_ref() == Some(&note.target);
+                                    let resp = ui.selectable_label(is_active, RichText::new(header).strong());
+                                    if !note.text.is_empty() {
+                                        ui.label(RichText::new(&note.text).color(tokens.text_dim()).small());
+                                    }
+                                    ui.add_space(2.0);
+
+                                    if resp.clicked() {
+                                        target_to_select = Some(note.target.clone());
+                                    }
+                                }
+                            });
+
+                        if let Some(target) = target_to_select {
+                            if let Some(part) = b.parts.iter().find(|p| p.name == target.component_name) {
+                                let part_id = part.id;
+                                if let Some(ref pin_name) = target.pin_name {
+                                    let pin_opt = part.pin_indices.iter().find_map(|&pidx| {
+                                        b.pins.get(pidx).filter(|pin| &pin.name == pin_name).map(|pin| (pidx, pin))
+                                    });
+                                    if let Some((pidx, pin)) = pin_opt {
+                                        *selected_pin_idx = Some(pidx);
+                                        *selected_via_idx = None;
+                                        *selected_part_idx = Some(part_id);
+                                        *selected_net = if pin.net_name.is_empty() {
+                                            None
+                                        } else {
+                                            Some(pin.net_name.clone())
+                                        };
+                                        state.stay_on_part = Some(part_id);
+                                        state.note_target_is_pin = Some(true);
+                                    } else {
+                                        select_part_only(part_id, selected_pin_idx, selected_via_idx, selected_part_idx, selected_net);
+                                        state.note_target_is_pin = Some(false);
+                                    }
+                                } else {
+                                    select_part_only(part_id, selected_pin_idx, selected_via_idx, selected_part_idx, selected_net);
+                                    state.note_target_is_pin = Some(false);
+                                }
+                                state.focus_part = Some(part_id);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

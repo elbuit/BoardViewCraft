@@ -74,6 +74,12 @@
 	side_panel.search_side_top	Top
 	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Cercar Xarxes:
+	side_panel.notes_list	Notes
+	side_panel.tab_parts	Components
+	side_panel.tab_nets	Xarxes
+	side_panel.tab_notes	Notes
+	side_panel.no_notes	Cap nota registrada en aquesta placa
+	side_panel.filter_notes_hint	Filtrar notes...
 	side_panel.search_parts_hint	Escriure component (ex. U1, R*, *12)...
 	side_panel.search_nets_hint	Escriure xarxa (ex. *VCC*, GND, PP3V3*)...
 	side_panel.click_pin_view_net	Fes clic en un pin o via per veure la seva xarxa.
