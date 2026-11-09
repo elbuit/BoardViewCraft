@@ -26,18 +26,18 @@ arboard = "3.7"
 rfd = "0.17"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp"] }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
-pdfcraft-render = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b", version = "0.18.1" }
+pdfcraft-render = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37", version = "0.18.1" }
 
 [patch.crates-io]
-hayro-interpret = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-hayro = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-hayro-syntax = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-hayro-cmap = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-hayro-postscript = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-hayro-jbig2 = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-lopdf = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-vello_common = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
-vello_cpu = { git = "https://github.com/storytold/pdfcraft", rev = "04cee34b" }
+hayro-interpret = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+hayro = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+hayro-syntax = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+hayro-cmap = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+hayro-postscript = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+hayro-jbig2 = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+lopdf = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+vello_common = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
+vello_cpu = { git = "https://github.com/storytold/pdfcraft", rev = "a1ea2d37" }
 
 # Build profiles adopted from pdfcraft: dependencies (PDF engine, tessellation) are optimised even in
 # dev builds so `cargo run` stays usable; release uses thin LTO and one codegen unit.
