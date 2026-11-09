@@ -251,3 +251,6 @@
 	toolbar.quick_prefs	Schnelle Ansichtsoptionen
 	shortcut.nav_back	Zurück (Auswahlverlauf)
 	shortcut.nav_forward	Vor (Auswahlverlauf)
+	prefs.side_panel_position	Seitenleiste:
+	prefs.side_panel_left	Links
+	prefs.side_panel_right	Rechts

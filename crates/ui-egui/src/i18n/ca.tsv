@@ -251,3 +251,6 @@
 	toolbar.quick_prefs	Opcions ràpides de vista
 	shortcut.nav_back	Tornar enrere (historial de selecció)
 	shortcut.nav_forward	Avançar (historial de selecció)
+	prefs.side_panel_position	Panell lateral:
+	prefs.side_panel_left	Esquerra
+	prefs.side_panel_right	Dreta

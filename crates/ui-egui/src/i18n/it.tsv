@@ -251,3 +251,6 @@
 	toolbar.quick_prefs	Opzioni di vista rapide
 	shortcut.nav_back	Indietro (cronologia selezione)
 	shortcut.nav_forward	Avanti (cronologia selezione)
+	prefs.side_panel_position	Pannello laterale:
+	prefs.side_panel_left	Sinistra
+	prefs.side_panel_right	Destra

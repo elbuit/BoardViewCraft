@@ -1595,12 +1595,17 @@ impl eframe::App for BoardViewApp {
             ui.add_space(2.0);
         });
 
-        // Left side details / search panel
+        // Side details / search panel (left or right, per preferences)
         let mut on_load_photo: Option<Side> = None;
         let overlay_side = self.overlay_side();
         let cur_rotation_rad = self.canvases.rotation().angle_rad();
         let (cur_sx, cur_sy) = self.canvases.side(overlay_side).viewport.effective_factors();
-        Panel::left("side_panel")
+        let side_panel = if self.preferences.side_panel_left {
+            Panel::left("side_panel")
+        } else {
+            Panel::right("side_panel")
+        };
+        side_panel
             .resizable(true)
             .default_size(320.0)
             .size_range(240.0..=500.0)

@@ -126,6 +126,9 @@ pub struct Preferences {
     /// Whether zoom between PCB canvases (Top/Bottom) is locked/synchronized.
     #[serde(default)]
     pub lock_zoom: bool,
+    /// Side panel docked on the left (true) or on the right (false) of the window.
+    #[serde(default = "default_true")]
+    pub side_panel_left: bool,
     /// Keyboard shortcuts; missing or invalid entries fall back to the default keys.
     #[serde(default)]
     pub keymap: Keymap,
@@ -159,6 +162,7 @@ impl Default for Preferences {
             pane_first: PaneContent::Top,
             pane_second: PaneContent::Pdf,
             lock_zoom: false,
+            side_panel_left: true,
             keymap: Keymap::default(),
         }
     }
@@ -446,6 +450,22 @@ pub fn show_preferences_window(
                     ui.add_space(8.0);
                     ui.heading(RichText::new(i18n::tr(lang, "prefs.appearance")).color(tokens.text()));
                     ui.separator();
+
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(i18n::tr(lang, "prefs.side_panel_position")).strong().color(tokens.text()));
+                        if ui
+                            .selectable_value(&mut prefs.side_panel_left, true, i18n::tr(lang, "prefs.side_panel_left"))
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                        if ui
+                            .selectable_value(&mut prefs.side_panel_left, false, i18n::tr(lang, "prefs.side_panel_right"))
+                            .clicked()
+                        {
+                            changed = true;
+                        }
+                    });
 
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(i18n::tr(lang, "prefs.app_theme")).strong().color(tokens.text()));
@@ -830,6 +850,7 @@ mod tests {
             pane_first: PaneContent::Both,
             pane_second: PaneContent::Pdf,
             lock_zoom: true,
+            side_panel_left: false,
             keymap: Keymap::default(),
         };
 

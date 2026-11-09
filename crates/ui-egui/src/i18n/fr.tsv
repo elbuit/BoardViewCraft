@@ -251,3 +251,6 @@
 	toolbar.quick_prefs	Options d'affichage rapides
 	shortcut.nav_back	Revenir (historique de sélection)
 	shortcut.nav_forward	Avancer (historique de sélection)
+	prefs.side_panel_position	Panneau latéral :
+	prefs.side_panel_left	Gauche
+	prefs.side_panel_right	Droite
