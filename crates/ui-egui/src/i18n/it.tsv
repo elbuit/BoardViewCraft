@@ -68,19 +68,16 @@
 	side_panel.back_to_search	⏴ Cerca
 	side_panel.pins_on_net	Pin sulla rete:
 	side_panel.vias_on_net	Via sulla rete:
-	side_panel.search_parts	Cerca componenti:
 	side_panel.search_parts_side	Lato:
 	side_panel.search_side_all	Tutti
 	side_panel.search_side_top	Top
 	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Cerca reti:
 	side_panel.notes_list	Note
-	side_panel.tab_parts	Componenti
 	side_panel.tab_nets	Reti
 	side_panel.tab_notes	Note
 	side_panel.no_notes	Nessuna nota registrata su questa scheda
 	side_panel.filter_notes_hint	Filtra note...
-	side_panel.search_parts_hint	Digita componente (es. U1, R*, *12)...
 	side_panel.search_nets_hint	Digita rete (es. *VCC*, GND, PP3V3*)...
 	side_panel.click_pin_view_net	Fai clic su un pin o via per visualizzare la sua rete.
 	side_panel.click_pin_view_part	Fai clic sul pin di un componente per i dettagli.

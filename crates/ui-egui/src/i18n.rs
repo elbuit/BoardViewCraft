@@ -269,10 +269,10 @@ mod tests {
     #[test]
     fn test_every_catalog_has_all_keys() {
         let en_cat = get_catalog("en");
-        assert_eq!(en_cat.len(), 252);
+        assert_eq!(en_cat.len(), 249);
         for lang in &["es", "ca", "fr", "de", "it"] {
             let cat = get_catalog(lang);
-            assert_eq!(cat.len(), 252, "Catalog {lang} missing entries");
+            assert_eq!(cat.len(), 249, "Catalog {lang} missing entries");
             for key in en_cat.keys() {
                 assert!(cat.contains_key(key), "Catalog {lang} missing key: {key}");
             }

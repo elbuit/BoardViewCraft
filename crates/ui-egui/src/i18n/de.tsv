@@ -68,19 +68,16 @@
 	side_panel.back_to_search	⏴ Suche
 	side_panel.pins_on_net	Pins im Netz:
 	side_panel.vias_on_net	Vias im Netz:
-	side_panel.search_parts	Bauteile suchen:
 	side_panel.search_parts_side	Seite:
 	side_panel.search_side_all	Alle
 	side_panel.search_side_top	Top
 	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Netze suchen:
 	side_panel.notes_list	Notizen
-	side_panel.tab_parts	Bauteile
 	side_panel.tab_nets	Netze
 	side_panel.tab_notes	Notizen
 	side_panel.no_notes	Keine Notizen für diese Platine
 	side_panel.filter_notes_hint	Notizen filtern...
-	side_panel.search_parts_hint	Bauteil eingeben (z. B. U1, R*, *12)...
 	side_panel.search_nets_hint	Netz eingeben (z. B. *VCC*, GND, PP3V3*)...
 	side_panel.click_pin_view_net	Klicken Sie auf einen Pin oder ein Via, um das Netz anzuzeigen.
 	side_panel.click_pin_view_part	Klicken Sie auf einen Bauteil-Pin für Details.

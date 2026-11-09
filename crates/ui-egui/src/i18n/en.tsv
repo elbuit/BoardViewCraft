@@ -68,19 +68,16 @@
 	side_panel.back_to_search	⏴ Search
 	side_panel.pins_on_net	Pins on Net:
 	side_panel.vias_on_net	Vias on Net:
-	side_panel.search_parts	Search Parts:
 	side_panel.search_parts_side	Side:
 	side_panel.search_side_all	All
 	side_panel.search_side_top	Top
 	side_panel.search_side_bottom	Bottom
 	side_panel.search_nets	Search Nets:
 	side_panel.notes_list	Notes
-	side_panel.tab_parts	Parts
 	side_panel.tab_nets	Nets
 	side_panel.tab_notes	Notes
 	side_panel.no_notes	No notes recorded for this board
 	side_panel.filter_notes_hint	Filter notes...
-	side_panel.search_parts_hint	Type part name (e.g. U1, R*, *12)...
 	side_panel.search_nets_hint	Type net name (e.g. *VCC*, GND, PP3V3*)...
 	side_panel.click_pin_view_net	Click a pin or via to view its net.
 	side_panel.click_pin_view_part	Click a component pin to view part details.

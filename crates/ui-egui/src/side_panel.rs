@@ -10,19 +10,15 @@ use egui::{Button, Color32, DragValue, RichText, ScrollArea, Slider, TextEdit, U
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchSubTab {
     #[default]
-    Parts,
     Nets,
     Notes,
 }
 
 #[derive(Default)]
 pub struct SidePanelState {
-    pub filter_part: String,
     pub filter_net: String,
     pub filter_notes: String,
     pub search_tab: SearchSubTab,
-    /// Quick component prefix filter (e.g. "U", "R", "C", "Q", "D", "L", "F", "J").
-    pub selected_prefix: Option<&'static str>,
     /// Photo overlay adjustment is in progress: the panel shows the overlay view
     /// (and the canvas manipulates the photo) until the user presses "Done".
     pub overlay_editing: bool,
@@ -56,14 +52,13 @@ fn get_clipboard_text() -> Option<String> {
     arboard::Clipboard::new().ok().and_then(|mut cb| cb.get_text().ok())
 }
 
-/// Cached results of the part and net search lists.
+/// Cached results of the net search list.
 ///
 /// The lists are virtualised (only visible rows are laid out), so the per-frame cost
 /// no longer grows with the number of parts and nets; the filtering itself only runs
 /// when the filter text or the board changes.
 #[derive(Default)]
 pub struct SearchCache {
-    parts: Option<(BoardStamp, String, Option<&'static str>, Vec<usize>)>,
     nets: Option<(BoardStamp, String, Vec<String>)>,
     /// Number of times the match lists were recomputed (for tests).
     pub recomputes: usize,
@@ -72,20 +67,7 @@ pub struct SearchCache {
 impl SearchCache {
     /// Forgets cached matches (e.g. after a board is opened or closed).
     pub fn invalidate(&mut self) {
-        self.parts = None;
         self.nets = None;
-    }
-
-    /// Indices of the parts matching `filter` and optional `prefix`, in board order.
-    pub fn parts(&mut self, b: &Board, filter: &str, prefix: Option<&'static str>) -> &[usize] {
-        let stamp = board_stamp(b);
-        let needle = filter.trim().to_ascii_uppercase();
-        let fresh = matches!(&self.parts, Some((s, n, p, _)) if *s == stamp && *n == needle && *p == prefix);
-        if !fresh {
-            self.recomputes += 1;
-            self.parts = Some((stamp, needle.clone(), prefix, filter_part_indices(b, &needle, prefix)));
-        }
-        self.parts.as_ref().map(|(_, _, _, v)| v.as_slice()).unwrap_or_default()
     }
 
     /// Names of the nets matching `filter`, in name order.
@@ -625,10 +607,9 @@ pub fn show_side_panel(
             }
         }
         Tab::Search => {
-            // Sub-tabs: Components, Nets, Notes
+            // Sub-tabs: Nets, Notes (parts are searched from the toolbar)
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 0.0);
-                let parts_active = state.search_tab == SearchSubTab::Parts;
                 let nets_active = state.search_tab == SearchSubTab::Nets;
                 let notes_active = state.search_tab == SearchSubTab::Notes;
 
@@ -639,9 +620,6 @@ pub fn show_side_panel(
                     format!("📝 {}", i18n::tr(lang, "side_panel.tab_notes"))
                 };
 
-                if ui.selectable_label(parts_active, format!("🔍 {}", i18n::tr(lang, "side_panel.tab_parts"))).clicked() {
-                    state.search_tab = SearchSubTab::Parts;
-                }
                 if ui.selectable_label(nets_active, format!("🌐 {}", i18n::tr(lang, "side_panel.tab_nets"))).clicked() {
                     state.search_tab = SearchSubTab::Nets;
                 }
@@ -652,81 +630,6 @@ pub fn show_side_panel(
             ui.separator();
 
             match state.search_tab {
-                SearchSubTab::Parts => {
-                    ui.label(RichText::new(i18n::tr(lang, "side_panel.search_parts")).strong());
-                    let part_input = ui.add(
-                        TextEdit::singleline(&mut state.filter_part)
-                            .hint_text(i18n::tr(lang, "side_panel.search_parts_hint")),
-                    );
-                    part_input.context_menu(|ui| {
-                        if ui.button(i18n::tr(lang, "context_menu.paste")).clicked() {
-                            if let Some(text) = get_clipboard_text() {
-                                let text = text.replace("\r\n", "\n").replace('\n', " ");
-                                state.filter_part.push_str(text.trim());
-                            } else {
-                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-                            }
-                            ui.close();
-                        }
-                        if !state.filter_part.is_empty() && ui.button(i18n::tr(lang, "context_menu.clear")).clicked() {
-                            state.filter_part.clear();
-                            ui.close();
-                        }
-                    });
-
-                    // Quick prefix filter chips: All, U, R, C, Q, D, L, F, J
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing = egui::vec2(3.0, 3.0);
-                        let all_selected = state.selected_prefix.is_none();
-                        if ui.selectable_label(all_selected, "All").clicked() {
-                            state.selected_prefix = None;
-                        }
-                        const PREFIXES: [&str; 8] = ["U", "R", "C", "Q", "D", "L", "F", "J"];
-                        for &pfx in &PREFIXES {
-                            let is_active = state.selected_prefix == Some(pfx);
-                            if ui.selectable_label(is_active, pfx).clicked() {
-                                state.selected_prefix = if is_active { None } else { Some(pfx) };
-                            }
-                        }
-                    });
-
-                    let row_height = ui.spacing().interact_size.y;
-                    let part_matches = state.search.parts(b, &state.filter_part, state.selected_prefix);
-                    let mut clicked_part = None;
-                    ScrollArea::vertical()
-                        .id_salt("search_parts_scroll")
-                        .max_height(340.0)
-                        .show_rows(ui, row_height, part_matches.len(), |ui, row_range| {
-                            for &idx in &part_matches[row_range] {
-                                let Some(part) = b.parts.get(idx) else { continue };
-                                let is_selected = *selected_part_idx == Some(part.id);
-                                let has_note = notes_store.notes.iter().any(|n| n.target.component_name == part.name);
-                                let note_badge = if has_note { " 📝" } else { "" };
-                                let response = ui.selectable_label(
-                                    is_selected,
-                                    format!("{} ({:?}){}", part.name, part.side, note_badge),
-                                );
-                                if response.clicked() {
-                                    clicked_part = Some(part.id);
-                                }
-                                response.context_menu(|ui| {
-                                    if ui.button(i18n::tr(lang, "context_menu.copy_part_name")).clicked() {
-                                        ui.ctx().copy_text(part.name.clone());
-                                        ui.close();
-                                    }
-                                    if ui.button(i18n::tr(lang, "context_menu.copy_part_details")).clicked() {
-                                        let tsv = export_part_details_tsv(b, part);
-                                        ui.ctx().copy_text(tsv);
-                                        ui.close();
-                                    }
-                                });
-                            }
-                        });
-                    if let Some(part_id) = clicked_part {
-                        select_part_only(part_id, selected_pin_idx, selected_via_idx, selected_part_idx, selected_net);
-                        state.focus_part = Some(part_id);
-                    }
-                }
                 SearchSubTab::Nets => {
                     ui.label(RichText::new(i18n::tr(lang, "side_panel.search_nets")).strong());
                     let net_input = ui.add(
@@ -1302,21 +1205,17 @@ mod tests {
     fn search_cache_recomputes_only_on_change() {
         let b = search_board();
         let mut cache = SearchCache::default();
-        assert_eq!(cache.parts(&b, "r", None), &[1, 3]);
         assert_eq!(cache.nets(&b, ""), &["GND", "PCIE_RX0", "VCC"]);
-        assert_eq!(cache.recomputes, 2);
+        assert_eq!(cache.recomputes, 1);
         for _ in 0..10 {
-            cache.parts(&b, " r ", None);
-            cache.nets(&b, "");
+            cache.nets(&b, " ");
         }
-        assert_eq!(cache.recomputes, 2, "idle frames reuse the cached matches");
-        assert_eq!(cache.parts(&b, "r", Some("R")), &[1, 3]);
-        assert_eq!(cache.recomputes, 3);
-        assert_eq!(cache.parts(&b, "u", None), &[0]);
-        assert_eq!(cache.recomputes, 4);
+        assert_eq!(cache.recomputes, 1, "idle frames reuse the cached matches");
+        assert_eq!(cache.nets(&b, "vcc"), &["VCC"]);
+        assert_eq!(cache.recomputes, 2);
         cache.invalidate();
         cache.nets(&b, "");
-        assert_eq!(cache.recomputes, 5);
+        assert_eq!(cache.recomputes, 3);
     }
 
     #[test]

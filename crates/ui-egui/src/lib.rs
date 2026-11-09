@@ -2003,7 +2003,7 @@ mod focus_tests {
         app.selected_via_idx = Some(2);
         app.selected_part_idx = Some(3);
         app.selected_net = Some("GND".to_string());
-        app.side_panel_state.filter_part = "U1".to_string();
+        app.side_panel_state.filter_net = "GND".to_string();
         app.side_panel_state.overlay_editing = true;
         app.side_panel_state.stay_on_part = Some(3);
         app.pdf_viewer.path = Some(std::path::PathBuf::from("/boards/MS-V375.pdf"));
@@ -2016,7 +2016,7 @@ mod focus_tests {
         assert!(app.selected_pin_idx.is_none() && app.selected_via_idx.is_none());
         assert!(app.selected_part_idx.is_none() && app.selected_net.is_none());
         assert!(!app.side_panel_state.overlay_editing && app.side_panel_state.stay_on_part.is_none());
-        assert_eq!(app.side_panel_state.filter_part, "U1", "search filters are kept");
+        assert_eq!(app.side_panel_state.filter_net, "GND", "search filters are kept");
         assert!(!app.pdf_viewer.is_loaded() && app.pdf_viewer.path.is_none());
         assert!(app.pending_schematic_prompt.is_none());
         assert!(app.canvases.top.cached_view_key.is_none() && app.canvases.bottom.cached_view_key.is_none());
