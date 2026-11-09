@@ -30,11 +30,13 @@ pub enum Action {
     PanRight,
     TogglePreferences,
     Measure,
+    NavBack,
+    NavForward,
 }
 
 impl Action {
     /// Every action, in display order.
-    pub const ALL: [Action; 14] = [
+    pub const ALL: [Action; 16] = [
         Action::RotateCw,
         Action::RotateCcw,
         Action::FlipSide,
@@ -49,6 +51,8 @@ impl Action {
         Action::PanRight,
         Action::TogglePreferences,
         Action::Measure,
+        Action::NavBack,
+        Action::NavForward,
     ];
 
     /// Translation key of the action's label.
@@ -68,6 +72,8 @@ impl Action {
             Action::PanRight => "shortcut.pan_right",
             Action::TogglePreferences => "shortcut.toggle_preferences",
             Action::Measure => "shortcut.measure",
+            Action::NavBack => "shortcut.nav_back",
+            Action::NavForward => "shortcut.nav_forward",
         }
     }
 
@@ -89,6 +95,8 @@ impl Action {
             Action::PanRight => plain(Key::ArrowRight),
             Action::TogglePreferences => vec![Binding::new(Key::Comma, Mods::COMMAND)],
             Action::Measure => plain(Key::Q),
+            Action::NavBack => vec![Binding::new(Key::ArrowLeft, Mods::ALT)],
+            Action::NavForward => vec![Binding::new(Key::ArrowRight, Mods::ALT)],
         }
     }
 }
@@ -106,6 +114,7 @@ impl Mods {
     pub const NONE: Mods = Mods { shift: false, alt: false, command: false };
     pub const SHIFT: Mods = Mods { shift: true, alt: false, command: false };
     pub const COMMAND: Mods = Mods { shift: false, alt: false, command: true };
+    pub const ALT: Mods = Mods { shift: false, alt: true, command: false };
 }
 
 /// One key plus the exact modifiers that must be held.
@@ -371,6 +380,8 @@ mod tests {
             (Action::PanRight, vec![b(Key::ArrowRight, Mods::NONE)]),
             (Action::TogglePreferences, vec![b(Key::Comma, Mods::COMMAND)]),
             (Action::Measure, vec![b(Key::Q, Mods::NONE)]),
+            (Action::NavBack, vec![b(Key::ArrowLeft, Mods::ALT)]),
+            (Action::NavForward, vec![b(Key::ArrowRight, Mods::ALT)]),
         ];
         assert_eq!(expect.len(), Action::ALL.len());
         for (action, bindings) in expect {

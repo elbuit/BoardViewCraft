@@ -6,6 +6,7 @@ mod canvas;
 pub mod file_filter;
 mod i18n;
 pub mod keymap;
+mod nav_history;
 mod overlay;
 pub mod overlay_align;
 pub mod pdf;
@@ -16,12 +17,14 @@ mod preferences;
 mod render;
 mod side_panel;
 mod theme;
+mod toolbar;
 
 use board_tabs::{BoardTab, BothLayout, PaneContent};
 use bvc_core::{Board, ParserRegistry, Point, Side};
 use canvas::{BoardCanvases, show_canvas};
 use file_filter::AddFilterAnyCase;
 use keymap::{Action, Keymap};
+use nav_history::{NavSelection, NavView, Navigation};
 use overlay::OverlayManager;
 use overlay_align::AlignmentSession;
 use preferences::{Preferences, show_preferences_window};
@@ -120,6 +123,11 @@ pub struct BoardViewApp {
 
     // Technician notes and reference measurements
     notes_store: bvc_core::BoardNotesStore,
+
+    /// Back/Forward history of selections and the views they were seen in.
+    nav: Navigation,
+    /// Filter texts of the quick toolbar part/net pickers.
+    toolbar_state: toolbar::ToolbarState,
 }
 
 impl Default for BoardViewApp {
@@ -151,6 +159,8 @@ impl Default for BoardViewApp {
             pending_schematic_prompt: None,
             cad_schematic_viewer: schematic_viewer::CadSchematicViewer::default(),
             notes_store: bvc_core::BoardNotesStore::default(),
+            nav: Navigation::default(),
+            toolbar_state: toolbar::ToolbarState::default(),
         }
     }
 }
@@ -212,6 +222,7 @@ impl BoardViewApp {
         self.selected_via_idx = None;
         self.selected_part_idx = None;
         self.selected_net = None;
+        self.nav.clear();
         self.side_panel_state.search.invalidate();
         self.pdf_viewer.close();
         self.pending_schematic_prompt = None;
@@ -309,6 +320,7 @@ impl BoardViewApp {
         self.selected_via_idx = None;
         self.selected_part_idx = None;
         self.selected_net = None;
+        self.nav.clear();
         self.pending_auto_fit = false;
         self.canvases.clear_board();
         self.side_panel_state.overlay_editing = false;
@@ -636,6 +648,114 @@ impl BoardViewApp {
         let Some((center, _)) = side_panel::part_focus_target(board, part_id, Side::Both) else { return false };
         self.focus_point(center, part_side, switch_side);
         true
+    }
+
+    fn nav_selection(&self) -> NavSelection {
+        NavSelection {
+            part: self.selected_part_idx,
+            pin: self.selected_pin_idx,
+            via: self.selected_via_idx,
+            net: self.selected_net.clone(),
+        }
+    }
+
+    fn nav_view(&self) -> NavView {
+        let view = |side| {
+            let v = &self.canvases.side(side).viewport;
+            (v.center, v.scale)
+        };
+        NavView { tab: self.tab, active: self.canvases.active, top: view(Side::Top), bottom: view(Side::Bottom) }
+    }
+
+    /// Back (`forward == false`) or Forward in the selection history: restores the selection,
+    /// the board tab/side and both canvas views of that entry.
+    fn navigate(&mut self, forward: bool) -> bool {
+        if self.board.is_none() {
+            return false;
+        }
+        let now = self.nav_view();
+        let Some(entry) = (if forward { self.nav.forward(now) } else { self.nav.back(now) }) else {
+            return false;
+        };
+        let NavSelection { part, pin, via, net } = entry.selection;
+        self.selected_part_idx = part;
+        self.selected_pin_idx = pin;
+        self.selected_via_idx = via;
+        self.selected_net = net;
+        let view = entry.view;
+        // The PDF tab is not a board view: an entry seen there only restores the canvases.
+        if view.tab != self.tab && view.tab != BoardTab::Pdf && self.tab != BoardTab::Pdf {
+            self.set_tab(view.tab);
+        }
+        if self.tab == BoardTab::Split {
+            self.set_split_side(view.active);
+        }
+        self.canvases.active = view.active;
+        for (side, (center, scale)) in [(Side::Top, view.top), (Side::Bottom, view.bottom)] {
+            let viewport = &mut self.canvases.side_mut(side).viewport;
+            viewport.center = center;
+            viewport.scale = scale;
+        }
+        self.canvases.invalidate_caches();
+        true
+    }
+
+    /// Side the Top/Bottom toolbar toggles show as selected.
+    fn toolbar_side(&self) -> Option<Side> {
+        match self.tab {
+            BoardTab::Top => Some(Side::Top),
+            BoardTab::Bottom => Some(Side::Bottom),
+            BoardTab::Split => Some(self.split_side()),
+            BoardTab::Both | BoardTab::Pdf => None,
+        }
+    }
+
+    /// Applies a quick toolbar request through the same paths as the menus and side panel.
+    fn apply_toolbar_action(&mut self, action: toolbar::ToolbarAction, fallback: Rect) {
+        use toolbar::ToolbarAction as T;
+        match action {
+            T::NavBack => {
+                self.navigate(false);
+            }
+            T::NavForward => {
+                self.navigate(true);
+            }
+            T::Fit => {
+                if self.fit_shown_canvases(fallback) {
+                    self.status_msg = "Viewport fitted to PCB bounds.".to_string();
+                }
+            }
+            T::ShowSide(side) => {
+                if self.tab == BoardTab::Split {
+                    self.set_split_side(side);
+                } else {
+                    self.set_tab(BoardTab::for_side(side));
+                }
+                self.canvases.active = side;
+            }
+            T::SelectPart(part_id) => {
+                side_panel::select_part_only(
+                    part_id,
+                    &mut self.selected_pin_idx,
+                    &mut self.selected_via_idx,
+                    &mut self.selected_part_idx,
+                    &mut self.selected_net,
+                );
+                // Centred (switching side when needed) right after the side panel, like its search.
+                self.side_panel_state.focus_part = Some(part_id);
+            }
+            T::SelectNet(name) => {
+                if let Some(board) = &self.board {
+                    side_panel::select_net(board, &name, &mut self.selected_pin_idx, &mut self.selected_part_idx, &mut self.selected_net);
+                }
+            }
+            T::MirrorX => self.canvases.toggle_mirror_x(),
+            T::MirrorY => self.canvases.toggle_mirror_y(),
+            T::PrefsChanged => {
+                self.canvases.invalidate_caches();
+                self.save_prefs_pending = true;
+            }
+        }
     }
 }
 
@@ -1172,6 +1292,11 @@ impl eframe::App for BoardViewApp {
                     }
                     Action::MirrorX => self.canvases.toggle_mirror_x(),
                     Action::MirrorY => self.canvases.toggle_mirror_y(),
+                    Action::NavBack | Action::NavForward => {
+                        if self.navigate(action == Action::NavForward) {
+                            ui.ctx().request_repaint();
+                        }
+                    }
                     Action::FitView if self.fit_shown_canvases(ui.clip_rect()) => {
                         ui.ctx().request_repaint();
                         self.status_msg = "Viewport fitted to PCB bounds.".to_string();
@@ -1422,6 +1547,31 @@ impl eframe::App for BoardViewApp {
                 }
             });
             ui.add_space(3.0);
+        });
+
+        // Quick toolbar row (NexusBV style) under the menu bar
+        Panel::top("quick_toolbar").show(ui, |ui: &mut Ui| {
+            ui.add_space(2.0);
+            let cx = toolbar::ToolbarContext {
+                board: self.board.as_ref(),
+                lang,
+                can_back: self.nav.history.can_back(),
+                can_forward: self.nav.history.can_forward(),
+                current_side: self.toolbar_side(),
+                mirror_x: self.canvases.mirror_x(),
+                mirror_y: self.canvases.mirror_y(),
+                selected_part: self.selected_part_idx,
+                selected_net: self.selected_net.as_deref(),
+            };
+            let actions = toolbar::show_toolbar(ui, &cx, &mut self.toolbar_state, &mut self.preferences);
+            if !actions.is_empty() {
+                let fallback = ui.ctx().content_rect();
+                for action in actions {
+                    self.apply_toolbar_action(action, fallback);
+                }
+                ui.ctx().request_repaint();
+            }
+            ui.add_space(2.0);
         });
 
         // Bottom status bar
@@ -1689,6 +1839,10 @@ impl eframe::App for BoardViewApp {
             self.preferences = prefs;
             self.save_prefs_pending = true;
         }
+        // Every selection change this frame (canvas, side panel, toolbar, schematic) is history.
+        let (selection, view) = (self.nav_selection(), self.nav_view());
+        self.nav.observe(&selection, view);
+
         if std::mem::take(&mut self.save_prefs_pending) {
             let _ = self.preferences.save_atomic();
         }
@@ -1700,8 +1854,17 @@ impl eframe::App for BoardViewApp {
 
 
 /// Board actions handled by the global hotkey block (pan/zoom live in the canvas).
-const BOARD_HOTKEY_ACTIONS: [Action; 7] =
-    [Action::RotateCw, Action::RotateCcw, Action::FlipSide, Action::MirrorX, Action::MirrorY, Action::FitView, Action::Measure];
+const BOARD_HOTKEY_ACTIONS: [Action; 9] = [
+    Action::RotateCw,
+    Action::RotateCcw,
+    Action::FlipSide,
+    Action::MirrorX,
+    Action::MirrorY,
+    Action::FitView,
+    Action::Measure,
+    Action::NavBack,
+    Action::NavForward,
+];
 
 /// Board actions whose shortcut was pressed this frame. None fire while Preferences is open or
 /// a text field wants the keyboard.
@@ -1737,6 +1900,8 @@ mod hotkey_tests {
         assert_eq!(fire(Key::M, Modifiers::SHIFT), vec![Action::MirrorY]);
         assert_eq!(fire(Key::F, Modifiers::NONE), vec![Action::FitView]);
         assert_eq!(fire(Key::Q, Modifiers::NONE), vec![Action::Measure]);
+        assert_eq!(fire(Key::ArrowLeft, Modifiers::ALT), vec![Action::NavBack]);
+        assert_eq!(fire(Key::ArrowRight, Modifiers::ALT), vec![Action::NavForward]);
         // Pan/zoom and the Preferences toggle are not handled here.
         assert!(fire(Key::ArrowUp, Modifiers::NONE).is_empty());
         assert!(fire(Key::Comma, Modifiers::COMMAND).is_empty());
@@ -1818,6 +1983,8 @@ mod focus_tests {
             pending_schematic_prompt: None,
             cad_schematic_viewer: schematic_viewer::CadSchematicViewer::default(),
             notes_store: bvc_core::BoardNotesStore::default(),
+            nav: Navigation::default(),
+            toolbar_state: toolbar::ToolbarState::default(),
         };
 
         assert!(app.selected_pin_idx.is_some());

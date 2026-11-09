@@ -236,3 +236,18 @@
 	about.ui_toolkit	UI toolkit
 	about.pdf_engine	PDF engine
 	about.close	Close
+	toolbar.nav_back	Back to the previous selection
+	toolbar.nav_forward	Forward to the next selection
+	toolbar.fit	Fit board to screen
+	toolbar.show_top	Show the top side
+	toolbar.show_bottom	Show the bottom side
+	toolbar.parts	Parts:
+	toolbar.nets	Nets:
+	toolbar.filter_hint	Type to filter…
+	toolbar.no_matches	No matches
+	toolbar.flip_h	Flip horizontally
+	toolbar.flip_v	Flip vertically
+	toolbar.layers_unavailable	Layer mode: layers are not available yet
+	toolbar.quick_prefs	Quick view options
+	shortcut.nav_back	Go back (selection history)
+	shortcut.nav_forward	Go forward (selection history)

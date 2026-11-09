@@ -236,3 +236,18 @@
 	about.ui_toolkit	Toolkit de interfaz
 	about.pdf_engine	Motor PDF
 	about.close	Cerrar
+	toolbar.nav_back	Volver a la selección anterior
+	toolbar.nav_forward	Avanzar a la selección siguiente
+	toolbar.fit	Ajustar placa a la pantalla
+	toolbar.show_top	Mostrar la cara superior
+	toolbar.show_bottom	Mostrar la cara inferior
+	toolbar.parts	Componentes:
+	toolbar.nets	Redes:
+	toolbar.filter_hint	Escribe para filtrar…
+	toolbar.no_matches	Sin coincidencias
+	toolbar.flip_h	Voltear horizontalmente
+	toolbar.flip_v	Voltear verticalmente
+	toolbar.layers_unavailable	Modo capas: las capas aún no están disponibles
+	toolbar.quick_prefs	Opciones rápidas de vista
+	shortcut.nav_back	Volver (historial de selección)
+	shortcut.nav_forward	Avanzar (historial de selección)

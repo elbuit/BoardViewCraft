@@ -236,3 +236,18 @@
 	about.ui_toolkit	Toolkit d'interface
 	about.pdf_engine	Moteur PDF
 	about.close	Fermer
+	toolbar.nav_back	Revenir à la sélection précédente
+	toolbar.nav_forward	Aller à la sélection suivante
+	toolbar.fit	Ajuster la carte à l'écran
+	toolbar.show_top	Afficher la face dessus
+	toolbar.show_bottom	Afficher la face dessous
+	toolbar.parts	Composants :
+	toolbar.nets	Réseaux :
+	toolbar.filter_hint	Tapez pour filtrer…
+	toolbar.no_matches	Aucun résultat
+	toolbar.flip_h	Retourner horizontalement
+	toolbar.flip_v	Retourner verticalement
+	toolbar.layers_unavailable	Mode couches : les couches ne sont pas encore disponibles
+	toolbar.quick_prefs	Options d'affichage rapides
+	shortcut.nav_back	Revenir (historique de sélection)
+	shortcut.nav_forward	Avancer (historique de sélection)

@@ -212,6 +212,23 @@ pub fn select_part_only(
     *selected_net = None;
 }
 
+/// Selects net `name` and its first pin (and that pin's part), as a net search click does.
+/// The via selection is left as it is. Does nothing for an unknown net.
+pub fn select_net(
+    b: &Board,
+    name: &str,
+    selected_pin_idx: &mut Option<usize>,
+    selected_part_idx: &mut Option<usize>,
+    selected_net: &mut Option<String>,
+) {
+    let Some(net) = b.nets.get(name) else { return };
+    *selected_net = Some(net.name.clone());
+    *selected_pin_idx = net.pin_indices.first().copied();
+    if let Some(p_idx) = *selected_pin_idx {
+        *selected_part_idx = b.pins.get(p_idx).map(|p| p.part_id);
+    }
+}
+
 /// Where the board view should move to show `part_id`: the world-space center of
 /// the part (bounding box center, falling back to its first pin) and the view
 /// side to display (unchanged when the part is already visible on `view_side`).
@@ -746,11 +763,7 @@ pub fn show_side_panel(
                                     format!("{} ({} pins)", name, net.pin_indices.len()),
                                 );
                                 if response.clicked() {
-                                    *selected_net = Some(name.clone());
-                                    *selected_pin_idx = net.pin_indices.first().copied();
-                                    if let Some(p_idx) = *selected_pin_idx {
-                                        *selected_part_idx = b.pins.get(p_idx).map(|p| p.part_id);
-                                    }
+                                    select_net(b, name, selected_pin_idx, selected_part_idx, selected_net);
                                 }
                                 response.context_menu(|ui| {
                                     if ui.button(i18n::tr(lang, "context_menu.copy_net")).clicked() {

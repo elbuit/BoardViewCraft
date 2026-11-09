@@ -236,3 +236,18 @@
 	about.ui_toolkit	Toolkit dell'interfaccia
 	about.pdf_engine	Motore PDF
 	about.close	Chiudi
+	toolbar.nav_back	Torna alla selezione precedente
+	toolbar.nav_forward	Vai alla selezione successiva
+	toolbar.fit	Adatta la scheda allo schermo
+	toolbar.show_top	Mostra il lato superiore
+	toolbar.show_bottom	Mostra il lato inferiore
+	toolbar.parts	Componenti:
+	toolbar.nets	Reti:
+	toolbar.filter_hint	Digita per filtrare…
+	toolbar.no_matches	Nessuna corrispondenza
+	toolbar.flip_h	Capovolgi orizzontalmente
+	toolbar.flip_v	Capovolgi verticalmente
+	toolbar.layers_unavailable	Modalità livelli: i livelli non sono ancora disponibili
+	toolbar.quick_prefs	Opzioni di vista rapide
+	shortcut.nav_back	Indietro (cronologia selezione)
+	shortcut.nav_forward	Avanti (cronologia selezione)

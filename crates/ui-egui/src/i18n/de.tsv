@@ -236,3 +236,18 @@
 	about.ui_toolkit	UI-Toolkit
 	about.pdf_engine	PDF-Engine
 	about.close	Schließen
+	toolbar.nav_back	Zurück zur vorherigen Auswahl
+	toolbar.nav_forward	Vor zur nächsten Auswahl
+	toolbar.fit	Platine an Bildschirm anpassen
+	toolbar.show_top	Oberseite anzeigen
+	toolbar.show_bottom	Unterseite anzeigen
+	toolbar.parts	Bauteile:
+	toolbar.nets	Netze:
+	toolbar.filter_hint	Zum Filtern tippen…
+	toolbar.no_matches	Keine Treffer
+	toolbar.flip_h	Horizontal spiegeln
+	toolbar.flip_v	Vertikal spiegeln
+	toolbar.layers_unavailable	Lagenmodus: Lagen sind noch nicht verfügbar
+	toolbar.quick_prefs	Schnelle Ansichtsoptionen
+	shortcut.nav_back	Zurück (Auswahlverlauf)
+	shortcut.nav_forward	Vor (Auswahlverlauf)

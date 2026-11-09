@@ -236,3 +236,18 @@
 	about.ui_toolkit	Toolkit d'interfície
 	about.pdf_engine	Motor PDF
 	about.close	Tanca
+	toolbar.nav_back	Tornar a la selecció anterior
+	toolbar.nav_forward	Avançar a la selecció següent
+	toolbar.fit	Ajustar la placa a la pantalla
+	toolbar.show_top	Mostrar la cara superior
+	toolbar.show_bottom	Mostrar la cara inferior
+	toolbar.parts	Components:
+	toolbar.nets	Xarxes:
+	toolbar.filter_hint	Escriu per filtrar…
+	toolbar.no_matches	Cap coincidència
+	toolbar.flip_h	Girar horitzontalment
+	toolbar.flip_v	Girar verticalment
+	toolbar.layers_unavailable	Mode capes: les capes encara no estan disponibles
+	toolbar.quick_prefs	Opcions ràpides de vista
+	shortcut.nav_back	Tornar enrere (historial de selecció)
+	shortcut.nav_forward	Avançar (historial de selecció)
