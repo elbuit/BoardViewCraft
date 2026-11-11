@@ -6,7 +6,7 @@
 
 BoardViewCraft is an open-source boardview and schematic inspection workbench built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It provides ultra-fast navigation, clear component rendering, real pad geometries, camera overlay photo alignment, and native dual-pane split inspection with PDF and vector CAD schematics.
 
-![BoardViewCraft: Main workbench view with dark theme, board layout, and inspection panel](docs/screenshots/boardviewcraft-main.png)
+![BoardViewCraft: Main workbench view with quick toolbar, synchronized Both view, net flight lines, and inspection panel](docs/screenshots/boardviewcraft-v022.png)
 
 ---
 
@@ -24,7 +24,7 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   - Configurable inspection side panel position (**Left** or **Right**).
   - Interactive resizable divider with reset shortcut.
 
-  ![BoardViewCraft: Quick toolbar with history navigation, parts/nets search, synchronized Both view, and net flight lines](docs/screenshots/boardviewcraft-v022.png)
+  ![BoardViewCraft: Split view with board layout on the left, PDF schematic on the right with page scrubber, and side panel](docs/screenshots/boardviewcraft-v020.png)
 - **Readable Board Rendering & Visual Flight Lines**:
   - Filled part bodies, component outlines, pin names, and physical pad geometries (round, rectangular, rotated) read from GenCAD `$PADS` and CAD records.
   - Radial and web net flight lines showing all connected pins on selected nets.
