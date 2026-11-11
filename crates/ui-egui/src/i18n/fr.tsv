@@ -148,13 +148,24 @@
 	prefs.color_pin_cur_side	Surbrillance broche (côté actuel) :
 	prefs.color_pin_opp_side	Surbrillance broche (côté opposé) :
 	prefs.color_via_cur_side	Via par défaut :
+	prefs.color_via_opp_side	Via (face opposée) :
 	prefs.color_via_highlight	Surbrillance via :
+	prefs.color_part_body_line	Contour du composant :
 	prefs.color_net_web	Lignes de réseau :
+	prefs.theme_options	Options du thème
+	prefs.new_theme	Nouveau thème
+	prefs.new_theme_name	Nom du thème :
+	prefs.create_theme	Créer
+	prefs.cancel	Annuler
+	prefs.reset_theme	Restaurer par défaut
+	prefs.delete_theme	Supprimer le thème
 	prefs.visualization	Visualisation
 	prefs.show_net_web	Afficher les lignes de réseau (chevelu)
 	prefs.via_display_mode	Mode des lignes de réseau :
 	prefs.via_mode_radial	Radial (lignes depuis le point sélectionné)
 	prefs.via_mode_web	Toile (reliant tous les points)
+	prefs.net_lines_dashed	Lignes de réseau en pointillés
+	prefs.cross_layer_transparency	Transparence entre couches :
 	prefs.show_part_labels	Afficher les désignateurs de composants
 	prefs.show_pin_annotations	Afficher les numéros et annotations de broches
 	prefs.adaptive_lod	Décimation adaptative LOD

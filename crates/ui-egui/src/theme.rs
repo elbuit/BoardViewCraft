@@ -32,10 +32,10 @@ impl AppTheme {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PcbTheme {
     Light,
-    #[default]
     #[serde(alias = "Forest", alias = "Solarized", alias = "Monokai", alias = "Synthwave")]
     Dark,
     Warm,
+    #[default]
     #[serde(alias = "SweetBlue", alias = "SweetCold")]
     BlueCarrot,
     Cyberpunk,
@@ -51,6 +51,14 @@ impl PcbTheme {
         PcbTheme::BlueCarrot,
         PcbTheme::Cyberpunk,
         PcbTheme::Custom,
+    ];
+
+    pub const BUILTIN: [PcbTheme; 5] = [
+        PcbTheme::BlueCarrot,
+        PcbTheme::Dark,
+        PcbTheme::Light,
+        PcbTheme::Warm,
+        PcbTheme::Cyberpunk,
     ];
 
     pub fn display_name(&self) -> &'static str {
@@ -216,7 +224,7 @@ impl PcbTokens {
         pin_highlight_cur_side: Color32::from_rgb(0x32, 0xdd, 0x66), // Bright vivid emerald green
         pin_highlight_opp_side: Color32::from_rgb(0x1b, 0x7d, 0xa8), // Deep cyan/blue
         via_cur_side: Color32::from_rgb(0xe0, 0xa0, 0x30),
-        via_opp_side: Color32::from_rgb(0x70, 0x55, 0x20),
+        via_opp_side: Color32::from_rgba_premultiplied(0x38, 0x2a, 0x10, 128),
         via_highlight: Color32::from_rgb(0x32, 0xdd, 0x66),
         net_web: Color32::from_rgba_premultiplied(0x32, 0xdd, 0x66, 0xcc),
     };
@@ -241,7 +249,7 @@ impl PcbTokens {
         pin_highlight_cur_side: Color32::from_rgb(0x2e, 0xe0, 0x60),
         pin_highlight_opp_side: Color32::from_rgb(0x20, 0x90, 0xc8),
         via_cur_side: Color32::from_rgb(0xeb, 0xaa, 0x30),
-        via_opp_side: Color32::from_rgb(0x75, 0x58, 0x22),
+        via_opp_side: Color32::from_rgba_premultiplied(0x3a, 0x2c, 0x11, 128),
         via_highlight: Color32::from_rgb(0x2e, 0xe0, 0x60),
         net_web: Color32::from_rgba_premultiplied(0x2e, 0xe0, 0x60, 0xd0),
     };
@@ -266,7 +274,7 @@ impl PcbTokens {
         pin_highlight_cur_side: Color32::from_rgb(0x1a, 0x9e, 0x3d),
         pin_highlight_opp_side: Color32::from_rgb(0x09, 0x69, 0xda),
         via_cur_side: Color32::from_rgb(0xc0, 0x7a, 0x10),
-        via_opp_side: Color32::from_rgb(0x80, 0x5a, 0x20),
+        via_opp_side: Color32::from_rgba_premultiplied(0x40, 0x2d, 0x10, 128),
         via_highlight: Color32::from_rgb(0x1a, 0x9e, 0x3d),
         net_web: Color32::from_rgba_premultiplied(0x1a, 0x9e, 0x3d, 0xcc),
     };
@@ -291,7 +299,7 @@ impl PcbTokens {
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0xd0, 0x00), // bright yellow/gold
         pin_highlight_opp_side: Color32::from_rgb(0x00, 0x88, 0xff), // royal blue
         via_cur_side: Color32::from_rgb(0xbb, 0x88, 0x22),
-        via_opp_side: Color32::from_rgb(0x55, 0x44, 0x18),
+        via_opp_side: Color32::from_rgba_premultiplied(0x2a, 0x22, 0x0c, 128),
         via_highlight: Color32::from_rgb(0xff, 0xd0, 0x00),
         net_web: Color32::from_rgba_premultiplied(0xff, 0xd0, 0x00, 0xb4),
     };
@@ -316,7 +324,7 @@ impl PcbTokens {
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0x9e, 0x3b), // agy warm pastel orange
         pin_highlight_opp_side: Color32::from_rgb(0x79, 0xc0, 0xff), // agy pastel cyan-blue
         via_cur_side: Color32::from_rgb(0xd9, 0x8a, 0x32), // soft warm amber
-        via_opp_side: Color32::from_rgb(0x5a, 0x48, 0x2c),
+        via_opp_side: Color32::from_rgba_premultiplied(0x2d, 0x24, 0x16, 128),
         via_highlight: Color32::from_rgb(0xff, 0xb4, 0x54),
         net_web: Color32::from_rgba_premultiplied(0xff, 0x9e, 0x3b, 0xd0),
     };
@@ -341,7 +349,7 @@ impl PcbTokens {
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0x00, 0x7f),
         pin_highlight_opp_side: Color32::from_rgb(0x00, 0xf0, 0xff),
         via_cur_side: Color32::from_rgb(0xff, 0xd0, 0x00),
-        via_opp_side: Color32::from_rgb(0x70, 0x55, 0x18),
+        via_opp_side: Color32::from_rgba_premultiplied(0x38, 0x2a, 0x0c, 128),
         via_highlight: Color32::from_rgb(0xff, 0x00, 0x7f),
         net_web: Color32::from_rgba_premultiplied(0xff, 0x00, 0x7f, 0xd0),
     };
@@ -410,8 +418,10 @@ impl Tokens {
         custom_pcb: Option<PcbTokens>,
     ) -> Self {
         let app = app_theme.tokens();
-        let pcb = if pcb_theme == PcbTheme::Custom {
-            custom_pcb.unwrap_or(PcbTokens::DARK)
+        let pcb = if let Some(custom) = custom_pcb {
+            custom
+        } else if pcb_theme == PcbTheme::Custom {
+            PcbTokens::DARK
         } else {
             pcb_theme.tokens()
         };
@@ -643,6 +653,19 @@ pub fn contrast_ratio(c1: Color32, c2: Color32) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_via_opp_side_transparency_in_all_presets() {
+        for pcb_theme in PcbTheme::ALL {
+            let tokens = pcb_theme.tokens();
+            assert_eq!(
+                tokens.via_opp_side.a(),
+                128,
+                "Theme {:?} via_opp_side alpha should be 128 (50% transparency)",
+                pcb_theme
+            );
+        }
+    }
 
     #[test]
     fn test_theme_tokens_presets() {

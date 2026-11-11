@@ -148,13 +148,24 @@
 	prefs.color_pin_cur_side	Ressaltat pin (Cara actual):
 	prefs.color_pin_opp_side	Ressaltat pin (Cara oposada):
 	prefs.color_via_cur_side	Via estàndard:
+	prefs.color_via_opp_side	Via (cara oposada):
 	prefs.color_via_highlight	Ressaltat via:
+	prefs.color_part_body_line	Contorn del component:
 	prefs.color_net_web	Línies de xarxa (telaranya):
+	prefs.theme_options	Opcions del tema
+	prefs.new_theme	Nou tema
+	prefs.new_theme_name	Nom del tema:
+	prefs.create_theme	Crear
+	prefs.cancel	Cancel·lar
+	prefs.reset_theme	Restablir valors
+	prefs.delete_theme	Eliminar tema
 	prefs.visualization	Visualització
 	prefs.show_net_web	Mostrar Línies de Xarxa (Telaranya)
 	prefs.via_display_mode	Mode de línies de xarxa:
 	prefs.via_mode_radial	Radial (Línies des del punt seleccionat)
 	prefs.via_mode_web	Telaranya (Camí unint tots els punts)
+	prefs.net_lines_dashed	Línies de xarxa discontínues
+	prefs.cross_layer_transparency	Transparència entre capes:
 	prefs.show_part_labels	Mostrar Noms de Component
 	prefs.show_pin_annotations	Mostrar Nombres i Anotacions de Pins
 	prefs.adaptive_lod	Optimització LOD Adaptativa

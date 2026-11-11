@@ -142,6 +142,7 @@ pub fn show_toolbar(
                     (&mut prefs.show_pin_annotations, "prefs.show_pin_annotations"),
                     (&mut prefs.show_part_labels, "prefs.show_part_labels"),
                     (&mut prefs.show_net_web, "prefs.show_net_web"),
+                    (&mut prefs.net_lines_dashed, "prefs.net_lines_dashed"),
                 ] {
                     changed |= ui.checkbox(value, tr(key)).changed();
                 }

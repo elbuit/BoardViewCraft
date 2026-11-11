@@ -148,13 +148,24 @@
 	prefs.color_pin_cur_side	Pin-Hervorhebung (Aktuelle Seite):
 	prefs.color_pin_opp_side	Pin-Hervorhebung (Gegenüberliegende Seite):
 	prefs.color_via_cur_side	Standard-Via:
+	prefs.color_via_opp_side	Via (Gegenseite):
 	prefs.color_via_highlight	Via-Hervorhebung:
+	prefs.color_part_body_line	Bauteil-Umriss:
 	prefs.color_net_web	Netz-Verbindungslinien:
+	prefs.theme_options	Themenoptionen
+	prefs.new_theme	Neues Thema
+	prefs.new_theme_name	Themenname:
+	prefs.create_theme	Erstellen
+	prefs.cancel	Abbrechen
+	prefs.reset_theme	Auf Standard zurücksetzen
+	prefs.delete_theme	Thema löschen
 	prefs.visualization	Visualisierung
 	prefs.show_net_web	Netz-Spinnennetz anzeigen (Gummibänder)
 	prefs.via_display_mode	Netzlinien-Modus:
 	prefs.via_mode_radial	Radial (Linien vom ausgewählten Punkt)
 	prefs.via_mode_web	Netz (Verbindung aller Punkte)
+	prefs.net_lines_dashed	Gestrichelte Netzlinien
+	prefs.cross_layer_transparency	Schichtübergreifende Transparenz:
 	prefs.show_part_labels	Bauteilbezeichnungen anzeigen
 	prefs.show_pin_annotations	Pin-Nummern und Annotationen anzeigen
 	prefs.adaptive_lod	Adaptive LOD-Dezimierung

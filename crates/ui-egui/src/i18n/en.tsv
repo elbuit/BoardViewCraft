@@ -148,13 +148,24 @@
 	prefs.color_pin_cur_side	Pin Highlight (Current Side):
 	prefs.color_pin_opp_side	Pin Highlight (Opposite Side):
 	prefs.color_via_cur_side	Via Default:
+	prefs.color_via_opp_side	Via (Opposite Side):
 	prefs.color_via_highlight	Via Highlight:
+	prefs.color_part_body_line	Component Outline:
 	prefs.color_net_web	Net Flight Lines:
+	prefs.theme_options	Theme Options
+	prefs.new_theme	New Theme
+	prefs.new_theme_name	Theme Name:
+	prefs.create_theme	Create
+	prefs.cancel	Cancel
+	prefs.reset_theme	Reset to Defaults
+	prefs.delete_theme	Delete Theme
 	prefs.visualization	Visualization
 	prefs.show_net_web	Show Net Web (Ratline connection lines)
 	prefs.via_display_mode	Net Line Mode:
 	prefs.via_mode_radial	Radial (Lines from selected point)
 	prefs.via_mode_web	Web (Spiderweb connecting all points)
+	prefs.net_lines_dashed	Dashed Net Lines
+	prefs.cross_layer_transparency	Cross-Layer Transparency:
 	prefs.show_part_labels	Show Part Designators
 	prefs.show_pin_annotations	Show Pin Annotations & Numbers
 	prefs.adaptive_lod	Adaptive LOD Decimation

@@ -171,7 +171,7 @@ impl BoardViewApp {
         let tokens = Tokens::new_with_custom(
             preferences.app_theme,
             preferences.pcb_theme,
-            preferences.custom_pcb_tokens,
+            Some(preferences.active_pcb_tokens()),
         );
         let is_light = preferences.app_theme == AppTheme::Light;
         cc.egui_ctx.set_visuals(tokens.egui_visuals(is_light));
@@ -338,18 +338,26 @@ impl BoardViewApp {
     pub fn open_file_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter_any_case(
-                "All Supported Boardviews (*.cad, *.tvw, *.brd, *.fz, *.pcb, *.bdv, *.asc, *.bv, *.bvr, *.cst, *.gr, *.f2b, *.zip)",
-                &["cad", "tvw", "brd", "fz", "pcb", "bdv", "asc", "bv", "bvr", "cst", "gr", "f2b", "zip"],
+                "All Supported Boardviews (*.cad, *.tvw, *.brd, *.fz, *.pcb, *.kicad_pcb, *.pcbdoc, *.epcb, *.bdv, *.asc, *.bv, *.bvr, *.cst, *.gr, *.f2b, *.zip, *.tgz)",
+                &[
+                    "cad", "tvw", "brd", "fz", "pcb", "kicad_pcb", "pcbdoc", "cmpcbdoc", "cspcbdoc",
+                    "epro", "epro2", "epcb", "bdv", "asc", "bv", "bvr", "cst", "gr", "f2b", "neu",
+                    "ict", "ipc", "356", "d356", "ipc356", "cvg", "zip", "tgz",
+                ],
             )
-            .add_filter_any_case("CAD files (*.cad)", &["cad"])
+            .add_filter_any_case("CAD files (*.cad, *.gcd)", &["cad", "gcd"])
             .add_filter_any_case("TestView files (*.tvw)", &["tvw"])
-            .add_filter_any_case("Eagle / BRD files (*.brd)", &["brd"])
+            .add_filter_any_case("Eagle / BRD files (*.brd, *.brd2)", &["brd", "brd2"])
             .add_filter_any_case("Foxconn files (*.fz)", &["fz"])
-            .add_filter_any_case("XZZ PCB files (*.pcb)", &["pcb"])
+            .add_filter_any_case("PCB / XZZ files (*.pcb)", &["pcb"])
+            .add_filter_any_case("KiCad PCB (*.kicad_pcb)", &["kicad_pcb"])
+            .add_filter_any_case("Altium PCB (*.pcbdoc, *.cmpcbdoc, *.cspcbdoc)", &["pcbdoc", "cmpcbdoc", "cspcbdoc"])
+            .add_filter_any_case("EasyEDA Pro (*.epro, *.epro2, *.epcb)", &["epro", "epro2", "epcb"])
             .add_filter_any_case("BDV files (*.bdv)", &["bdv"])
             .add_filter_any_case("ASC files (*.asc)", &["asc"])
-            .add_filter_any_case("ZIP archives (*.zip)", &["zip"])
-            .add_filter_any_case("Other Boardviews (*.bv, *.bvr, *.cst, *.gr, *.f2b)", &["bv", "bvr", "cst", "gr", "f2b"])
+            .add_filter_any_case("IPC Test files (*.ipc, *.356, *.d356, *.ipc356, *.cvg)", &["ipc", "356", "d356", "ipc356", "cvg"])
+            .add_filter_any_case("ZIP / ODB++ archives (*.zip, *.tgz)", &["zip", "tgz"])
+            .add_filter_any_case("Other Boardviews (*.bv, *.bvr, *.cst, *.gr, *.f2b, *.neu, *.ict)", &["bv", "bvr", "cst", "gr", "f2b", "neu", "ict"])
             .add_filter("All files (*.*)", &["*"])
             .pick_file()
         {
@@ -1815,33 +1823,21 @@ impl eframe::App for BoardViewApp {
         about::show_about_window(ui.ctx(), &mut self.about_open, &self.tokens, lang);
 
         // Preferences modal window
-        let mut prefs_changed = false;
-        let mut prefs = self.preferences.clone();
         if show_preferences_window(
             ui.ctx(),
             &mut self.preferences_open,
-            &mut prefs,
+            &mut self.preferences,
             &self.tokens,
         ) {
-            prefs_changed = true;
-        }
-
-        if prefs_changed {
-            if prefs.app_theme != self.preferences.app_theme
-                || prefs.pcb_theme != self.preferences.pcb_theme
-                || prefs.custom_pcb_tokens != self.preferences.custom_pcb_tokens
-            {
-                self.tokens = Tokens::new_with_custom(
-                    prefs.app_theme,
-                    prefs.pcb_theme,
-                    prefs.custom_pcb_tokens,
-                );
-                let is_light = prefs.app_theme == AppTheme::Light;
-                ui.ctx().set_visuals(self.tokens.egui_visuals(is_light));
-            }
-            // Invalidate canvas mesh caches
+            let active_tokens = self.preferences.active_pcb_tokens();
+            self.tokens = Tokens::new_with_custom(
+                self.preferences.app_theme,
+                self.preferences.pcb_theme,
+                Some(active_tokens),
+            );
+            let is_light = self.preferences.app_theme == AppTheme::Light;
+            ui.ctx().set_visuals(self.tokens.egui_visuals(is_light));
             self.canvases.invalidate_caches();
-            self.preferences = prefs;
             self.save_prefs_pending = true;
         }
         // Every selection change this frame (canvas, side panel, toolbar, schematic) is history.

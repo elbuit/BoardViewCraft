@@ -24,6 +24,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_cross_layer_transparency() -> f32 {
+    0.60
+}
+
 fn default_split_ratio() -> f32 {
     0.5
 }
@@ -69,6 +73,14 @@ pub struct BoardSchematic {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CustomPcbTheme {
+    pub name: String,
+    pub tokens: PcbTokens,
+    #[serde(default)]
+    pub net_lines_dashed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Preferences {
     /// Auto follows the system locale; resolve it with [`Preferences::ui_language`].
     #[serde(default)]
@@ -81,9 +93,19 @@ pub struct Preferences {
     pub custom_pcb_tokens: Option<PcbTokens>,
     #[serde(default)]
     pub custom_pcb_theme_name: Option<String>,
+    #[serde(default)]
+    pub custom_pcb_themes: Vec<CustomPcbTheme>,
+    #[serde(default)]
+    pub theme_overrides: std::collections::BTreeMap<String, PcbTokens>,
+    #[serde(default)]
+    pub theme_dashed_overrides: std::collections::BTreeMap<String, bool>,
     pub show_net_web: bool,
     #[serde(default)]
     pub via_display_mode: ViaDisplayMode,
+    #[serde(default)]
+    pub net_lines_dashed: bool,
+    #[serde(default = "default_cross_layer_transparency")]
+    pub cross_layer_transparency: f32,
     pub show_part_labels: bool,
     pub show_pin_annotations: bool,
     pub high_density_lod: bool,
@@ -139,11 +161,16 @@ impl Default for Preferences {
         Self {
             language: LanguagePref::Auto,
             app_theme: AppTheme::Dark,
-            pcb_theme: PcbTheme::Dark,
+            pcb_theme: PcbTheme::BlueCarrot,
             custom_pcb_tokens: None,
             custom_pcb_theme_name: None,
+            custom_pcb_themes: Vec::new(),
+            theme_overrides: std::collections::BTreeMap::new(),
+            theme_dashed_overrides: std::collections::BTreeMap::new(),
             show_net_web: true,
             via_display_mode: ViaDisplayMode::Web,
+            net_lines_dashed: false,
+            cross_layer_transparency: 0.60,
             show_part_labels: true,
             show_pin_annotations: true,
             high_density_lod: true,
@@ -196,6 +223,168 @@ impl Preferences {
     /// The language the UI uses this frame (Auto resolved to the system language).
     pub fn ui_language(&self) -> Language {
         self.language.resolve()
+    }
+
+    pub fn active_theme_display_name(&self) -> String {
+        match self.pcb_theme {
+            PcbTheme::Custom => {
+                if let Some(ref name) = self.custom_pcb_theme_name {
+                    name.clone()
+                } else if let Some(first) = self.custom_pcb_themes.first() {
+                    first.name.clone()
+                } else {
+                    PcbTheme::BlueCarrot.display_name().to_string()
+                }
+            }
+            built_in => {
+                let name = built_in.display_name();
+                if self.theme_overrides.contains_key(name) || self.theme_dashed_overrides.contains_key(name) {
+                    format!("{} *", name)
+                } else {
+                    name.to_string()
+                }
+            }
+        }
+    }
+
+    pub fn active_pcb_tokens(&self) -> PcbTokens {
+        match self.pcb_theme {
+            PcbTheme::Custom => {
+                if let Some(ref name) = self.custom_pcb_theme_name {
+                    if let Some(custom) = self.custom_pcb_themes.iter().find(|t| &t.name == name) {
+                        return custom.tokens;
+                    }
+                }
+                if let Some(tokens) = self.custom_pcb_tokens {
+                    return tokens;
+                }
+                if let Some(first) = self.custom_pcb_themes.first() {
+                    return first.tokens;
+                }
+                PcbTokens::DARK
+            }
+            built_in => {
+                let name = built_in.display_name();
+                if let Some(&overridden) = self.theme_overrides.get(name) {
+                    overridden
+                } else {
+                    built_in.tokens()
+                }
+            }
+        }
+    }
+
+    pub fn set_active_pcb_tokens(&mut self, tokens: PcbTokens) {
+        match self.pcb_theme {
+            PcbTheme::Custom => {
+                self.custom_pcb_tokens = Some(tokens);
+                if let Some(ref name) = self.custom_pcb_theme_name {
+                    if let Some(custom) = self.custom_pcb_themes.iter_mut().find(|t| &t.name == name) {
+                        custom.tokens = tokens;
+                        return;
+                    }
+                }
+                if let Some(first) = self.custom_pcb_themes.first_mut() {
+                    first.tokens = tokens;
+                }
+            }
+            built_in => {
+                self.theme_overrides.insert(built_in.display_name().to_string(), tokens);
+            }
+        }
+    }
+
+    pub fn active_pcb_net_lines_dashed(&self) -> bool {
+        match self.pcb_theme {
+            PcbTheme::Custom => {
+                if let Some(ref name) = self.custom_pcb_theme_name {
+                    if let Some(custom) = self.custom_pcb_themes.iter().find(|t| &t.name == name) {
+                        return custom.net_lines_dashed;
+                    }
+                }
+                self.net_lines_dashed
+            }
+            built_in => {
+                let name = built_in.display_name();
+                if let Some(&dashed) = self.theme_dashed_overrides.get(name) {
+                    dashed
+                } else {
+                    self.net_lines_dashed
+                }
+            }
+        }
+    }
+
+    pub fn set_active_pcb_net_lines_dashed(&mut self, dashed: bool) {
+        self.net_lines_dashed = dashed;
+        match self.pcb_theme {
+            PcbTheme::Custom => {
+                if let Some(ref name) = self.custom_pcb_theme_name {
+                    if let Some(custom) = self.custom_pcb_themes.iter_mut().find(|t| &t.name == name) {
+                        custom.net_lines_dashed = dashed;
+                    }
+                }
+            }
+            built_in => {
+                self.theme_dashed_overrides.insert(built_in.display_name().to_string(), dashed);
+            }
+        }
+    }
+
+    pub fn is_builtin_theme_modified(&self) -> bool {
+        if self.pcb_theme == PcbTheme::Custom {
+            false
+        } else {
+            let name = self.pcb_theme.display_name();
+            self.theme_overrides.contains_key(name) || self.theme_dashed_overrides.contains_key(name)
+        }
+    }
+
+    pub fn reset_active_built_in_theme(&mut self) {
+        if self.pcb_theme != PcbTheme::Custom {
+            let name = self.pcb_theme.display_name();
+            self.theme_overrides.remove(name);
+            self.theme_dashed_overrides.remove(name);
+            self.net_lines_dashed = false;
+        }
+    }
+
+    pub fn select_builtin_theme(&mut self, theme: PcbTheme) {
+        self.pcb_theme = theme;
+        self.net_lines_dashed = self.active_pcb_net_lines_dashed();
+    }
+
+    pub fn select_custom_theme(&mut self, name: &str) {
+        if let Some(theme) = self.custom_pcb_themes.iter().find(|t| t.name == name) {
+            self.pcb_theme = PcbTheme::Custom;
+            self.custom_pcb_theme_name = Some(name.to_string());
+            self.custom_pcb_tokens = Some(theme.tokens);
+            self.net_lines_dashed = theme.net_lines_dashed;
+        }
+    }
+
+    pub fn delete_custom_theme(&mut self, name: &str) {
+        self.custom_pcb_themes.retain(|t| t.name != name);
+        if self.custom_pcb_theme_name.as_deref() == Some(name) {
+            self.pcb_theme = PcbTheme::BlueCarrot;
+            self.custom_pcb_theme_name = None;
+            self.custom_pcb_tokens = None;
+            self.net_lines_dashed = self.active_pcb_net_lines_dashed();
+        }
+    }
+
+    pub fn create_new_theme_from_current(&mut self, name: String) {
+        let current_tokens = self.active_pcb_tokens();
+        let current_dashed = self.active_pcb_net_lines_dashed();
+        self.custom_pcb_themes.push(CustomPcbTheme {
+            name: name.clone(),
+            tokens: current_tokens,
+            net_lines_dashed: current_dashed,
+        });
+        self.pcb_theme = PcbTheme::Custom;
+        self.custom_pcb_theme_name = Some(name);
+        self.custom_pcb_tokens = Some(current_tokens);
+        self.net_lines_dashed = current_dashed;
     }
 
     pub fn load() -> Self {
@@ -349,6 +538,24 @@ fn set_shortcut_capture(ctx: &Context, state: ShortcutCapture) {
     ctx.data_mut(|d| d.insert_temp(shortcut_capture_id(), state));
 }
 
+fn new_theme_dialog_id() -> egui::Id {
+    egui::Id::unique("prefs_new_theme_dialog_state")
+}
+
+fn get_new_theme_dialog(ctx: &Context) -> Option<String> {
+    ctx.data(|d| d.get_temp(new_theme_dialog_id()))
+}
+
+fn set_new_theme_dialog(ctx: &Context, name: Option<String>) {
+    ctx.data_mut(|d| {
+        if let Some(n) = name {
+            d.insert_temp(new_theme_dialog_id(), n);
+        } else {
+            d.remove_temp::<String>(new_theme_dialog_id());
+        }
+    });
+}
+
 /// Feeds this frame's key presses to an active shortcut capture of the Preferences window.
 ///
 /// Call it once per frame before any hotkey handling: while capturing, every key press is
@@ -401,6 +608,7 @@ pub fn show_preferences_window(
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         *open = false;
         set_shortcut_capture(ctx, ShortcutCapture::default());
+        set_new_theme_dialog(ctx, None);
         return false;
     }
 
@@ -485,145 +693,226 @@ pub fn show_preferences_window(
 
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(i18n::tr(lang, "prefs.pcb_theme")).strong().color(tokens.text()));
-                        let current_pcb_theme = prefs.pcb_theme;
+                        let active_name = prefs.active_theme_display_name();
                         egui::ComboBox::from_id_salt("pcb_theme_combo")
-                            .selected_text(prefs.pcb_theme.display_name())
+                            .selected_text(&active_name)
                             .show_ui(ui, |ui| {
-                                for theme in PcbTheme::ALL {
-                                    if ui
-                                        .selectable_value(&mut prefs.pcb_theme, theme, theme.display_name())
-                                        .clicked()
+                                for theme in PcbTheme::BUILTIN {
+                                    let is_selected = prefs.pcb_theme == theme;
+                                    let label = if prefs.theme_overrides.contains_key(theme.display_name())
+                                        || prefs.theme_dashed_overrides.contains_key(theme.display_name())
                                     {
+                                        format!("{} *", theme.display_name())
+                                    } else {
+                                        theme.display_name().to_string()
+                                    };
+                                    if ui.selectable_label(is_selected, label).clicked() {
+                                        prefs.select_builtin_theme(theme);
                                         changed = true;
-                                        if theme == PcbTheme::Custom {
-                                            // Seed custom tokens from the previously active theme if not already customized
-                                            if prefs.custom_pcb_tokens.is_none() {
-                                                let seed = if current_pcb_theme != PcbTheme::Custom {
-                                                    current_pcb_theme.tokens()
-                                                } else {
-                                                    PcbTokens::DARK
-                                                };
-                                                prefs.custom_pcb_tokens = Some(seed);
-                                            }
+                                    }
+                                }
+                                if !prefs.custom_pcb_themes.is_empty() {
+                                    ui.separator();
+                                    let mut selected_custom_theme = None;
+                                    for custom in &prefs.custom_pcb_themes {
+                                        let is_selected = prefs.pcb_theme == PcbTheme::Custom
+                                            && prefs.custom_pcb_theme_name.as_deref() == Some(&custom.name);
+                                        if ui.selectable_label(is_selected, &custom.name).clicked() {
+                                            selected_custom_theme = Some(custom.name.clone());
                                         }
+                                    }
+                                    if let Some(name) = selected_custom_theme {
+                                        prefs.select_custom_theme(&name);
+                                        changed = true;
                                     }
                                 }
                             });
+
+                        if ui.button(format!("+ {}", i18n::tr(lang, "prefs.new_theme"))).clicked() {
+                            let default_name = format!("{} (Copy)", prefs.active_theme_display_name().trim_end_matches(" *"));
+                            set_new_theme_dialog(ctx, Some(default_name));
+                            ctx.request_repaint();
+                        }
                     });
 
-                    // If Custom PCB theme is selected, expose color pickers and name
-                    if prefs.pcb_theme == PcbTheme::Custom {
-                        let custom = prefs.custom_pcb_tokens.get_or_insert_with(|| PcbTokens::DARK);
+                    if let Some(mut theme_name_buf) = get_new_theme_dialog(ctx) {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(i18n::tr(lang, "prefs.custom_theme_name")).color(tokens.text()));
-                            let name = prefs.custom_pcb_theme_name.get_or_insert_with(|| "Custom".to_string());
-                            if ui.text_edit_singleline(name).changed() {
-                                changed = true;
+                            ui.label(RichText::new(i18n::tr(lang, "prefs.new_theme_name")).color(tokens.text()));
+                            let text_res = ui.text_edit_singleline(&mut theme_name_buf);
+                            if text_res.changed() {
+                                set_new_theme_dialog(ctx, Some(theme_name_buf.clone()));
+                            }
+                            let enter_pressed = text_res.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+                            if ui.button(i18n::tr(lang, "prefs.create_theme")).clicked() || enter_pressed {
+                                let name_to_add = theme_name_buf.trim().to_string();
+                                if !name_to_add.is_empty() {
+                                    prefs.create_new_theme_from_current(name_to_add);
+                                    changed = true;
+                                }
+                                set_new_theme_dialog(ctx, None);
+                            }
+                            if ui.button(i18n::tr(lang, "prefs.cancel")).clicked() {
+                                set_new_theme_dialog(ctx, None);
                             }
                         });
-                        ui.add_space(4.0);
-                        ui.label(RichText::new(i18n::tr(lang, "prefs.custom_colors")).strong().color(tokens.accent()));
-                        egui::Grid::new("custom_pcb_colors_grid")
-                            .num_columns(2)
-                            .spacing([12.0, 4.0])
-                            .show(ui, |ui| {
-                                ui.label(i18n::tr(lang, "prefs.color_canvas"));
-                                let mut c = custom.canvas.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.canvas = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                    }
 
-                                ui.label(i18n::tr(lang, "prefs.color_board_outline"));
-                                let mut c = custom.board_outline.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.board_outline = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(i18n::tr(lang, "prefs.theme_options")).strong().color(tokens.accent()));
+                        if prefs.is_builtin_theme_modified() {
+                            if ui.button(i18n::tr(lang, "prefs.reset_theme")).clicked() {
+                                prefs.reset_active_built_in_theme();
+                                changed = true;
+                            }
+                        }
+                        if prefs.pcb_theme == PcbTheme::Custom {
+                            if let Some(name) = prefs.custom_pcb_theme_name.clone() {
+                                if ui.button(i18n::tr(lang, "prefs.delete_theme")).clicked() {
+                                    prefs.delete_custom_theme(&name);
                                     changed = true;
                                 }
-                                ui.end_row();
+                            }
+                        }
+                    });
 
-                                ui.label(i18n::tr(lang, "prefs.color_board_fill"));
-                                let mut c = custom.board_fill.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.board_fill = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                    // Theme dashed line option
+                    let mut current_dashed = prefs.active_pcb_net_lines_dashed();
+                    if ui
+                        .checkbox(
+                            &mut current_dashed,
+                            RichText::new(i18n::tr(lang, "prefs.net_lines_dashed")).color(tokens.text()),
+                        )
+                        .changed()
+                    {
+                        prefs.set_active_pcb_net_lines_dashed(current_dashed);
+                        changed = true;
+                    }
 
-                                ui.label(i18n::tr(lang, "prefs.color_part_body"));
-                                let mut c = custom.part_body.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.part_body = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                    // Theme Colors Grid
+                    let mut active_tokens = prefs.active_pcb_tokens();
+                    let mut tokens_modified = false;
+                    egui::Grid::new("active_pcb_colors_grid")
+                        .num_columns(2)
+                        .spacing([12.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label(i18n::tr(lang, "prefs.color_canvas"));
+                            let mut c = active_tokens.canvas.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.canvas = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_part_text"));
-                                let mut c = custom.part_text.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.part_text = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                            ui.label(i18n::tr(lang, "prefs.color_board_outline"));
+                            let mut c = active_tokens.board_outline.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.board_outline = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_pin_default"));
-                                let mut c = custom.pin_default.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.pin_default = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                            ui.label(i18n::tr(lang, "prefs.color_board_fill"));
+                            let mut c = active_tokens.board_fill.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.board_fill = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_pin_unconnected"));
-                                let mut c = custom.pin_unconnected.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.pin_unconnected = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                            ui.label(i18n::tr(lang, "prefs.color_part_body"));
+                            let mut c = active_tokens.part_body.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.part_body = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_pin_cur_side"));
-                                let mut c = custom.pin_highlight_cur_side.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.pin_highlight_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                            ui.label(i18n::tr(lang, "prefs.color_part_body_line"));
+                            let mut c = active_tokens.part_body_line.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.part_body_line = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_pin_opp_side"));
-                                let mut c = custom.pin_highlight_opp_side.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.pin_highlight_opp_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                            ui.label(i18n::tr(lang, "prefs.color_part_text"));
+                            let mut c = active_tokens.part_text.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.part_text = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_via_cur_side"));
-                                let mut c = custom.via_cur_side.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.via_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                            ui.label(i18n::tr(lang, "prefs.color_pin_default"));
+                            let mut c = active_tokens.pin_default.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.pin_default = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_via_highlight"));
-                                let mut c = custom.via_highlight.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.via_highlight = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
+                            ui.label(i18n::tr(lang, "prefs.color_pin_unconnected"));
+                            let mut c = active_tokens.pin_unconnected.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.pin_unconnected = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
 
-                                ui.label(i18n::tr(lang, "prefs.color_net_web"));
-                                let mut c = custom.net_web.to_array();
-                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
-                                    custom.net_web = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
-                                    changed = true;
-                                }
-                                ui.end_row();
-                            });
+                            ui.label(i18n::tr(lang, "prefs.color_pin_cur_side"));
+                            let mut c = active_tokens.pin_highlight_cur_side.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.pin_highlight_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+
+                            ui.label(i18n::tr(lang, "prefs.color_pin_opp_side"));
+                            let mut c = active_tokens.pin_highlight_opp_side.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.pin_highlight_opp_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+
+                            ui.label(i18n::tr(lang, "prefs.color_via_cur_side"));
+                            let mut c = active_tokens.via_cur_side.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.via_cur_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+
+                            ui.label(i18n::tr(lang, "prefs.color_via_opp_side"));
+                            let mut c = active_tokens.via_opp_side.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.via_opp_side = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+
+                            ui.label(i18n::tr(lang, "prefs.color_via_highlight"));
+                            let mut c = active_tokens.via_highlight.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.via_highlight = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+
+                            ui.label(i18n::tr(lang, "prefs.color_net_web"));
+                            let mut c = active_tokens.net_web.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.net_web = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+                        });
+
+                    if tokens_modified {
+                        prefs.set_active_pcb_tokens(active_tokens);
+                        changed = true;
                     }
 
                     ui.add_space(12.0);
@@ -657,6 +946,30 @@ pub fn show_preferences_window(
                                         }
                                     }
                                 });
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            if ui
+                                .checkbox(
+                                    &mut prefs.net_lines_dashed,
+                                    RichText::new(i18n::tr(lang, "prefs.net_lines_dashed")).color(tokens.text()),
+                                )
+                                .on_hover_text("Render net flight lines with dashed styling to reduce visual clutter.")
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.label(RichText::new(i18n::tr(lang, "prefs.cross_layer_transparency")).color(tokens.text()));
+                            let mut pct = (prefs.cross_layer_transparency * 100.0).round() as u32;
+                            if ui.add(egui::Slider::new(&mut pct, 0..=100).suffix("%")).changed() {
+                                prefs.cross_layer_transparency = pct as f32 / 100.0;
+                                changed = true;
+                            }
                         });
                     }
 
@@ -760,6 +1073,7 @@ pub fn show_preferences_window(
     if !is_open || close_requested {
         *open = false;
         set_shortcut_capture(ctx, ShortcutCapture::default());
+        set_new_theme_dialog(ctx, None);
     }
 
     changed
@@ -829,6 +1143,8 @@ mod tests {
             language: LanguagePref::Explicit(Language::Catalan),
             show_net_web: false,
             via_display_mode: ViaDisplayMode::Radial,
+            net_lines_dashed: true,
+            cross_layer_transparency: 0.60,
             show_part_labels: true,
             show_pin_annotations: false,
             high_density_lod: true,
@@ -852,6 +1168,7 @@ mod tests {
             lock_zoom: true,
             side_panel_left: false,
             keymap: Keymap::default(),
+            ..Preferences::default()
         };
 
         let json = serde_json::to_string(&prefs).expect("Serialize to JSON");
@@ -1172,5 +1489,55 @@ mod tests {
         assert_eq!(capture_frame(&ctx, &mut km, vec![press_event(Key::T, Modifiers::NONE)]).0, true);
         assert_eq!(km.display(Action::RotateCw), "T");
         assert_eq!(shortcut_capture(&ctx), ShortcutCapture::default());
+    }
+
+    #[test]
+    fn test_modify_builtin_theme_and_reset() {
+        let mut prefs = Preferences::default();
+        assert_eq!(prefs.pcb_theme, PcbTheme::BlueCarrot);
+        assert!(!prefs.is_builtin_theme_modified());
+
+        // Modify canvas color and dashed lines on Blue Carrot
+        let mut tokens = prefs.active_pcb_tokens();
+        tokens.canvas = Color32::from_rgb(0x12, 0x34, 0x56);
+        prefs.set_active_pcb_tokens(tokens);
+        prefs.set_active_pcb_net_lines_dashed(true);
+
+        assert!(prefs.is_builtin_theme_modified());
+        assert_eq!(prefs.active_pcb_tokens().canvas, Color32::from_rgb(0x12, 0x34, 0x56));
+        assert!(prefs.active_pcb_net_lines_dashed());
+        assert!(prefs.active_theme_display_name().contains('*'));
+
+        // Reset
+        prefs.reset_active_built_in_theme();
+        assert!(!prefs.is_builtin_theme_modified());
+        assert_eq!(prefs.active_pcb_tokens().canvas, PcbTokens::BLUE_CARROT.canvas);
+        assert!(!prefs.active_pcb_net_lines_dashed());
+        assert!(!prefs.active_theme_display_name().contains('*'));
+    }
+
+    #[test]
+    fn test_create_new_theme_from_current_and_delete() {
+        let mut prefs = Preferences::default();
+        prefs.set_active_pcb_net_lines_dashed(true);
+
+        // Create new theme
+        prefs.create_new_theme_from_current("Studio Emerald".to_string());
+        assert_eq!(prefs.pcb_theme, PcbTheme::Custom);
+        assert_eq!(prefs.custom_pcb_theme_name.as_deref(), Some("Studio Emerald"));
+        assert_eq!(prefs.custom_pcb_themes.len(), 1);
+        assert_eq!(prefs.custom_pcb_themes[0].name, "Studio Emerald");
+        assert!(prefs.active_pcb_net_lines_dashed());
+
+        // Modify token in custom theme
+        let mut tokens = prefs.active_pcb_tokens();
+        tokens.via_opp_side = Color32::from_rgba_unmultiplied(0x11, 0x22, 0x33, 128);
+        prefs.set_active_pcb_tokens(tokens);
+        assert_eq!(prefs.active_pcb_tokens().via_opp_side, Color32::from_rgba_unmultiplied(0x11, 0x22, 0x33, 128));
+
+        // Delete custom theme
+        prefs.delete_custom_theme("Studio Emerald");
+        assert_eq!(prefs.pcb_theme, PcbTheme::BlueCarrot);
+        assert!(prefs.custom_pcb_themes.is_empty());
     }
 }

@@ -148,13 +148,24 @@
 	prefs.color_pin_cur_side	Evidenziazione pin (Lato corrente):
 	prefs.color_pin_opp_side	Evidenziazione pin (Lato opposto):
 	prefs.color_via_cur_side	Via predefinito:
+	prefs.color_via_opp_side	Via (lato opposto):
 	prefs.color_via_highlight	Evidenziazione via:
+	prefs.color_part_body_line	Contorno del componente:
 	prefs.color_net_web	Linee di connessione rete:
+	prefs.theme_options	Opzioni del tema
+	prefs.new_theme	Nuovo tema
+	prefs.new_theme_name	Nome del tema:
+	prefs.create_theme	Crea
+	prefs.cancel	Annulla
+	prefs.reset_theme	Ripristina predefiniti
+	prefs.delete_theme	Elimina tema
 	prefs.visualization	Visualizzazione
 	prefs.show_net_web	Mostra linee di rete (ragnatela)
 	prefs.via_display_mode	Modalità linee di rete:
 	prefs.via_mode_radial	Radiale (linee dal punto selezionato)
 	prefs.via_mode_web	Ragnatela (collega tutti i punti)
+	prefs.net_lines_dashed	Linee di rete tratteggiate
+	prefs.cross_layer_transparency	Trasparenza tra livelli:
 	prefs.show_part_labels	Mostra designatori componenti
 	prefs.show_pin_annotations	Mostra numeri e annotazioni dei pin
 	prefs.adaptive_lod	Decimazione adattiva LOD

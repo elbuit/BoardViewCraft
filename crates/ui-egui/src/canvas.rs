@@ -243,6 +243,8 @@ pub struct ViewCacheKey {
     pub board_ptr: usize,
     pub show_net_web: bool,
     pub via_display_mode: ViaDisplayMode,
+    pub net_lines_dashed: bool,
+    pub cross_layer_transparency_pct: u32,
     pub show_opposite_elements: bool,
     pub show_vias: bool,
     pub show_unnamed_vias: bool,
@@ -276,6 +278,8 @@ impl ViewCacheKey {
             board_ptr: b as *const Board as usize,
             show_net_web: prefs.show_net_web,
             via_display_mode: prefs.via_display_mode,
+            net_lines_dashed: prefs.net_lines_dashed,
+            cross_layer_transparency_pct: (prefs.cross_layer_transparency * 100.0).round() as u32,
             show_opposite_elements: prefs.show_opposite_elements,
             show_vias: prefs.show_vias,
             show_unnamed_vias: prefs.show_unnamed_vias,
@@ -1154,6 +1158,8 @@ pub fn show_canvas(
                 renderer,
                 prefs.show_net_web,
                 prefs.via_display_mode,
+                prefs.net_lines_dashed,
+                prefs.cross_layer_transparency,
                 prefs.show_opposite_elements,
                 prefs.show_vias,
                 prefs.show_unnamed_vias,
@@ -2079,6 +2085,8 @@ pub fn generate_board_meshes(
     renderer: &mut Renderer,
     show_net_web: bool,
     via_display_mode: ViaDisplayMode,
+    net_lines_dashed: bool,
+    cross_layer_transparency: f32,
     show_opposite_elements: bool,
     show_vias: bool,
     show_unnamed_vias: bool,
@@ -2099,6 +2107,8 @@ pub fn generate_board_meshes(
         renderer,
         show_net_web,
         via_display_mode,
+        net_lines_dashed,
+        cross_layer_transparency,
         show_opposite_elements,
         show_vias,
         show_unnamed_vias,
@@ -2124,6 +2134,8 @@ pub fn generate_board_meshes_in(
     renderer: &mut Renderer,
     show_net_web: bool,
     via_display_mode: ViaDisplayMode,
+    net_lines_dashed: bool,
+    cross_layer_transparency: f32,
     show_opposite_elements: bool,
     show_vias: bool,
     show_unnamed_vias: bool,
@@ -2255,14 +2267,22 @@ pub fn generate_board_meshes_in(
                             tokens.via_highlight,
                         );
                     } else {
-                        // Opposite side via of selected net: render as distinct hollow outline
+                        // Opposite side via of selected net: render as distinct hollow outline with cross-layer transparency
                         let stroke_w = if is_high_density { 1.2 } else { 1.6 };
+                        let opp_color = Color32::from_rgba_unmultiplied(
+                            tokens.pin_highlight_opp_side.r(),
+                            tokens.pin_highlight_opp_side.g(),
+                            tokens.pin_highlight_opp_side.b(),
+                            ((tokens.pin_highlight_opp_side.a() as f32) * (1.0 - cross_layer_transparency))
+                                .round()
+                                .clamp(0.0, 255.0) as u8,
+                        );
                         Renderer::append_circle_outline_to_mesh(
                             &mut hl_mesh,
                             screen_pos,
                             raw_screen_r.clamp(1.5, 30.0),
                             stroke_w,
-                            tokens.pin_highlight_opp_side,
+                            opp_color,
                         );
                     }
                 } else {
@@ -2371,17 +2391,25 @@ pub fn generate_board_meshes_in(
                             );
                         }
                     } else {
-                        // Opposite side: hollow outline / border ONLY!
+                        // Opposite side: hollow outline / border ONLY with cross-layer transparency!
                         let stroke_w = if is_high_density { 1.2 } else { 1.8 };
+                        let opp_color = Color32::from_rgba_unmultiplied(
+                            tokens.pin_highlight_opp_side.r(),
+                            tokens.pin_highlight_opp_side.g(),
+                            tokens.pin_highlight_opp_side.b(),
+                            ((tokens.pin_highlight_opp_side.a() as f32) * (1.0 - cross_layer_transparency))
+                                .round()
+                                .clamp(0.0, 255.0) as u8,
+                        );
                         if let Some(pad) = pad {
-                            pad.outline(&mut hl_mesh, screen_pos, stroke_w, tokens.pin_highlight_opp_side);
+                            pad.outline(&mut hl_mesh, screen_pos, stroke_w, opp_color);
                         } else {
                             Renderer::append_circle_outline_to_mesh(
                                 &mut hl_mesh,
                                 screen_pos,
                                 raw_screen_r.clamp(1.5, 40.0),
                                 stroke_w,
-                                tokens.pin_highlight_opp_side,
+                                opp_color,
                             );
                         }
                     }
@@ -2432,15 +2460,15 @@ pub fn generate_board_meshes_in(
     //     * Radial: Lines radiating from the selected point to every other pin and via on the net.
     //     * Web (Telaraña): Minimum Spanning Tree (MST) route connecting all points on the net.
     if show_net_web {
-        let selected_point: Option<Point> = if let Some(pidx) = selected_pin_idx {
-            b.pins.get(pidx).map(|p| p.pos)
+        let selected_info: Option<(Point, Side)> = if let Some(pidx) = selected_pin_idx {
+            b.pins.get(pidx).map(|p| (p.pos, p.side))
         } else if let Some(vidx) = selected_via_idx {
-            b.vias.get(vidx).map(|v| v.pos)
+            b.vias.get(vidx).map(|v| (v.pos, v.side))
         } else {
             None
         };
 
-        if let (Some(origin), Some(net_name)) = (selected_point, selected_net) {
+        if let (Some((origin, origin_side)), Some(net_name)) = (selected_info, selected_net) {
             let is_ground_or_power = net_name.eq_ignore_ascii_case("GND")
                 || net_name.eq_ignore_ascii_case("GROUND")
                 || net_name.starts_with("UNCONNECTED")
@@ -2448,30 +2476,45 @@ pub fn generate_board_meshes_in(
 
             if !is_ground_or_power {
                 if let Some(net) = b.nets.get(net_name) {
-                    let mut nodes: Vec<Point> = Vec::with_capacity(net.pin_indices.len() + net.via_indices.len());
+                    #[derive(Clone, Copy)]
+                    struct NetNode {
+                        pos: Point,
+                        side: Side,
+                    }
+
+                    let mut nodes: Vec<NetNode> = Vec::with_capacity(net.pin_indices.len() + net.via_indices.len());
                     for &pidx in &net.pin_indices {
                         if let Some(pin) = b.pins.get(pidx) {
-                            nodes.push(pin.pos);
+                            nodes.push(NetNode { pos: pin.pos, side: pin.side });
                         }
                     }
                     for &vidx in &net.via_indices {
                         if let Some(via) = b.vias.get(vidx) {
-                            nodes.push(via.pos);
+                            nodes.push(NetNode { pos: via.pos, side: via.side });
                         }
                     }
 
                     let total_nodes = nodes.len();
                     if total_nodes >= 2 && total_nodes <= 400 {
-                        let mut segments = Vec::new();
+                        let mut same_layer_segments = Vec::new();
+                        let mut cross_layer_segments = Vec::new();
+
+                        let is_cross = |s1: Side, s2: Side| -> bool {
+                            (s1 == Side::Top && s2 == Side::Bottom) || (s1 == Side::Bottom && s2 == Side::Top)
+                        };
 
                         match via_display_mode {
                             ViaDisplayMode::Radial => {
                                 // Radial: lines from the selected point to all other nodes on the net
                                 let p_origin = vp.world_to_screen(origin, rect);
                                 for target in &nodes {
-                                    if target.dist(origin) > 1e-4 {
-                                        let p_target = vp.world_to_screen(*target, rect);
-                                        segments.push((p_origin, p_target));
+                                    if target.pos.dist(origin) > 1e-4 {
+                                        let p_target = vp.world_to_screen(target.pos, rect);
+                                        if is_cross(origin_side, target.side) {
+                                            cross_layer_segments.push((p_origin, p_target));
+                                        } else {
+                                            same_layer_segments.push((p_origin, p_target));
+                                        }
                                     }
                                 }
                             }
@@ -2484,7 +2527,7 @@ pub fn generate_board_meshes_in(
 
                                 in_mst[0] = true;
                                 for v in 1..n {
-                                    min_dist[v] = nodes[0].dist(nodes[v]);
+                                    min_dist[v] = nodes[0].pos.dist(nodes[v].pos);
                                     parent[v] = 0;
                                 }
 
@@ -2503,13 +2546,17 @@ pub fn generate_board_meshes_in(
                                     }
 
                                     in_mst[best_u] = true;
-                                    let p_u = vp.world_to_screen(nodes[best_u], rect);
-                                    let p_parent = vp.world_to_screen(nodes[parent[best_u]], rect);
-                                    segments.push((p_u, p_parent));
+                                    let p_u = vp.world_to_screen(nodes[best_u].pos, rect);
+                                    let p_parent = vp.world_to_screen(nodes[parent[best_u]].pos, rect);
+                                    if is_cross(nodes[best_u].side, nodes[parent[best_u]].side) {
+                                        cross_layer_segments.push((p_u, p_parent));
+                                    } else {
+                                        same_layer_segments.push((p_u, p_parent));
+                                    }
 
                                     for v in 1..n {
                                         if !in_mst[v] {
-                                            let d = nodes[best_u].dist(nodes[v]);
+                                            let d = nodes[best_u].pos.dist(nodes[v].pos);
                                             if d < min_dist[v] {
                                                 min_dist[v] = d;
                                                 parent[v] = best_u;
@@ -2520,15 +2567,62 @@ pub fn generate_board_meshes_in(
                             }
                         }
 
-                        if !segments.is_empty() {
+                        let make_dashed = |segs: &[(Pos2, Pos2)]| -> Vec<(Pos2, Pos2)> {
+                            let mut dashed = Vec::with_capacity(segs.len() * 4);
+                            let dash_len = 6.0f32;
+                            let gap_len = 4.0f32;
+                            let cycle = dash_len + gap_len;
+                            for &(p1, p2) in segs {
+                                let dist = p1.distance(p2);
+                                if dist <= dash_len {
+                                    dashed.push((p1, p2));
+                                    continue;
+                                }
+                                let dir = (p2 - p1) / dist;
+                                let mut t = 0.0f32;
+                                while t < dist {
+                                    let t_end = (t + dash_len).min(dist);
+                                    dashed.push((p1 + dir * t, p1 + dir * t_end));
+                                    t += cycle;
+                                }
+                            }
+                            dashed
+                        };
+
+                        let (same_segs, cross_segs) = if net_lines_dashed {
+                            (make_dashed(&same_layer_segments), make_dashed(&cross_layer_segments))
+                        } else {
+                            (same_layer_segments, cross_layer_segments)
+                        };
+
+                        if !same_segs.is_empty() {
                             let mut web_mesh = Mesh::default();
                             Renderer::append_lines_to_mesh(
                                 &mut web_mesh,
-                                &segments,
+                                &same_segs,
                                 0.75, // half_width = 0.75 (1.5 px line)
                                 tokens.net_web,
                             );
                             new_meshes.push(web_mesh);
+                        }
+
+                        if !cross_segs.is_empty() {
+                            let cross_layer_color = Color32::from_rgba_unmultiplied(
+                                tokens.net_web.r(),
+                                tokens.net_web.g(),
+                                tokens.net_web.b(),
+                                ((tokens.net_web.a() as f32) * (1.0 - cross_layer_transparency))
+                                    .round()
+                                    .clamp(0.0, 255.0) as u8,
+                            );
+                            let mut cross_mesh = Mesh::default();
+                            Renderer::append_lines_to_mesh(
+                                &mut cross_mesh,
+                                &cross_segs,
+                                0.75,
+                                cross_layer_color,
+                            );
+                            new_meshes.push(cross_mesh);
                         }
                     }
                 }
@@ -2647,6 +2741,8 @@ mod tests {
             &mut renderer,
             true, // show_net_web
             ViaDisplayMode::Web,
+            false, // net_lines_dashed
+            0.60,  // cross_layer_transparency
             false, // show_opposite_elements
             true,  // show_vias
             false, // show_unnamed_vias
@@ -2720,6 +2816,8 @@ mod tests {
             true,
             ViaDisplayMode::Web,
             false,
+            0.60,
+            false,
             true,
             false,
             true,
@@ -2741,6 +2839,8 @@ mod tests {
             &mut renderer,
             true,
             ViaDisplayMode::Web,
+            false,
+            0.60,
             false,
             true,
             false,
@@ -2838,7 +2938,7 @@ mod tests {
         let mut renderer = Renderer::new();
         let meshes = generate_board_meshes(
             &board, &vp, rect, &tokens, None, None, None, None, None, None, &mut renderer,
-            false, ViaDisplayMode::Web, false, true, false, true,
+            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
         );
         assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.part_body)));
         assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.pin_default)));
@@ -2865,7 +2965,7 @@ mod tests {
         sync_board_meshes(state, key, vp, rect, |coverage| {
             generate_board_meshes_in(
                 board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, None, None, &mut renderer,
-                true, ViaDisplayMode::Web, false, true, false, true,
+                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
             )
         })
     }
@@ -2940,7 +3040,7 @@ mod tests {
         assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
         let fresh = generate_board_meshes_in(
             &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, None, None, &mut Renderer::new(),
-            true, ViaDisplayMode::Web, false, true, false, true,
+            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
         );
         // Pads have true size, so the re-mapped pad mesh (the last one) equals a fresh one.
         let (remapped, fresh) = (state.cached_meshes.last().unwrap(), fresh.last().unwrap());
@@ -2960,7 +3060,7 @@ mod tests {
         let pin_vertices = |vp: &Viewport| -> Vec<Pos2> {
             let meshes = generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, false, false, true,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true,
             );
             meshes.last().unwrap().vertices.iter().map(|v| v.pos).collect()
         };
@@ -2985,7 +3085,7 @@ mod tests {
         let vertices = |vp: &Viewport| -> usize {
             generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, true, false, true,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
             )
             .iter()
             .map(|m| m.vertices.len())
@@ -3156,7 +3256,7 @@ mod tests {
         let mut renderer = Renderer::new();
         let meshes = generate_board_meshes(
             &board, &vp, rect, &tokens, None, None, None, None, None, None, &mut renderer,
-            true, ViaDisplayMode::Web, false, true, false, true,
+            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
         );
         let vertices: usize = meshes.iter().map(|m| m.vertices.len()).sum();
         assert!(meshes.len() <= 8, "{} meshes", meshes.len());
@@ -3188,7 +3288,7 @@ mod tests {
                 let start = Instant::now();
                 let meshes = generate_board_meshes(
                     &board, view, canvas_rect, &tokens, None, None, None, None, None, None, &mut renderer,
-                    true, ViaDisplayMode::Web, false, true, false, true,
+                    true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
                 );
                 times.push(start.elapsed());
                 vertices = meshes.iter().map(|m| m.vertices.len()).sum::<usize>();
@@ -3416,7 +3516,7 @@ mod tests {
         });
         board.rebuild_indices();
 
-        let vp = Viewport::default();
+        let vp = Viewport { scale: 1.0, ..Viewport::default() };
         let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
         let tokens = Tokens::DARK;
         let mut renderer = Renderer::new();
@@ -3436,6 +3536,8 @@ mod tests {
             &mut renderer,
             true,
             ViaDisplayMode::Web,
+            false,
+            0.60,
             false,
             true,
             false,
@@ -3460,6 +3562,8 @@ mod tests {
             true,
             ViaDisplayMode::Web,
             false,
+            0.60,
+            false,
             true,
             false,
             true,
@@ -3482,6 +3586,8 @@ mod tests {
             &mut renderer,
             true,
             ViaDisplayMode::Radial,
+            false,
+            0.60,
             false,
             true,
             false,
@@ -3506,12 +3612,109 @@ mod tests {
             true,
             ViaDisplayMode::Radial,
             false,
+            0.60,
+            false,
             true,
             false,
             true,
         );
         let web_radial_via = meshes_radial_via.last().unwrap();
         assert_eq!(web_radial_via.vertices.len(), 12);
+
+        // 5. Dashed line mode: lines are broken into dashes, producing more vertices than solid lines
+        let meshes_dashed = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            Some(0),
+            None,
+            None,
+            Some("TEST_NET"),
+            None,
+            None,
+            &mut renderer,
+            true,
+            ViaDisplayMode::Radial,
+            true, // net_lines_dashed
+            0.60,
+            false,
+            true,
+            false,
+            true,
+        );
+        let web_dashed = meshes_dashed.last().unwrap();
+        assert!(web_dashed.vertices.len() > 12, "Dashed lines must be subdivided into multiple dash vertices");
+    }
+
+    #[test]
+    fn test_cross_layer_transparency_and_default_theme() {
+        use crate::theme::{AppTheme, PcbTheme};
+
+        // Verify default PCB theme is BlueCarrot
+        assert_eq!(PcbTheme::default(), PcbTheme::BlueCarrot);
+        assert_eq!(Preferences::default().pcb_theme, PcbTheme::BlueCarrot);
+        assert_eq!(Preferences::default().cross_layer_transparency, 0.60);
+
+        // Create board with 1 Top pin and 1 Bottom pin on the same net
+        let mut board = Board::new();
+        board.pins.push(Pin {
+            id: 0,
+            part_id: 0,
+            pos: Point::new(0.0, 0.0),
+            side: Side::Top,
+            net_name: "CROSS_NET".into(),
+            radius: 10.0,
+            ..Default::default()
+        });
+        board.pins.push(Pin {
+            id: 1,
+            part_id: 0,
+            pos: Point::new(100.0, 100.0),
+            side: Side::Bottom,
+            net_name: "CROSS_NET".into(),
+            radius: 10.0,
+            ..Default::default()
+        });
+        board.rebuild_indices();
+
+        let vp = Viewport { side: Side::Top, ..Viewport::default() };
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let tokens = Tokens::new(AppTheme::Dark, PcbTheme::BlueCarrot);
+        let mut renderer = Renderer::new();
+
+        // Pin 0 (Top) selected. Pin 1 (Bottom) is destination.
+        let meshes = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            Some(0),
+            None,
+            None,
+            Some("CROSS_NET"),
+            None,
+            None,
+            &mut renderer,
+            true,
+            ViaDisplayMode::Radial,
+            false,
+            0.60, // 60% transparency -> 40% opacity
+            true, // show_opposite_elements
+            true,
+            false,
+            true,
+        );
+
+        // Verify that cross-layer mesh has transparency applied (alpha = net_web.a() * 0.4)
+        let expected_line_alpha = ((tokens.net_web.a() as f32) * 0.40).round() as u8;
+        let line_mesh = meshes.iter().find(|m| m.vertices.iter().any(|v| v.color.a() == expected_line_alpha));
+        assert!(line_mesh.is_some(), "Expected flight line with 60% transparency (alpha {})", expected_line_alpha);
+
+        // Verify destination pin on opposite side (Bottom) has transparency applied
+        let expected_opp_pin_alpha = ((tokens.pin_highlight_opp_side.a() as f32) * 0.40).round() as u8;
+        let opp_pin_mesh = meshes.iter().find(|m| m.vertices.iter().any(|v| v.color.a() == expected_opp_pin_alpha));
+        assert!(opp_pin_mesh.is_some(), "Expected destination pin on opposite side with 60% transparency (alpha {})", expected_opp_pin_alpha);
     }
 }
 
