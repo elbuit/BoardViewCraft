@@ -13,13 +13,23 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
 ## Features
 
 - **Fast Canvas**: Parallel spatial grid queries (`Rayon`) and hardware-accelerated tessellation (`Lyon`). Cached geometry meshes are re-mapped during pan/zoom for 60+ FPS navigation on dense PCBs with tens of thousands of pins and vias.
+- **Quick Navigation Toolbar**:
+  - History back/forward navigation (`<` / `>`) tracking inspected parts and nets.
+  - One-click **Top** and **Bottom** view switching.
+  - Integrated, searchable **Parts** and **Nets** combo boxes with instant auto-completion directly in the toolbar.
+  - Quick zoom controls (`+`, `-`, reset).
 - **Flexible Layouts & Dual-Pane Split View**:
   - **Single Pane**, **Split Vertical** (side by side), or **Split Horizontal** (stacked).
   - Any pane can display **Top**, **Bottom**, **Both** (top and bottom with synchronized or independent view), **PDF Schematic**, or **CAD Schematic**.
+  - Configurable inspection side panel position (**Left** or **Right**).
   - Interactive resizable divider with reset shortcut.
 
-  ![BoardViewCraft: Split view with board layout on the left, PDF schematic on the right with page scrubber, and side panel](docs/screenshots/boardviewcraft-v020.png)
-- **Readable Board Rendering**: Filled part bodies, component outlines, pin names, and physical pad geometries (round, rectangular, rotated) read from GenCAD `$PADS` and CAD records.
+  ![BoardViewCraft: Quick toolbar with history navigation, parts/nets search, synchronized Both view, and net flight lines](docs/screenshots/boardviewcraft-v022.png)
+- **Readable Board Rendering & Visual Flight Lines**:
+  - Filled part bodies, component outlines, pin names, and physical pad geometries (round, rectangular, rotated) read from GenCAD `$PADS` and CAD records.
+  - Radial and web net flight lines showing all connected pins on selected nets.
+  - Optional dashed / dotted net flight lines mode to reduce visual clutter on dense nets.
+  - **Opposite-Layer Differentiation**: Opposite-side vias and net lines crossing layers render at 50% opacity, making through-hole and multi-layer connections instantly distinguishable at a glance.
 - **Bijective Coordinates**: Pan, zoom, flip (TOP/BOTTOM), rotate (90° / 180°), and horizontal/vertical mirror with consistent coordinate mapping.
 - **Advanced Search**:
   - Filter parts and nets with full wildcard matching (`*`, `?`), prefix chips (`U`, `R`, `C`, `Q`, `D`, `L`, `F`, `J`), comma-separated OR queries, and side filters (Top, Bottom, All).
@@ -33,14 +43,18 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
 - **Technician Notes & Measurements**:
   - Attach structured inspection notes and physical test readings (voltage, resistance, diode drop) to individual components or specific pins.
   - Visual `📝` badges in virtualized pin lists for quick test point identification.
+  - Dedicated side panel tabs for Parts, Nets, and Notes.
   - Export full service inspection reports and complete Bill of Materials (BOM) in TSV.
 - **Camera Overlays**:
   - Load real PCB inspection photos over Top and Bottom views.
   - Interactive multi-point pin alignment with opacity blending.
-- **Independent Theming**:
-  - Application UI (Light/Dark) and PCB themes (Light, Dark, Warm, Sweet Cold, Cadcraft, and Custom with customizable color tokens).
+- **Independent Theming & Deep Customization**:
+  - Application UI (Light/Dark) and rich PCB color presets: **Blue Carrot** (default), Cadcraft, Dark, Light, Warm, Sweet Cold, and Cyberpunk.
+  - In-depth theme editor: modify all 14 color tokens, toggle dashed flight lines, and clone existing presets into custom named themes.
+  - Revert overrides at any time with one click.
 - **Extensive Format Support**:
-  - GenCAD (`.cad`), TVW, KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2), ODB++, IPC-2581, and IPC-D-356.
+  - GenCAD (`.cad`), TVW, KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2), `.pcb` / `.xzz` multi-layer boardview, ODB++, IPC-2581, and IPC-D-356.
+  - Transparent `.zip` archive extraction and file sniffing.
 - **Multilingual Support**: English, Spanish, Catalan, French, German, and Italian.
 
 ---
