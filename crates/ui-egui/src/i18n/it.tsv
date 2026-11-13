@@ -87,6 +87,10 @@
 	side_panel.side	Lato
 	side_panel.pins	Pin
 	side_panel.package	Package
+	side_panel.value	Valore
+	side_panel.reading	Lettura
+	side_panel.voltage	Tensione
+	side_panel.signal	Segnale
 	overlay.title	Foto sovrapposta
 	overlay.done	Fatto
 	overlay.done_calibrating_hint	Completa o annulla prima l'allineamento dei pin

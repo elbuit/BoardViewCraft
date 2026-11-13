@@ -87,6 +87,10 @@
 	side_panel.side	Capa
 	side_panel.pins	Pines
 	side_panel.package	Encapsulado
+	side_panel.value	Valor
+	side_panel.reading	Lectura
+	side_panel.voltage	Tensión
+	side_panel.signal	Señal
 	overlay.title	Foto de Fondo
 	overlay.done	Hecho
 	overlay.done_calibrating_hint	Termina o cancela primero la alineación por pines

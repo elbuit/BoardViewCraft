@@ -87,6 +87,10 @@
 	side_panel.side	Capa
 	side_panel.pins	Pins
 	side_panel.package	Encapsulat
+	side_panel.value	Valor
+	side_panel.reading	Lectura
+	side_panel.voltage	Tensió
+	side_panel.signal	Senyal
 	overlay.title	Foto de Fons
 	overlay.done	Fet
 	overlay.done_calibrating_hint	Acaba o cancel·la primer l'alineació per pins

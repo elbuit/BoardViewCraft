@@ -340,6 +340,15 @@ pub fn show_side_panel(
                         ))
                         .color(tokens.text_dim()),
                     );
+                    for (key, value) in [
+                        ("side_panel.voltage", b.metadata.net_voltage(net_name)),
+                        ("side_panel.reading", b.metadata.net_reading(net_name)),
+                        ("side_panel.signal", b.metadata.net_signal(net_name)),
+                    ] {
+                        if let Some(value) = value {
+                            ui.label(RichText::new(format!("{}: {value}", i18n::tr(lang, key))).color(tokens.text_dim()));
+                        }
+                    }
 
                     ui.add_space(8.0);
                     ui.label(RichText::new(i18n::tr(lang, "side_panel.pins_on_net")).strong());
@@ -366,8 +375,17 @@ pub fn show_side_panel(
 
                                     let is_cur_side = pin.side.visible_on(current_side);
                                     let label_text = format!(
-                                        "{}.{} ({}) [{:.1}, {:.1}]",
-                                        part_name, pin.name, side_str, pin.pos.x, pin.pos.y
+                                        "{}.{} ({}) [{:.1}, {:.1}]{}",
+                                        part_name,
+                                        pin.name,
+                                        side_str,
+                                        pin.pos.x,
+                                        pin.pos.y,
+                                        // Net-level voltage/reading are shown once above; rows only add pin readings.
+                                        b.metadata
+                                            .pin_reading(part_name, &pin.name)
+                                            .map(|r| format!(" · {}: {r}", i18n::tr(lang, "side_panel.reading")))
+                                            .unwrap_or_default()
                                     );
 
                                     let color = if is_cur_side {
@@ -457,6 +475,12 @@ pub fn show_side_panel(
                                 .color(tokens.text_dim()),
                         );
                     }
+                    if let Some(value) = b.metadata.part_value(&part.name) {
+                        ui.label(
+                            RichText::new(format!("{}: {value}", i18n::tr(lang, "side_panel.value")))
+                                .color(tokens.text_dim()),
+                        );
+                    }
 
                     ui.add_space(8.0);
                     ui.label(RichText::new(i18n::tr(lang, "side_panel.pins")).strong());
@@ -475,13 +499,14 @@ pub fn show_side_panel(
                                     });
                                     let note_badge = if has_note { " 📝" } else { "" };
                                     let pin_label = format!(
-                                        "Pin {}: Net '{}'{}",
+                                        "Pin {}: Net '{}'{}{}",
                                         pin.name,
                                         if pin.net_name.is_empty() {
                                             "UNCONNECTED"
                                         } else {
                                             &pin.net_name
                                         },
+                                        pin_metadata_suffix(b, lang, &part.name, pin),
                                         note_badge
                                     );
 
@@ -1244,6 +1269,29 @@ pub fn export_net_details_tsv(b: &Board, net_name: &str) -> String {
     out
 }
 
+/// Repair metadata for a pin: its own reading (falling back to its net's reading) and its net voltage.
+fn pin_metadata<'a>(b: &'a Board, part_name: &str, pin: &bvc_core::Pin) -> (Option<&'a str>, Option<&'a str>) {
+    let reading = b
+        .metadata
+        .pin_reading(part_name, &pin.name)
+        .or_else(|| (!pin.net_name.is_empty()).then(|| b.metadata.net_reading(&pin.net_name)).flatten());
+    let voltage = (!pin.net_name.is_empty()).then(|| b.metadata.net_voltage(&pin.net_name)).flatten();
+    (reading, voltage)
+}
+
+/// Pin-row suffix such as ` · Reading: 318 · Voltage: 3.3V`; empty when the pin has no metadata.
+fn pin_metadata_suffix(b: &Board, lang: Language, part_name: &str, pin: &bvc_core::Pin) -> String {
+    let (reading, voltage) = pin_metadata(b, part_name, pin);
+    let mut out = String::new();
+    if let Some(reading) = reading {
+        out.push_str(&format!(" · {}: {reading}", i18n::tr(lang, "side_panel.reading")));
+    }
+    if let Some(voltage) = voltage {
+        out.push_str(&format!(" · {}: {voltage}", i18n::tr(lang, "side_panel.voltage")));
+    }
+    out
+}
+
 pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
     let mut out = String::new();
     let side_str = match part.side {
@@ -1255,9 +1303,12 @@ pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
     if !part.mfg_code.is_empty() {
         out.push_str(&format!("Package:\t{}\n", part.mfg_code));
     }
+    if let Some(value) = b.metadata.part_value(&part.name) {
+        out.push_str(&format!("Value:\t{value}\n"));
+    }
     out.push_str(&format!("Pins:\t{}\n\n", part.pin_indices.len()));
     out.push_str("Pins:\n");
-    out.push_str("Pin\tNet\tSide\tX (mil)\tY (mil)\n");
+    out.push_str("Pin\tNet\tSide\tX (mil)\tY (mil)\tReading\tVoltage\n");
     for &pin_idx in &part.pin_indices {
         if let Some(pin) = b.pins.get(pin_idx) {
             let net = if pin.net_name.is_empty() { "UNCONNECTED" } else { &pin.net_name };
@@ -1266,7 +1317,17 @@ pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
                 Side::Bottom => "Bottom",
                 Side::Both => "Both",
             };
-            out.push_str(&format!("{}\t{}\t{}\t{:.2}\t{:.2}\n", pin.name, net, pin_side, pin.pos.x, pin.pos.y));
+            let (reading, voltage) = pin_metadata(b, &part.name, pin);
+            out.push_str(&format!(
+                "{}\t{}\t{}\t{:.2}\t{:.2}\t{}\t{}\n",
+                pin.name,
+                net,
+                pin_side,
+                pin.pos.x,
+                pin.pos.y,
+                reading.unwrap_or(""),
+                voltage.unwrap_or("")
+            ));
         }
     }
     out
@@ -1424,6 +1485,31 @@ mod tests {
         assert!(tsv.contains("Part:\tR1"));
         assert!(tsv.contains("Side:\tBottom"));
         assert!(tsv.contains("1\tGND\tBottom\t5.00\t5.00"));
+    }
+
+    #[test]
+    fn test_export_part_details_tsv_includes_repair_metadata() {
+        let mut board = board_with_part(Side::Top, None);
+        board.metadata.set_part_value("U7", "10k");
+        board.metadata.set_pin_reading("U7", "1", "0.512");
+        board.metadata.set_net_voltage("VCC", "3.3V");
+        let part = board.parts[0].clone();
+
+        let tsv = export_part_details_tsv(&board, &part);
+        assert!(tsv.contains("Value:\t10k\n"));
+        assert!(tsv.contains("Pin\tNet\tSide\tX (mil)\tY (mil)\tReading\tVoltage\n"));
+        assert!(tsv.contains("1\tVCC\tTop\t3.00\t4.00\t0.512\t3.3V\n"));
+    }
+
+    #[test]
+    fn test_pin_reading_falls_back_to_net_reading() {
+        let mut board = board_with_part(Side::Top, None);
+        board.metadata.set_net_reading("VCC", "OL");
+        let (reading, voltage) = pin_metadata(&board, "U7", &board.pins[0]);
+        assert_eq!(reading, Some("OL"));
+        assert_eq!(voltage, None);
+        let suffix = pin_metadata_suffix(&board, Language::default(), "U7", &board.pins[0]);
+        assert!(suffix.contains("OL"));
     }
 
     fn board_with_part(side: Side, bbox: Option<bvc_core::Rect>) -> Board {

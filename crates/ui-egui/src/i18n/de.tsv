@@ -87,6 +87,10 @@
 	side_panel.side	Seite
 	side_panel.pins	Pins
 	side_panel.package	Gehäuse
+	side_panel.value	Wert
+	side_panel.reading	Messwert
+	side_panel.voltage	Spannung
+	side_panel.signal	Signal
 	overlay.title	Overlay-Foto
 	overlay.done	Fertig
 	overlay.done_calibrating_hint	Zuerst die Pin-Ausrichtung abschließen oder abbrechen

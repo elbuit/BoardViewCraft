@@ -87,6 +87,10 @@
 	side_panel.side	Side
 	side_panel.pins	Pins
 	side_panel.package	Package
+	side_panel.value	Value
+	side_panel.reading	Reading
+	side_panel.voltage	Voltage
+	side_panel.signal	Signal
 	overlay.title	Overlay Photo
 	overlay.done	Done
 	overlay.done_calibrating_hint	Finish or cancel the pin alignment first
