@@ -276,7 +276,7 @@ impl PcbTokens {
         via_cur_side: Color32::from_rgb(0xc0, 0x7a, 0x10),
         via_opp_side: Color32::from_rgba_premultiplied(0x40, 0x2d, 0x10, 128),
         via_highlight: Color32::from_rgb(0x1a, 0x9e, 0x3d),
-        net_web: Color32::from_rgba_premultiplied(0x1a, 0x9e, 0x3d, 0xcc),
+        net_web: Color32::from_rgba_premultiplied(0xa7, 0x1d, 0x26, 0xcc), // red
     };
 
     pub const WARM: PcbTokens = PcbTokens {
