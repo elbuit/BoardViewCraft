@@ -86,6 +86,7 @@
 	side_panel.click_pin_view_part	Fai clic sul pin di un componente per i dettagli.
 	side_panel.side	Lato
 	side_panel.pins	Pin
+	side_panel.package	Package
 	overlay.title	Foto sovrapposta
 	overlay.done	Fatto
 	overlay.done_calibrating_hint	Completa o annulla prima l'allineamento dei pin

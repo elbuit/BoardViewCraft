@@ -86,6 +86,7 @@
 	side_panel.click_pin_view_part	Fes clic en el pin d'un component per veure els seus detalls.
 	side_panel.side	Capa
 	side_panel.pins	Pins
+	side_panel.package	Encapsulat
 	overlay.title	Foto de Fons
 	overlay.done	Fet
 	overlay.done_calibrating_hint	Acaba o cancel·la primer l'alineació per pins

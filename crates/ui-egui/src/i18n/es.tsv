@@ -86,6 +86,7 @@
 	side_panel.click_pin_view_part	Haz clic en el pin de un componente para ver sus detalles.
 	side_panel.side	Capa
 	side_panel.pins	Pines
+	side_panel.package	Encapsulado
 	overlay.title	Foto de Fondo
 	overlay.done	Hecho
 	overlay.done_calibrating_hint	Termina o cancela primero la alineación por pines

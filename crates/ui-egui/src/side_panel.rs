@@ -451,6 +451,12 @@ pub fn show_side_panel(
                         RichText::new(format!("Side: {side_str} | Pins: {}", part.pin_indices.len()))
                             .color(tokens.text_dim()),
                     );
+                    if !part.mfg_code.is_empty() {
+                        ui.label(
+                            RichText::new(format!("{}: {}", i18n::tr(lang, "side_panel.package"), part.mfg_code))
+                                .color(tokens.text_dim()),
+                        );
+                    }
 
                     ui.add_space(8.0);
                     ui.label(RichText::new(i18n::tr(lang, "side_panel.pins")).strong());
@@ -1245,7 +1251,11 @@ pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
         Side::Bottom => "Bottom",
         Side::Both => "Both",
     };
-    out.push_str(&format!("Part:\t{}\nSide:\t{}\nPins:\t{}\n\n", part.name, side_str, part.pin_indices.len()));
+    out.push_str(&format!("Part:\t{}\nSide:\t{}\n", part.name, side_str));
+    if !part.mfg_code.is_empty() {
+        out.push_str(&format!("Package:\t{}\n", part.mfg_code));
+    }
+    out.push_str(&format!("Pins:\t{}\n\n", part.pin_indices.len()));
     out.push_str("Pins:\n");
     out.push_str("Pin\tNet\tSide\tX (mil)\tY (mil)\n");
     for &pin_idx in &part.pin_indices {

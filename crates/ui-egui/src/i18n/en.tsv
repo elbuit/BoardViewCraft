@@ -86,6 +86,7 @@
 	side_panel.click_pin_view_part	Click a component pin to view part details.
 	side_panel.side	Side
 	side_panel.pins	Pins
+	side_panel.package	Package
 	overlay.title	Overlay Photo
 	overlay.done	Done
 	overlay.done_calibrating_hint	Finish or cancel the pin alignment first

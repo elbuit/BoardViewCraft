@@ -86,6 +86,7 @@
 	side_panel.click_pin_view_part	Cliquez sur la broche d'un composant pour voir ses détails.
 	side_panel.side	Côté
 	side_panel.pins	Broches
+	side_panel.package	Boîtier
 	overlay.title	Photo superposée
 	overlay.done	Terminé
 	overlay.done_calibrating_hint	Terminez ou annulez d'abord l'alignement par broches

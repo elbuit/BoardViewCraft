@@ -86,6 +86,7 @@
 	side_panel.click_pin_view_part	Klicken Sie auf einen Bauteil-Pin für Details.
 	side_panel.side	Seite
 	side_panel.pins	Pins
+	side_panel.package	Gehäuse
 	overlay.title	Overlay-Foto
 	overlay.done	Fertig
 	overlay.done_calibrating_hint	Zuerst die Pin-Ausrichtung abschließen oder abbrechen

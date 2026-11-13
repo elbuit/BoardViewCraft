@@ -1009,7 +1009,7 @@ impl TvwParser {
             board.parts.push(Part {
                 id: part_id,
                 name: comp.refdes.clone(),
-                mfg_code: comp.value.clone(),
+                mfg_code: comp.footprint.clone(),
                 side,
                 part_type: PartType::Smd,
                 p1: Point::new(comp.bx1 as f64 / 100.0, comp.by1 as f64 / 100.0),
