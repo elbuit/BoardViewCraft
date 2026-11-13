@@ -9,13 +9,123 @@
 use std::collections::BTreeMap;
 use std::env;
 use crate::board::Board;
-use crate::model::{PadShape, Part, PartType, Pin, Point, Side, Via};
+use crate::model::{BoardMetadata, PadShape, Part, PartType, Pin, Point, Side, Via};
 use crate::parser::{FormatParser, ParseError};
 
 pub const XZZ_KEY_ENV: &str = "WRENCH_BOARD_XZZ_KEY";
 pub const DEFAULT_XZZ_KEY: u64 = 0xdcfc_12ac_0000_0000;
 const XZZ_GLOBAL_SCALE: f64 = 10000.0;
 const V6_SENTINEL: &[u8] = b"v6v6555v6v6";
+/// Separator that opens every section of the post-v6 metadata region.
+const V6_SECTION_DIVIDER: &[u8] = b"===";
+
+/// Known post-v6 sections, identified by their GB2312 header bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum V6Section {
+    /// "阻值": `=VALUE=PART(PIN)` per-pin readings and `NET=VALUE` per-net readings.
+    Resistance,
+    /// "阻值图": `NET=VALUE` per-net readings.
+    ResistanceDiagram,
+    /// "阻值表": same line forms as [`V6Section::Resistance`].
+    ResistanceTable,
+    /// "电压": `NET=VALUE` voltages.
+    Voltage,
+    /// "信号": `NET=description` signal descriptions.
+    Signal,
+}
+
+impl V6Section {
+    /// Exact header match (trailing spaces trimmed); unknown headers (PCB attachment JSON,
+    /// RFFE, schematic, part data) yield `None` and are ignored.
+    fn from_header(header: &[u8]) -> Option<Self> {
+        let end = header.iter().rposition(|&b| b != b' ').map_or(0, |i| i + 1);
+        match &header[..end] {
+            b"\xd7\xe8\xd6\xb5\xcd\xbc" => Some(Self::ResistanceDiagram),
+            b"\xd7\xe8\xd6\xb5\xb1\xed" => Some(Self::ResistanceTable),
+            b"\xd7\xe8\xd6\xb5" => Some(Self::Resistance),
+            b"\xb5\xe7\xd1\xb9" => Some(Self::Voltage),
+            b"\xd0\xc5\xba\xc5" => Some(Self::Signal),
+            _ => None,
+        }
+    }
+}
+
+/// Splits the post-v6 region into `(header, body)` pairs. Each section starts with `===`,
+/// its header runs until the first CR/LF and the body until the next `===` divider.
+fn split_v6_sections(region: &[u8]) -> Vec<(&[u8], &[u8])> {
+    let mut starts = Vec::new();
+    let mut pos = 0;
+    while let Some(off) = region[pos..].windows(V6_SECTION_DIVIDER.len()).position(|w| w == V6_SECTION_DIVIDER) {
+        starts.push(pos + off);
+        pos += off + V6_SECTION_DIVIDER.len();
+    }
+    let mut sections = Vec::with_capacity(starts.len());
+    for (i, &start) in starts.iter().enumerate() {
+        let end = starts.get(i + 1).copied().unwrap_or(region.len());
+        let section = &region[start + V6_SECTION_DIVIDER.len()..end];
+        let header_len = section.iter().position(|&b| b == b'\n' || b == b'\r').unwrap_or(section.len());
+        let body = section.get(header_len + 1..).unwrap_or(&[]);
+        sections.push((&section[..header_len], body));
+    }
+    sections
+}
+
+/// Parses a `=VALUE=PART(PIN)` line into `(value, part, pin)`.
+fn parse_pin_reading_line(line: &str) -> Option<(&str, &str, &str)> {
+    let rest = line.strip_prefix('=')?;
+    let (value, target) = rest.split_once('=')?;
+    let (part, pin_rest) = target.split_once('(')?;
+    let pin = &pin_rest[..pin_rest.find(')')?];
+    if part.is_empty() || part.contains('=') || pin.is_empty() {
+        return None;
+    }
+    Some((value, part, pin))
+}
+
+/// Parses a `KEY=VALUE` line that contains exactly one `=`.
+fn parse_key_value_line(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = line.split_once('=')?;
+    if key.is_empty() || value.is_empty() || value.contains('=') {
+        return None;
+    }
+    Some((key, value))
+}
+
+/// Fills `meta` from the plain (non-XORed) bytes that follow the `v6v6555v6v6` marker.
+fn parse_v6_metadata(region: &[u8], meta: &mut BoardMetadata) {
+    for (header, body) in split_v6_sections(region) {
+        let Some(kind) = V6Section::from_header(header) else {
+            continue;
+        };
+        let (text, _, _) = encoding_rs::GB18030.decode(body);
+        for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+            match kind {
+                V6Section::Resistance | V6Section::ResistanceTable => {
+                    if let Some((value, part, pin)) = parse_pin_reading_line(line) {
+                        meta.set_pin_reading(part, pin, value);
+                    } else if let Some((net, value)) = parse_key_value_line(line) {
+                        meta.set_net_reading(net, value);
+                    }
+                }
+                V6Section::ResistanceDiagram => {
+                    if let Some((net, value)) = parse_key_value_line(line) {
+                        meta.set_net_reading(net, value);
+                    }
+                }
+                V6Section::Voltage => {
+                    if let Some((net, value)) = parse_key_value_line(line) {
+                        meta.set_net_voltage(net, value);
+                    }
+                }
+                V6Section::Signal => {
+                    if let Some((net, description)) = line.split_once('=') {
+                        meta.set_net_signal(net, description);
+                    }
+                }
+            }
+        }
+    }
+}
 
 struct RawPin {
     name: String,
@@ -461,15 +571,12 @@ impl XzzParser {
             return Err(ParseError::SyntaxError { line: 0, message: "XZZ file too short".into() });
         }
 
-        // Descramble XOR
+        // Descramble XOR (only up to the v6 marker; the metadata after it is plain text)
         let mut buf = raw.to_vec();
+        let v6_pos = buf.windows(V6_SENTINEL.len()).position(|w| w == V6_SENTINEL);
         if buf.len() > 0x10 && buf[0x10] != 0 {
             let xor_key = buf[0x10];
-            let limit = if let Some(pos) = buf.windows(V6_SENTINEL.len()).position(|w| w == V6_SENTINEL) {
-                pos
-            } else {
-                buf.len()
-            };
+            let limit = v6_pos.unwrap_or(buf.len());
             for b in buf[..limit].iter_mut() {
                 *b ^= xor_key;
             }
@@ -957,6 +1064,10 @@ impl XzzParser {
 
         board.rebuild_indices();
 
+        if let Some(pos) = v6_pos {
+            parse_v6_metadata(&buf[pos + V6_SENTINEL.len()..], &mut board.metadata);
+        }
+
         // Synthesize outline bounding box with 20-mil margin if still empty
         if board.outline_polygon.is_empty() && (!board.pins.is_empty() || !board.vias.is_empty()) {
             if let Some(bbox) = board.bounding_box {
@@ -996,5 +1107,53 @@ impl FormatParser for XzzParser {
 
     fn parse(&self, data: &[u8]) -> Result<Board, ParseError> {
         Self::parse_data(data)
+    }
+}
+
+#[cfg(test)]
+mod v6_tests {
+    use super::*;
+
+    #[test]
+    fn splits_sections_on_divider_and_header_line() {
+        let region = b"===\xd7\xe8\xd6\xb5\n=497=N1214(1)\n===RFFE\r\n{}\n===\xb5\xe7\xd1\xb9\nPP3V3=3.3\n";
+        let sections = split_v6_sections(region);
+        assert_eq!(sections.len(), 3);
+        assert_eq!(sections[0], (&b"\xd7\xe8\xd6\xb5"[..], &b"=497=N1214(1)\n"[..]));
+        assert_eq!(sections[1].0, b"RFFE");
+        assert_eq!(sections[2], (&b"\xb5\xe7\xd1\xb9"[..], &b"PP3V3=3.3\n"[..]));
+        assert!(split_v6_sections(b"no divider here").is_empty());
+    }
+
+    #[test]
+    fn maps_known_sections_and_ignores_unknown_ones() {
+        let mut region = Vec::new();
+        region.extend_from_slice(b"===\xd7\xe8\xd6\xb5\n=497=N1214(1)\n=OL=U2(A3)\n=0=N1233(1)\nGND=0\n");
+        region.extend_from_slice(b"===\xd7\xe8\xd6\xb5\xcd\xbc\nVDD_CORE=320\n");
+        region.extend_from_slice(b"===\xb5\xe7\xd1\xb9\nPP3V3=3.3V\n");
+        region.extend_from_slice(b"===\xd0\xc5\xba\xc5   \nI2C_SDA=I2C data, pull-up=4.7k\n");
+        region.extend_from_slice(b"===RFFE\nIGNORED=1\n");
+        region.extend_from_slice(b"===\xd4\xad\xc0\xed\xcd\xbc\nSCHEM=1\n");
+        let mut meta = BoardMetadata::default();
+        parse_v6_metadata(&region, &mut meta);
+
+        assert_eq!(meta.pin_reading("N1214", "1"), Some("497"));
+        assert_eq!(meta.pin_reading("U2", "A3"), Some("OL"));
+        assert_eq!(meta.pin_reading("N1233", "1"), Some("0"));
+        assert_eq!(meta.net_reading("GND"), Some("0"));
+        assert_eq!(meta.net_reading("VDD_CORE"), Some("320"));
+        assert_eq!(meta.net_voltage("PP3V3"), Some("3.3V"));
+        assert_eq!(meta.net_signal("I2C_SDA"), Some("I2C data, pull-up=4.7k"));
+        assert_eq!(meta.net_reading("IGNORED"), None);
+        assert_eq!(meta.net_reading("SCHEM"), None);
+    }
+
+    #[test]
+    fn decodes_gb18030_signal_text() {
+        // "电源" (power supply) in GB2312.
+        let region = b"===\xd0\xc5\xba\xc5\nPP5V=\xb5\xe7\xd4\xb4\n";
+        let mut meta = BoardMetadata::default();
+        parse_v6_metadata(region, &mut meta);
+        assert_eq!(meta.net_signal("PP5V"), Some("\u{7535}\u{6e90}"));
     }
 }

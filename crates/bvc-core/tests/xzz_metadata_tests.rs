@@ -33,3 +33,30 @@ fn tvw_component_value_is_exposed_as_part_value() {
     };
     assert_eq!(board.metadata.part_value("R1278"), Some("1.8ohm/x"));
 }
+
+const HAC_DIR: &str = "/home/toni/Baixades/Game Consoles/Nintendo/SWITCH NS-HAC-CPU-20";
+
+#[test]
+fn xzz_v6_resistance_section_yields_pin_readings() {
+    let Some(board) = load(&Path::new(HAC_DIR).join("HAC-CPU-20 YiDianTong(Diode value).pcb")) else {
+        return;
+    };
+    let meta = &board.metadata;
+    assert_eq!(meta.pin_reading("N409", "33"), Some("318"));
+    assert_eq!(meta.pin_reading("N397", "2"), Some("713"));
+    assert_eq!(meta.pin_reading("N407", "4"), Some("OL"));
+    assert!(meta.pin_reading_count() > 1000, "only {} pin readings", meta.pin_reading_count());
+
+    // Readings must point at pins that exist on the parsed board.
+    let n409 = &board.parts[board.part_by_name["N409"]];
+    assert!(n409.pin_indices.iter().any(|&i| board.pins[i].name == "33"));
+}
+
+#[test]
+fn xzz_v6_readings_on_plain_pcb_layer_file() {
+    let Some(board) = load(&Path::new(HAC_DIR).join("HAC-CPU-20 PCB layer.pcb")) else {
+        return;
+    };
+    assert_eq!(board.metadata.pin_reading("N1214", "1"), Some("497"));
+    assert_eq!(board.metadata.pin_reading("N1215", "1"), Some("557"));
+}

@@ -260,6 +260,7 @@ name = "bvc-core"
 version = "0.2.2"
 dependencies = [
  "crc32fast",
+ "encoding_rs",
  "flate2",
  "quick-xml",
  "serde",
