@@ -1101,8 +1101,10 @@ impl BoardViewApp {
     fn show_board_canvases(&mut self, ui: &mut Ui, rects: &[(Side, Rect)]) {
         let overlay_mode_active = self.side_panel_state.overlay_editing;
         let mut zoom_delta: Option<(Side, f32)> = None;
+        let schematic_available = self.pdf_viewer.is_loaded() || self.cad_schematic_viewer.is_loaded();
         for &(side, rect) in rects {
             let is_active = self.canvases.active == side;
+            self.canvases.side_mut(side).schematic_available = schematic_available;
             let response = show_canvas(
                 ui,
                 rect,

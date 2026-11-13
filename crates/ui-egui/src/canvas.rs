@@ -429,6 +429,8 @@ pub struct CanvasState {
     pub context_menu_pin: Option<(usize, Pos2)>,
     pub context_menu_part: Option<(usize, Pos2)>,
     pub navigate_to_schematic: Option<String>,
+    /// Whether a PDF or CAD schematic is loaded; gates the "show in schematic" menu entries.
+    pub schematic_available: bool,
     pub measurement: MeasurementTool,
 }
 
@@ -479,6 +481,7 @@ impl Default for CanvasState {
             context_menu_pin: None,
             context_menu_part: None,
             navigate_to_schematic: None,
+            schematic_available: false,
             measurement: MeasurementTool::default(),
         }
     }
@@ -1444,7 +1447,7 @@ pub fn show_canvas(
                                     close_menu = true;
                                 }
 
-                                if !pin.net_name.is_empty() {
+                                if canvas_state.schematic_available && !pin.net_name.is_empty() {
                                     let schematic_net = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &pin.net_name);
                                     if ui
                                         .button(RichText::new(schematic_net).color(tokens.accent).strong())
@@ -1510,16 +1513,18 @@ pub fn show_canvas(
                                 ui.add_space(6.0);
                                 ui.separator();
 
-                                let schematic_label = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &part.name);
-                                if ui
-                                    .button(RichText::new(schematic_label).color(tokens.accent).strong())
-                                    .clicked()
-                                {
-                                    canvas_state.navigate_to_schematic = Some(part.name.clone());
-                                    close_menu = true;
-                                }
+                                if canvas_state.schematic_available {
+                                    let schematic_label = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &part.name);
+                                    if ui
+                                        .button(RichText::new(schematic_label).color(tokens.accent).strong())
+                                        .clicked()
+                                    {
+                                        canvas_state.navigate_to_schematic = Some(part.name.clone());
+                                        close_menu = true;
+                                    }
 
-                                ui.separator();
+                                    ui.separator();
+                                }
 
                                 if ui
                                     .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_part_name")).color(tokens.text))
