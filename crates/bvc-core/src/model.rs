@@ -1,5 +1,7 @@
 //! Core data models for BoardViewCraft.
 
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Side {
@@ -328,3 +330,130 @@ impl NetMembership {
     }
 }
 
+
+/// Repair metadata carried by some board formats (part values, measured readings, voltages).
+///
+/// Entries are keyed by name rather than by part/pin index: names survive any re-ordering of
+/// `Board::parts`/`Board::pins` and match how the source files reference them (e.g. XZZ
+/// `=497=N1214(1)`). Keys are normalised to ASCII uppercase; lookups are case-insensitive.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BoardMetadata {
+    part_values: HashMap<String, String>,
+    pin_readings: HashMap<(String, String), String>,
+    net_readings: HashMap<String, String>,
+    net_voltages: HashMap<String, String>,
+    net_signals: HashMap<String, String>,
+}
+
+fn meta_key(name: &str) -> String {
+    name.trim().to_ascii_uppercase()
+}
+
+/// Inserts `value` under `key` when both are non-empty; returns whether it was stored.
+fn meta_insert<K: std::hash::Hash + Eq>(map: &mut HashMap<K, String>, key: K, value: &str) -> bool {
+    let value = value.trim();
+    if value.is_empty() {
+        return false;
+    }
+    map.insert(key, value.to_string());
+    true
+}
+
+impl BoardMetadata {
+    /// True when no metadata of any kind is present.
+    pub fn is_empty(&self) -> bool {
+        self.part_values.is_empty()
+            && self.pin_readings.is_empty()
+            && self.net_readings.is_empty()
+            && self.net_voltages.is_empty()
+            && self.net_signals.is_empty()
+    }
+
+    /// Component value (e.g. `560`, `R22`, `10uF`).
+    pub fn set_part_value(&mut self, part: &str, value: &str) {
+        let key = meta_key(part);
+        if !key.is_empty() {
+            meta_insert(&mut self.part_values, key, value);
+        }
+    }
+
+    pub fn part_value(&self, part: &str) -> Option<&str> {
+        self.part_values.get(&meta_key(part)).map(String::as_str)
+    }
+
+    /// Measured diode/resistance reading for one pin of a part.
+    pub fn set_pin_reading(&mut self, part: &str, pin: &str, value: &str) {
+        let key = (meta_key(part), meta_key(pin));
+        if !key.0.is_empty() && !key.1.is_empty() {
+            meta_insert(&mut self.pin_readings, key, value);
+        }
+    }
+
+    pub fn pin_reading(&self, part: &str, pin: &str) -> Option<&str> {
+        self.pin_readings.get(&(meta_key(part), meta_key(pin))).map(String::as_str)
+    }
+
+    /// Measured diode/resistance reading of a net.
+    pub fn set_net_reading(&mut self, net: &str, value: &str) {
+        let key = meta_key(net);
+        if !key.is_empty() {
+            meta_insert(&mut self.net_readings, key, value);
+        }
+    }
+
+    pub fn net_reading(&self, net: &str) -> Option<&str> {
+        self.net_readings.get(&meta_key(net)).map(String::as_str)
+    }
+
+    /// Expected voltage of a net.
+    pub fn set_net_voltage(&mut self, net: &str, value: &str) {
+        let key = meta_key(net);
+        if !key.is_empty() {
+            meta_insert(&mut self.net_voltages, key, value);
+        }
+    }
+
+    pub fn net_voltage(&self, net: &str) -> Option<&str> {
+        self.net_voltages.get(&meta_key(net)).map(String::as_str)
+    }
+
+    /// Free-text signal description of a net.
+    pub fn set_net_signal(&mut self, net: &str, value: &str) {
+        let key = meta_key(net);
+        if !key.is_empty() {
+            meta_insert(&mut self.net_signals, key, value);
+        }
+    }
+
+    pub fn net_signal(&self, net: &str) -> Option<&str> {
+        self.net_signals.get(&meta_key(net)).map(String::as_str)
+    }
+
+    pub fn part_value_count(&self) -> usize {
+        self.part_values.len()
+    }
+
+    pub fn pin_reading_count(&self) -> usize {
+        self.pin_readings.len()
+    }
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::BoardMetadata;
+
+    #[test]
+    fn lookups_are_case_insensitive_and_skip_empty_values() {
+        let mut meta = BoardMetadata::default();
+        assert!(meta.is_empty());
+        meta.set_part_value("r10", "10k");
+        meta.set_part_value("R11", "  ");
+        meta.set_pin_reading("u1", "a1", "0.512");
+        meta.set_net_voltage("pp3v3", "3.3V");
+        assert_eq!(meta.part_value("R10"), Some("10k"));
+        assert_eq!(meta.part_value("R11"), None);
+        assert_eq!(meta.pin_reading("U1", "A1"), Some("0.512"));
+        assert_eq!(meta.net_voltage("PP3V3"), Some("3.3V"));
+        assert!(!meta.is_empty());
+    }
+}

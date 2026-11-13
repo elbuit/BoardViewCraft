@@ -30,6 +30,8 @@ struct RawPin {
 
 struct RawPart {
     name: String,
+    /// Component value: the label that follows the name label (often empty).
+    value: String,
     mfg_code: String,
     rotation_deg: f64,
     pins: Vec<RawPin>,
@@ -609,6 +611,8 @@ impl XzzParser {
 
                             let mut cptr = 26 + fp_len;
                             let mut part_name = String::new();
+                            // The label right after the name label carries the value (e.g. "560").
+                            let mut part_value: Option<String> = None;
                             let mut part_pins = Vec::new();
                             let end_part = (part_size + 4).min(dec_buf.len());
 
@@ -638,6 +642,8 @@ impl XzzParser {
                                                     .to_string();
                                                 if part_name.is_empty() {
                                                     part_name = text;
+                                                } else if part_value.is_none() {
+                                                    part_value = Some(text);
                                                 }
                                             }
                                         }
@@ -733,6 +739,7 @@ impl XzzParser {
                             if !part_name.is_empty() || !part_pins.is_empty() {
                                 raw_parts.push(RawPart {
                                     name: part_name,
+                                    value: part_value.unwrap_or_default(),
                                     mfg_code,
                                     rotation_deg: part_rot,
                                     pins: part_pins,
@@ -897,6 +904,7 @@ impl XzzParser {
                 raw_part.rotation_deg
             };
 
+            board.metadata.set_part_value(&raw_part.name, &raw_part.value);
             board.parts.push(Part {
                 id: part_id,
                 name: raw_part.name,

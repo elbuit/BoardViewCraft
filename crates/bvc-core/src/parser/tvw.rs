@@ -1006,6 +1006,7 @@ impl TvwParser {
             let part_id = board.parts.len();
             part_id_map.insert(comp.refdes.clone(), part_id);
 
+            board.metadata.set_part_value(&comp.refdes, &comp.value);
             board.parts.push(Part {
                 id: part_id,
                 name: comp.refdes.clone(),

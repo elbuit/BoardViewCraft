@@ -1,7 +1,7 @@
 //! Board container and indexing structures for BoardViewCraft.
 
 use std::collections::BTreeMap;
-use crate::model::{Net, NetMembership, Part, Pin, Point, Rect, Side, Via};
+use crate::model::{BoardMetadata, Net, NetMembership, Part, Pin, Point, Rect, Side, Via};
 use crate::spatial::SpatialGrid;
 
 /// High-level board representation with fast lookups.
@@ -17,6 +17,9 @@ pub struct Board {
     pub nets: BTreeMap<String, Net>,
     pub part_by_name: BTreeMap<String, usize>,
     pub spatial_grid: SpatialGrid,
+
+    /// Repair metadata (part values, readings, voltages) when the source format carries it.
+    pub metadata: BoardMetadata,
 }
 
 /// Margin (mils) around a pin centre whose pad has no known physical size.
