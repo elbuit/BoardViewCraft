@@ -41,12 +41,16 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
 - **Vector CAD Schematics**:
   - Native vector parsing and rendering for KiCad (`.kicad_sch`) and Eagle (`.sch`) files.
   - Sheet switching, symbol graphics, net label inspection, and cross-probing.
-- **Technician Notes & Measurements**:
-  - Attach structured inspection notes and physical test readings (voltage, resistance, diode drop) to individual components or specific pins.
+- **Technician Notes & Reference Measurements**:
+  - Attach structured inspection notes and physical test readings to individual component pins with dedicated inputs for **Capacitance (C)**, **Diode Drop (D)**, **Resistance (R)**, **Voltage (V)**, and technician comments.
+  - Quick right-click context menu (**Add / Edit Measurement**) on any pin or component directly from the board canvas or side panel.
+  - Component pin measurements overview: selecting any component automatically displays all recorded measurements across its pins in the side panel, cleanly omitting unmeasured entries.
   - Automatic extraction and display of repair metadata from XZZ and TVW formats: component values (e.g. 560Ω, 100nF), diode readings, net voltages, and signal descriptions directly in the side panel and exported TSV reports.
-  - Visual `📝` badges in virtualized pin lists for quick test point identification.
+  - Visual `📝` badges and inline measurement values in virtualized pin lists for instant test point identification.
   - Dedicated side panel tabs for Parts, Nets, and Notes.
   - Export full service inspection reports and complete Bill of Materials (BOM) in TSV.
+
+  ![BoardViewCraft: Pin measurements modal dialog and component pin measurement inspection panel](docs/screenshots/boardviewcraft-v024.png)
 - **Camera Overlays**:
   - Load real PCB inspection photos over Top and Bottom views.
   - Interactive multi-point pin alignment with opacity blending.
