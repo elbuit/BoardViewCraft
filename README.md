@@ -6,7 +6,7 @@
 
 BoardViewCraft is an open-source boardview and schematic inspection workbench built from the ground up with **Rust**, **egui**, and hardware-accelerated **wgpu**. It provides ultra-fast navigation, clear component rendering, real pad geometries, camera overlay photo alignment, and native dual-pane split inspection with PDF and vector CAD schematics.
 
-![BoardViewCraft: Main workbench view with quick toolbar, synchronized Both view, net flight lines, and inspection panel](docs/screenshots/boardviewcraft-v022.png)
+![BoardViewCraft: Main workbench view with quick toolbar, synchronized Both view, net flight lines, and inspection panel](docs/screenshots/boardviewcraft-v024.png)
 
 ---
 
@@ -50,7 +50,7 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   - Dedicated side panel tabs for Parts, Nets, and Notes.
   - Export full service inspection reports and complete Bill of Materials (BOM) in TSV.
 
-  ![BoardViewCraft: Pin measurements modal dialog and component pin measurement inspection panel](docs/screenshots/boardviewcraft-v024.png)
+  ![BoardViewCraft: Pin measurements modal dialog and component pin measurement inspection panel](docs/screenshots/boardviewcraft-v024-measurements.png)
 - **Camera Overlays**:
   - Load real PCB inspection photos over Top and Bottom views.
   - Interactive multi-point pin alignment with opacity blending.
