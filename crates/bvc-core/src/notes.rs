@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Target entity for a technician note.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct NoteTarget {
     /// Component reference designator (e.g. "U1", "R10", "C45").
     pub component_name: String,
@@ -50,6 +50,9 @@ pub struct TechnicalMeasurements {
     /// Diode drop voltage test (e.g. "0.450 V").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diode_drop: Option<String>,
+    /// Capacitance reading (e.g. "100 nF", "10 µF").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capacitance: Option<String>,
     /// Auxiliary reading (frequency, temperature, etc.).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub other: Option<String>,
@@ -60,7 +63,13 @@ impl TechnicalMeasurements {
         self.voltage.as_ref().map_or(true, |s| s.trim().is_empty())
             && self.resistance.as_ref().map_or(true, |s| s.trim().is_empty())
             && self.diode_drop.as_ref().map_or(true, |s| s.trim().is_empty())
+            && self.capacitance.as_ref().map_or(true, |s| s.trim().is_empty())
             && self.other.as_ref().map_or(true, |s| s.trim().is_empty())
+    }
+
+    /// Capacitance measurement value.
+    pub fn capacitance_value(&self) -> Option<&str> {
+        self.capacitance.as_deref()
     }
 }
 
@@ -143,6 +152,7 @@ mod tests {
             voltage: Some("3.3 V".into()),
             resistance: Some("4.7 kΩ".into()),
             diode_drop: Some("0.450 V".into()),
+            capacitance: Some("100 nF".into()),
             other: None,
         };
 
@@ -152,6 +162,8 @@ mod tests {
         let note = store.find_for_pin("U1", "3").expect("find note");
         assert_eq!(note.text, "VIN line OK");
         assert_eq!(note.measurements.voltage.as_deref(), Some("3.3 V"));
+        assert_eq!(note.measurements.diode_drop.as_deref(), Some("0.450 V"));
+        assert_eq!(note.measurements.capacitance.as_deref(), Some("100 nF"));
 
         let json = store.to_json().expect("to json");
         let decoded = BoardNotesStore::from_json(&json).expect("from json");
