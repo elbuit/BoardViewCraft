@@ -25,6 +25,88 @@ pub struct Board {
 /// Margin (mils) around a pin centre whose pad has no known physical size.
 const SIZELESS_PAD_MARGIN: f64 = 6.0;
 
+/// Synthesizes a component body outline (as 4 rotated corner points in board coordinates)
+/// from the part's pins and placement rotation when the file format does not provide an explicit outline.
+pub fn synthesize_part_outline(part: &Part, pins: &[Pin]) -> Vec<Point> {
+    let pin_list: Vec<&Pin> = part.pin_indices.iter().filter_map(|&idx| pins.get(idx)).collect();
+    if pin_list.is_empty() {
+        return Vec::new();
+    }
+
+    let center = Point::new(
+        pin_list.iter().map(|p| p.pos.x).sum::<f64>() / pin_list.len() as f64,
+        pin_list.iter().map(|p| p.pos.y).sum::<f64>() / pin_list.len() as f64,
+    );
+
+    let theta_deg = if part.rotation_deg.abs() > 1e-3 {
+        part.rotation_deg
+    } else if let Some(pin) = pin_list.iter().find(|p| p.rotation_deg.abs() > 1e-3) {
+        if pin_list.iter().all(|p| p.rotation_deg.abs() < 1e-3 || (p.rotation_deg - pin.rotation_deg).abs() < 1e-3) {
+            pin.rotation_deg
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    let (cos_t, sin_t) = crate::model::quadrant(theta_deg);
+
+    let mut min_lx = f64::INFINITY;
+    let mut max_lx = f64::NEG_INFINITY;
+    let mut min_ly = f64::INFINITY;
+    let mut max_ly = f64::NEG_INFINITY;
+
+    for pin in pin_list {
+        let (w, h) = pin.pad_size().unwrap_or((SIZELESS_PAD_MARGIN * 2.0, SIZELESS_PAD_MARGIN * 2.0));
+        let half_w = w * 0.5;
+        let half_h = h * 0.5;
+        let (cos_p, sin_p) = crate::model::quadrant(pin.rotation_deg);
+        let u_x = cos_p * half_w;
+        let u_y = sin_p * half_w;
+        let v_x = -sin_p * half_h;
+        let v_y = cos_p * half_h;
+
+        let pad_corners = [
+            Point::new(pin.pos.x + u_x + v_x, pin.pos.y + u_y + v_y),
+            Point::new(pin.pos.x - u_x + v_x, pin.pos.y - u_y + v_y),
+            Point::new(pin.pos.x - u_x - v_x, pin.pos.y - u_y - v_y),
+            Point::new(pin.pos.x + u_x - v_x, pin.pos.y + u_y - v_y),
+        ];
+
+        for corner in pad_corners {
+            let dx = corner.x - center.x;
+            let dy = corner.y - center.y;
+            let lx = dx * cos_t + dy * sin_t;
+            let ly = -dx * sin_t + dy * cos_t;
+            min_lx = min_lx.min(lx);
+            max_lx = max_lx.max(lx);
+            min_ly = min_ly.min(ly);
+            max_ly = max_ly.max(ly);
+        }
+    }
+
+    if !min_lx.is_finite() || !max_lx.is_finite() || !min_ly.is_finite() || !max_ly.is_finite() {
+        return Vec::new();
+    }
+
+    let local_corners = [
+        (min_lx, min_ly),
+        (max_lx, min_ly),
+        (max_lx, max_ly),
+        (min_lx, max_ly),
+    ];
+
+    local_corners
+        .iter()
+        .map(|&(lx, ly)| {
+            let wx = center.x + (lx * cos_t - ly * sin_t);
+            let wy = center.y + (lx * sin_t + ly * cos_t);
+            Point::new(wx, wy)
+        })
+        .collect()
+}
+
 /// Bounding box of a part: its outline when it has one, otherwise the union of its pads' rotated
 /// physical extents (pads without a size contribute their centre plus [`SIZELESS_PAD_MARGIN`]).
 ///
@@ -101,12 +183,14 @@ impl Board {
             }
         }
 
-        // Precompute part bounding boxes if not already defined by the file format (e.g. TVW bx1/by1/bx2/by2)
+        // Precompute part outlines and bounding boxes if not already defined by the file format
         for part in &mut self.parts {
-            if part.bounding_box.is_some() {
-                continue;
+            if part.outline.is_empty() {
+                part.outline = synthesize_part_outline(part, &self.pins);
             }
-            part.bounding_box = compute_part_bounds(part, &self.pins);
+            if part.bounding_box.is_none() {
+                part.bounding_box = compute_part_bounds(part, &self.pins);
+            }
         }
 
         // Compute board bounding box
@@ -440,5 +524,39 @@ mod tests {
         // In vicinity (near) but outside pad geometry
         assert_eq!(board.find_pin_at(Point::new(115.0, 100.0), Side::Top, 1.0), None);
         assert_eq!(board.find_pin_near(Point::new(115.0, 100.0), Side::Top, 20.0), Some(0));
+    }
+
+    #[test]
+    fn test_synthesize_part_outline_for_rotated_component() {
+        let mut a = pin(0, 525.601, 134.023);
+        a.width = Some(38.976);
+        a.height = Some(50.0);
+        a.rotation_deg = 208.6;
+        let mut b = pin(1, 584.364, 166.061);
+        b.width = Some(38.976);
+        b.height = Some(50.0);
+        b.rotation_deg = 208.6;
+
+        let part = Part {
+            name: "C0456".into(),
+            rotation_deg: 208.6,
+            pin_indices: vec![0, 1],
+            ..Default::default()
+        };
+        let pins = vec![a, b];
+        let outline = synthesize_part_outline(&part, &pins);
+        assert_eq!(outline.len(), 4);
+
+        // Distance between outline[0] and outline[1] is length (~105.9 mils)
+        let len = outline[0].dist(outline[1]);
+        assert!((len - 105.906).abs() < 1e-2, "Expected length ~105.9, got {len}");
+
+        // Distance between outline[1] and outline[2] is width (~50.0 mils)
+        let width = outline[1].dist(outline[2]);
+        assert!((width - 50.0).abs() < 1e-2, "Expected width ~50.0, got {width}");
+
+        // Outline is rotated diagonally, so outline[0].x != outline[1].x and outline[0].y != outline[1].y
+        assert!((outline[0].x - outline[1].x).abs() > 10.0);
+        assert!((outline[0].y - outline[1].y).abs() > 10.0);
     }
 }

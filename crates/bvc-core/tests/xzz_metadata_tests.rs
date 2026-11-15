@@ -60,3 +60,24 @@ fn xzz_v6_readings_on_plain_pcb_layer_file() {
     assert_eq!(board.metadata.pin_reading("N1214", "1"), Some("497"));
     assert_eq!(board.metadata.pin_reading("N1215", "1"), Some("557"));
 }
+
+#[test]
+fn xzz_rotated_component_outline_in_820_01124() {
+    let p = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().join("../XZZPCB-ImHex/Example PCB Files/820-01124.pcb");
+    let Some(board) = load(&p) else {
+        return;
+    };
+    let part_idx = board.part_by_name["C0456"];
+    let part = &board.parts[part_idx];
+    assert_eq!(part.outline.len(), 4, "Rotated component must have 4 outline vertices");
+
+    let len = part.outline[0].dist(part.outline[1]);
+    assert!((len - 105.906).abs() < 1e-2, "Expected length ~105.9, got {len}");
+
+    let width = part.outline[1].dist(part.outline[2]);
+    assert!((width - 50.0).abs() < 1e-2, "Expected width ~50.0, got {width}");
+
+    // Diagonal: outline vertices are not axis-aligned
+    assert!((part.outline[0].x - part.outline[1].x).abs() > 10.0);
+    assert!((part.outline[0].y - part.outline[1].y).abs() > 10.0);
+}
