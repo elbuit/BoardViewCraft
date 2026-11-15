@@ -27,6 +27,7 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   ![BoardViewCraft: Split view with board layout on the left, PDF schematic on the right with page scrubber, and side panel](docs/screenshots/boardviewcraft-v020.png)
 - **Readable Board Rendering & Visual Flight Lines**:
   - Filled part bodies, component outlines, pin names, and physical pad geometries (round, rectangular, rotated) read from GenCAD `$PADS` and CAD records.
+  - Accurate rotated component body outlines automatically synthesized for diagonal components (e.g. 45° or custom-angled parts) when file formats omit vector contours.
   - Radial and web net flight lines showing all connected pins on selected nets.
   - Optional dashed / dotted net flight lines mode to reduce visual clutter on dense nets.
   - **Opposite-Layer Differentiation**: Opposite-side vias and net lines crossing layers render at 50% opacity, making through-hole and multi-layer connections instantly distinguishable at a glance.
@@ -42,6 +43,7 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   - Sheet switching, symbol graphics, net label inspection, and cross-probing.
 - **Technician Notes & Measurements**:
   - Attach structured inspection notes and physical test readings (voltage, resistance, diode drop) to individual components or specific pins.
+  - Automatic extraction and display of repair metadata from XZZ and TVW formats: component values (e.g. 560Ω, 100nF), diode readings, net voltages, and signal descriptions directly in the side panel and exported TSV reports.
   - Visual `📝` badges in virtualized pin lists for quick test point identification.
   - Dedicated side panel tabs for Parts, Nets, and Notes.
   - Export full service inspection reports and complete Bill of Materials (BOM) in TSV.
@@ -49,9 +51,12 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   - Load real PCB inspection photos over Top and Bottom views.
   - Interactive multi-point pin alignment with opacity blending.
 - **Independent Theming & Deep Customization**:
-  - Application UI (Light/Dark) and rich PCB color presets: **Blue Carrot** (default), Cadcraft, Dark, Light, Warm, Sweet Cold, and Cyberpunk.
-  - In-depth theme editor: modify all 14 color tokens, toggle dashed flight lines, and clone existing presets into custom named themes.
+  - Application UI (Light/Dark) and rich PCB color presets: **Blue Carrot** (default), Cadcraft, Dark, Light, Warm, Sweet Cold, Cyberpunk, and **Olive** (realistic green board with silver solder pads and natural component tones).
+  - **Color Components by Type**: optional toggle in Preferences to color component bodies by their electrical function (resistors in black, ceramic capacitors in brown, ICs/transistors in matte black) across Olive, Cyberpunk, Dark, or custom themes.
+  - In-depth theme editor: modify all color tokens, toggle dashed flight lines, and clone existing presets into custom named themes.
   - Revert overrides at any time with one click.
+- **Display & UI Scaling**:
+  - Configurable interface scaling in Preferences (Auto-detecting desktop text scale, or manual presets from 80% to 175%) for sharp rendering on HiDPI and 4K displays.
 - **Extensive Format Support**:
   - GenCAD (`.cad`), TVW, KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2), `.pcb` / `.xzz` multi-layer boardview, ODB++, IPC-2581, and IPC-D-356.
   - Transparent `.zip` archive extraction and file sniffing.
