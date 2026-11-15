@@ -277,3 +277,15 @@
 	prefs.side_panel_position	Pannello laterale:
 	prefs.side_panel_left	Sinistra
 	prefs.side_panel_right	Destra
+	context_menu.add_measurement	Aggiungi misura
+	context_menu.edit_measurement	Modifica misura
+	context_menu.add_pin_measurement	Aggiungi misura al pin...
+	measurement.dialog_title	Misura del pin
+	measurement.c_label	C (Capacità):
+	measurement.d_label	D (Caduta diodo):
+	measurement.r_label	R (Resistenza):
+	measurement.v_label	V (Tensione):
+	measurement.comments	Commenti:
+	measurement.cancel	Annulla
+	side_panel.pin_measurements	Misure dei pin
+	side_panel.add_pin_measurement	Aggiungi misura al pin

@@ -277,3 +277,15 @@
 	prefs.side_panel_position	Panell lateral:
 	prefs.side_panel_left	Esquerra
 	prefs.side_panel_right	Dreta
+	context_menu.add_measurement	Afegir Mesura
+	context_menu.edit_measurement	Editar Mesura
+	context_menu.add_pin_measurement	Afegir Mesura al Pin...
+	measurement.dialog_title	Mesura del Pin
+	measurement.c_label	C (Capacitància):
+	measurement.d_label	D (Caiguda de díode):
+	measurement.r_label	R (Resistència):
+	measurement.v_label	V (Voltatge):
+	measurement.comments	Comentaris:
+	measurement.cancel	Cancel·lar
+	side_panel.pin_measurements	Mesures dels Pins
+	side_panel.add_pin_measurement	Afegir Mesura al Pin

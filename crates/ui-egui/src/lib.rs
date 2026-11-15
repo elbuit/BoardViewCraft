@@ -13,6 +13,7 @@ pub mod pdf;
 mod pdf_tab;
 pub mod schematic_viewer;
 mod cad_schematic_tab;
+mod measurement_dialog;
 mod preferences;
 mod render;
 mod side_panel;
@@ -25,6 +26,7 @@ use bvc_core::{Board, ParserRegistry, Point, Side};
 use canvas::{BoardCanvases, show_canvas};
 use file_filter::AddFilterAnyCase;
 use keymap::{Action, Keymap};
+use measurement_dialog::PinMeasurementDialog;
 use nav_history::{NavSelection, NavView, Navigation};
 use overlay::OverlayManager;
 use overlay_align::AlignmentSession;
@@ -124,6 +126,7 @@ pub struct BoardViewApp {
 
     // Technician notes and reference measurements
     notes_store: bvc_core::BoardNotesStore,
+    pin_measurement_dialog: PinMeasurementDialog,
 
     /// Back/Forward history of selections and the views they were seen in.
     nav: Navigation,
@@ -164,6 +167,7 @@ impl Default for BoardViewApp {
             pending_schematic_prompt: None,
             cad_schematic_viewer: schematic_viewer::CadSchematicViewer::default(),
             notes_store: bvc_core::BoardNotesStore::default(),
+            pin_measurement_dialog: PinMeasurementDialog::default(),
             nav: Navigation::default(),
             toolbar_state: toolbar::ToolbarState::default(),
             system_text_scale: 1.0,
@@ -1171,6 +1175,11 @@ impl BoardViewApp {
                     self.status_msg = "No schematic loaded.".to_string();
                 }
             }
+
+            // Check if user requested opening measurement dialog from PCB context menu
+            if let Some(target) = self.canvases.side_mut(side).open_measurement_target.take() {
+                self.pin_measurement_dialog.open(target, self.board.as_ref(), &self.notes_store);
+            }
         }
 
         // Apply synchronized zoom when lock_zoom preference is enabled
@@ -1674,6 +1683,10 @@ impl eframe::App for BoardViewApp {
             self.open_photo_dialog(ui.ctx(), side);
         }
 
+        if let Some(target) = self.side_panel_state.open_measurement_target.take() {
+            self.pin_measurement_dialog.open(target, self.board.as_ref(), &self.notes_store);
+        }
+
         // Center the board view on a part picked in the side panel search,
         // switching the view side when the part is not visible on the shown one.
         if let Some(part_id) = self.side_panel_state.focus_part.take()
@@ -1853,6 +1866,13 @@ impl eframe::App for BoardViewApp {
 
         about::show_about_window(ui.ctx(), &mut self.about_open, &self.tokens, lang);
 
+        // Pin Measurement modal dialog
+        if self.pin_measurement_dialog.show(ui.ctx(), self.board.as_ref(), &mut self.notes_store, &self.tokens, lang) {
+            if let Some(ref filename) = self.filename {
+                Self::save_notes_for_board(filename, &self.notes_store);
+            }
+        }
+
         // Preferences modal window
         if show_preferences_window(
             ui.ctx(),
@@ -2016,6 +2036,7 @@ mod focus_tests {
             pending_schematic_prompt: None,
             cad_schematic_viewer: schematic_viewer::CadSchematicViewer::default(),
             notes_store: bvc_core::BoardNotesStore::default(),
+            pin_measurement_dialog: PinMeasurementDialog::default(),
             nav: Navigation::default(),
             toolbar_state: toolbar::ToolbarState::default(),
             system_text_scale: 1.0,

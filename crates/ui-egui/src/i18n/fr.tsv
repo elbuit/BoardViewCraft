@@ -277,3 +277,15 @@
 	prefs.side_panel_position	Panneau latéral :
 	prefs.side_panel_left	Gauche
 	prefs.side_panel_right	Droite
+	context_menu.add_measurement	Ajouter une mesure
+	context_menu.edit_measurement	Modifier la mesure
+	context_menu.add_pin_measurement	Ajouter une mesure à la broche...
+	measurement.dialog_title	Mesure de la broche
+	measurement.c_label	C (Capacité) :
+	measurement.d_label	D (Chute de diode) :
+	measurement.r_label	R (Résistance) :
+	measurement.v_label	V (Tension) :
+	measurement.comments	Commentaires :
+	measurement.cancel	Annuler
+	side_panel.pin_measurements	Mesures des broches
+	side_panel.add_pin_measurement	Ajouter une mesure à la broche

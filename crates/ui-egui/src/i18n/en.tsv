@@ -277,3 +277,15 @@
 	prefs.side_panel_position	Side Panel:
 	prefs.side_panel_left	Left
 	prefs.side_panel_right	Right
+	context_menu.add_measurement	Add Measurement
+	context_menu.edit_measurement	Edit Measurement
+	context_menu.add_pin_measurement	Add Pin Measurement...
+	measurement.dialog_title	Pin Measurement
+	measurement.c_label	C (Capacitance):
+	measurement.d_label	D (Diode Drop):
+	measurement.r_label	R (Resistance):
+	measurement.v_label	V (Voltage):
+	measurement.comments	Comments:
+	measurement.cancel	Cancel
+	side_panel.pin_measurements	Pin Measurements
+	side_panel.add_pin_measurement	Add Pin Measurement

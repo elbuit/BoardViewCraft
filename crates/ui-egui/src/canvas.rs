@@ -431,6 +431,8 @@ pub struct CanvasState {
     pub context_menu_pin: Option<(usize, Pos2)>,
     pub context_menu_part: Option<(usize, Pos2)>,
     pub navigate_to_schematic: Option<String>,
+    /// Target to open the pin measurement dialog for.
+    pub open_measurement_target: Option<bvc_core::NoteTarget>,
     /// Whether a PDF or CAD schematic is loaded; gates the "show in schematic" menu entries.
     pub schematic_available: bool,
     pub measurement: MeasurementTool,
@@ -483,6 +485,7 @@ impl Default for CanvasState {
             context_menu_pin: None,
             context_menu_part: None,
             navigate_to_schematic: None,
+            open_measurement_target: None,
             schematic_available: false,
             measurement: MeasurementTool::default(),
         }
@@ -506,6 +509,7 @@ impl CanvasState {
         self.context_menu_pin = None;
         self.context_menu_part = None;
         self.navigate_to_schematic = None;
+        self.open_measurement_target = None;
         self.measurement.reset();
     }
 }
@@ -1450,6 +1454,22 @@ pub fn show_canvas(
                                     close_menu = true;
                                 }
 
+                                // Measurement action
+                                ui.separator();
+                                let pin_has_meas = notes_store.is_some_and(|ns| ns.find_for_pin(part_name, &pin.name).is_some());
+                                let meas_text = if pin_has_meas {
+                                    format!("📏 {}", crate::i18n::tr(lang, "context_menu.edit_measurement"))
+                                } else {
+                                    format!("📏 {}", crate::i18n::tr(lang, "context_menu.add_measurement"))
+                                };
+                                if ui
+                                    .button(RichText::new(meas_text).color(tokens.accent).strong())
+                                    .clicked()
+                                {
+                                    canvas_state.open_measurement_target = Some(bvc_core::NoteTarget::pin(part_name, &pin.name));
+                                    close_menu = true;
+                                }
+
                                 // Schematic action
                                 if canvas_state.schematic_available && has_net {
                                     ui.separator();
@@ -1532,6 +1552,21 @@ pub fn show_canvas(
                                 {
                                     let tsv = crate::side_panel::export_part_details_tsv(b, part);
                                     ui.ctx().copy_text(tsv);
+                                    close_menu = true;
+                                }
+
+                                // Measurement action
+                                ui.separator();
+                                let first_pin_name = part.pin_indices.first()
+                                    .and_then(|&idx| b.pins.get(idx))
+                                    .map(|p| p.name.as_str())
+                                    .unwrap_or("1");
+                                let part_meas_text = format!("📏 {}", crate::i18n::tr(lang, "context_menu.add_pin_measurement"));
+                                if ui
+                                    .button(RichText::new(part_meas_text).color(tokens.accent).strong())
+                                    .clicked()
+                                {
+                                    canvas_state.open_measurement_target = Some(bvc_core::NoteTarget::pin(&part.name, first_pin_name));
                                     close_menu = true;
                                 }
 

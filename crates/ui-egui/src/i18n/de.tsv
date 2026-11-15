@@ -277,3 +277,15 @@
 	prefs.side_panel_position	Seitenleiste:
 	prefs.side_panel_left	Links
 	prefs.side_panel_right	Rechts
+	context_menu.add_measurement	Messwert hinzufügen
+	context_menu.edit_measurement	Messwert bearbeiten
+	context_menu.add_pin_measurement	Pin-Messwert hinzufügen...
+	measurement.dialog_title	Pin-Messwert
+	measurement.c_label	C (Kapazität):
+	measurement.d_label	D (Diodenspannung):
+	measurement.r_label	R (Widerstand):
+	measurement.v_label	V (Spannung):
+	measurement.comments	Kommentare:
+	measurement.cancel	Abbrechen
+	side_panel.pin_measurements	Pin-Messwerte
+	side_panel.add_pin_measurement	Pin-Messwert hinzufügen

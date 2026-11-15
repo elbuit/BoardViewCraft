@@ -34,14 +34,10 @@ pub struct SidePanelState {
     pub stay_on_part: Option<usize>,
     /// Search matches, recomputed only when the filter text or the board changes.
     pub search: SearchCache,
-    /// Draft inputs for editing a technician note.
-    pub note_edit_text: String,
-    pub note_edit_voltage: String,
-    pub note_edit_resistance: String,
-    pub note_edit_diode: String,
     pub note_active_target: Option<bvc_core::NoteTarget>,
     pub note_target_is_pin: Option<bool>,
-    pub note_dirty: bool,
+    /// Target to open the pin measurement dialog for.
+    pub open_measurement_target: Option<bvc_core::NoteTarget>,
 }
 
 /// Identity of the board a cached search belongs to (address plus sizes, so a new board
@@ -405,6 +401,16 @@ pub fn show_side_panel(
                                         *selected_part_idx = Some(pin.part_id);
                                     }
                                     response.context_menu(|ui| {
+                                        let pin_has_meas = notes_store.find_for_pin(part_name, &pin.name).is_some();
+                                        let meas_text = if pin_has_meas {
+                                            format!("📏 {}", i18n::tr(lang, "context_menu.edit_measurement"))
+                                        } else {
+                                            format!("📏 {}", i18n::tr(lang, "context_menu.add_measurement"))
+                                        };
+                                        if ui.button(RichText::new(meas_text).color(tokens.accent()).strong()).clicked() {
+                                            state.open_measurement_target = Some(bvc_core::NoteTarget::pin(part_name, &pin.name));
+                                            ui.close();
+                                        }
                                         if ui.button("Copy Pin Details").clicked() {
                                             ui.ctx().copy_text(label_text.clone());
                                             ui.close();
@@ -494,10 +500,7 @@ pub fn show_side_panel(
                                 let pin_idx = part.pin_indices[row_idx];
                                 if let Some(pin) = b.pins.get(pin_idx) {
                                     let is_selected = *selected_pin_idx == Some(pin_idx);
-                                    let has_note = notes_store.notes.iter().any(|n| {
-                                        n.target.component_name == part.name && n.target.pin_name.as_deref() == Some(&pin.name)
-                                    });
-                                    let note_badge = if has_note { " 📝" } else { "" };
+                                    let meas_suffix = pin_technician_measurements_suffix(notes_store, &part.name, &pin.name);
                                     let pin_label = format!(
                                         "Pin {}: Net '{}'{}{}",
                                         pin.name,
@@ -507,7 +510,7 @@ pub fn show_side_panel(
                                             &pin.net_name
                                         },
                                         pin_metadata_suffix(b, lang, &part.name, pin),
-                                        note_badge
+                                        meas_suffix
                                     );
 
                                     if is_selected {
@@ -534,6 +537,16 @@ pub fn show_side_panel(
                                         };
                                     }
                                     response.context_menu(|ui| {
+                                        let pin_has_meas = notes_store.find_for_pin(&part.name, &pin.name).is_some();
+                                        let meas_text = if pin_has_meas {
+                                            format!("📏 {}", i18n::tr(lang, "context_menu.edit_measurement"))
+                                        } else {
+                                            format!("📏 {}", i18n::tr(lang, "context_menu.add_measurement"))
+                                        };
+                                        if ui.button(RichText::new(meas_text).color(tokens.accent()).strong()).clicked() {
+                                            state.open_measurement_target = Some(bvc_core::NoteTarget::pin(&part.name, &pin.name));
+                                            ui.close();
+                                        }
                                         if ui.button("Copy Pin Label").clicked() {
                                             ui.ctx().copy_text(pin_label.clone());
                                             ui.close();
@@ -549,107 +562,127 @@ pub fn show_side_panel(
                             }
                         });
 
-                    // Technician Notes & Reference Measurements Section
-                    let pin_target = (*selected_pin_idx)
-                        .and_then(|idx| b.pins.get(idx))
-                        .map(|pin| bvc_core::NoteTarget::pin(&part.name, &pin.name));
-                    let comp_target = bvc_core::NoteTarget::component(&part.name);
-
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    // If a pin is selected, allow toggling between editing the Pin's note or the Component's note
-                    let current_target = if let Some(pt) = pin_target {
-                        let is_pin_target = state.note_target_is_pin.unwrap_or(true);
-                        ui.horizontal(|ui| {
-                            let pin_btn = ui.selectable_label(is_pin_target, format!("📌 {}", pt.display_label()));
-                            if pin_btn.clicked() {
-                                state.note_target_is_pin = Some(true);
-                            }
-                            let comp_btn = ui.selectable_label(!is_pin_target, format!("📦 {}", comp_target.display_label()));
-                            if comp_btn.clicked() {
-                                state.note_target_is_pin = Some(false);
-                            }
-                        });
-                        if is_pin_target { pt } else { comp_target }
-                    } else {
-                        state.note_target_is_pin = Some(false);
-                        comp_target
-                    };
-
-                    let target_label = current_target.display_label();
-                    ui.heading(RichText::new(format!("📝 {}: {target_label}", i18n::tr(lang, "notes.title"))).color(tokens.accent()).small());
-
-                    if state.note_active_target.as_ref() != Some(&current_target) {
-                        state.note_active_target = Some(current_target.clone());
-                        if let Some(existing) = notes_store.notes.iter().find(|n| n.target == current_target) {
-                            state.note_edit_text = existing.text.clone();
-                            state.note_edit_voltage = existing.measurements.voltage.clone().unwrap_or_default();
-                            state.note_edit_resistance = existing.measurements.resistance.clone().unwrap_or_default();
-                            state.note_edit_diode = existing.measurements.diode_drop.clone().unwrap_or_default();
-                        } else {
-                            state.note_edit_text.clear();
-                            state.note_edit_voltage.clear();
-                            state.note_edit_resistance.clear();
-                            state.note_edit_diode.clear();
-                        }
-                        state.note_dirty = false;
+                    // Pin Measurements Section: Collect all pins that have measurements
+                    struct MeasuredPin<'a> {
+                        pin_idx: usize,
+                        pin_name: &'a str,
+                        net_name: &'a str,
+                        c_val: Option<String>,
+                        d_val: Option<String>,
+                        r_val: Option<String>,
+                        v_val: Option<String>,
+                        comments: Option<String>,
+                        has_user_note: bool,
                     }
 
-                    ui.horizontal(|ui| {
-                        ui.label(i18n::tr(lang, "notes.voltage"));
-                        if ui.add(TextEdit::singleline(&mut state.note_edit_voltage).desired_width(70.0).hint_text("e.g. 3.3V")).changed() {
-                            state.note_dirty = true;
-                        }
-                        ui.label(i18n::tr(lang, "notes.resistance"));
-                        if ui.add(TextEdit::singleline(&mut state.note_edit_resistance).desired_width(70.0).hint_text("e.g. 4.7k")).changed() {
-                            state.note_dirty = true;
-                        }
-                    });
+                    let mut measured_pins = Vec::new();
+                    for &pidx in &part.pin_indices {
+                        if let Some(pin) = b.pins.get(pidx) {
+                            let note = notes_store.find_for_pin(&part.name, &pin.name);
+                            let user_c = note.and_then(|n| n.measurements.capacitance.clone());
+                            let user_d = note.and_then(|n| n.measurements.diode_drop.clone());
+                            let user_r = note.and_then(|n| n.measurements.resistance.clone());
+                            let user_v = note.and_then(|n| n.measurements.voltage.clone());
+                            let user_comm = note.and_then(|n| (!n.text.trim().is_empty()).then(|| n.text.clone()));
 
-                    ui.horizontal(|ui| {
-                        ui.label(i18n::tr(lang, "notes.diode_drop"));
-                        if ui.add(TextEdit::singleline(&mut state.note_edit_diode).desired_width(70.0).hint_text("e.g. 0.45V")).changed() {
-                            state.note_dirty = true;
-                        }
-                    });
+                            let c_val = user_c;
+                            let d_val = user_d.or_else(|| b.metadata.pin_reading(&part.name, &pin.name).map(String::from));
+                            let r_val = user_r;
+                            let v_val = user_v.or_else(|| (!pin.net_name.is_empty()).then(|| b.metadata.net_voltage(&pin.net_name).map(String::from)).flatten());
+                            let comments = user_comm;
 
-                    ui.add_space(4.0);
-                    ui.label(i18n::tr(lang, "notes.observation"));
-                    if ui.add(TextEdit::multiline(&mut state.note_edit_text).desired_rows(2).desired_width(ui.available_width())).changed() {
-                        state.note_dirty = true;
+                            if c_val.is_some() || d_val.is_some() || r_val.is_some() || v_val.is_some() || comments.is_some() {
+                                measured_pins.push(MeasuredPin {
+                                    pin_idx: pidx,
+                                    pin_name: &pin.name,
+                                    net_name: &pin.net_name,
+                                    c_val,
+                                    d_val,
+                                    r_val,
+                                    v_val,
+                                    comments,
+                                    has_user_note: note.is_some(),
+                                });
+                            }
+                        }
                     }
 
-                    ui.horizontal(|ui| {
-                        let save_btn = format!("💾 {}", i18n::tr(lang, "notes.save"));
-                        if ui.button(save_btn).clicked() || state.note_dirty {
-                            let measurements = bvc_core::TechnicalMeasurements {
-                                voltage: (!state.note_edit_voltage.trim().is_empty()).then(|| state.note_edit_voltage.trim().to_string()),
-                                resistance: (!state.note_edit_resistance.trim().is_empty()).then(|| state.note_edit_resistance.trim().to_string()),
-                                diode_drop: (!state.note_edit_diode.trim().is_empty()).then(|| state.note_edit_diode.trim().to_string()),
-                                other: None,
-                            };
-                            if state.note_edit_text.trim().is_empty() && measurements.is_empty() {
-                                notes_store.remove(&current_target);
-                            } else {
-                                notes_store.upsert(current_target.clone(), state.note_edit_text.trim().to_string(), measurements);
-                            }
-                            state.note_dirty = false;
-                        }
+                    // Button to add a new measurement to a pin of this component
+                    ui.add_space(6.0);
+                    let add_meas_btn_label = format!("+ 📏 {}", i18n::tr(lang, "side_panel.add_pin_measurement"));
+                    if ui.button(RichText::new(add_meas_btn_label).color(tokens.accent()).small()).clicked() {
+                        let target_pin = (*selected_pin_idx)
+                            .and_then(|idx| b.pins.get(idx))
+                            .map(|p| p.name.as_str())
+                            .or_else(|| part.pin_indices.first().and_then(|&idx| b.pins.get(idx)).map(|p| p.name.as_str()))
+                            .unwrap_or("1");
+                        state.open_measurement_target = Some(bvc_core::NoteTarget::pin(&part.name, target_pin));
+                    }
 
-                        if notes_store.notes.iter().any(|n| n.target == current_target) {
-                            let del_btn = format!("🗑 {}", i18n::tr(lang, "notes.delete"));
-                            if ui.button(del_btn).clicked() {
-                                notes_store.remove(&current_target);
-                                state.note_edit_text.clear();
-                                state.note_edit_voltage.clear();
-                                state.note_edit_resistance.clear();
-                                state.note_edit_diode.clear();
-                                state.note_dirty = false;
-                            }
-                        }
-                    });
+                    // ONLY display the Pin Measurements section IF there are measurements!
+                    // "si no hay medida que no lo muestre"
+                    if !measured_pins.is_empty() {
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        ui.heading(RichText::new(format!("📏 {}", i18n::tr(lang, "side_panel.pin_measurements"))).color(tokens.accent()).small());
+
+                        ScrollArea::vertical()
+                            .id_salt("part_measured_pins_scroll")
+                            .max_height(240.0)
+                            .show(ui, |ui| {
+                                for mp in &measured_pins {
+                                    let is_pin_selected = *selected_pin_idx == Some(mp.pin_idx);
+                                    let net_str = if mp.net_name.is_empty() { "UNCONNECTED" } else { mp.net_name };
+
+                                    ui.group(|ui| {
+                                        ui.horizontal(|ui| {
+                                            let pin_text = RichText::new(format!("📌 Pin {}", mp.pin_name)).strong().color(if is_pin_selected { tokens.accent() } else { tokens.text() });
+                                            if ui.selectable_label(is_pin_selected, pin_text).clicked() {
+                                                *selected_pin_idx = Some(mp.pin_idx);
+                                                *selected_via_idx = None;
+                                                state.stay_on_part = *selected_part_idx;
+                                                *selected_net = if mp.net_name.is_empty() { None } else { Some(mp.net_name.to_string()) };
+                                            }
+                                            ui.label(RichText::new(format!("({net_str})")).color(tokens.text_dim()).small());
+
+                                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                if ui.small_button("✏️").on_hover_text(i18n::tr(lang, "measurement.edit")).clicked() {
+                                                    state.open_measurement_target = Some(bvc_core::NoteTarget::pin(&part.name, mp.pin_name));
+                                                }
+                                                if mp.has_user_note {
+                                                    if ui.small_button("🗑").on_hover_text(i18n::tr(lang, "notes.delete")).clicked() {
+                                                        let target = bvc_core::NoteTarget::pin(&part.name, mp.pin_name);
+                                                        notes_store.remove(&target);
+                                                    }
+                                                }
+                                            });
+                                        });
+
+                                        ui.horizontal_wrapped(|ui| {
+                                            if let Some(ref c) = mp.c_val {
+                                                ui.label(RichText::new(format!("C: {c}")).color(tokens.accent()).strong());
+                                            }
+                                            if let Some(ref d) = mp.d_val {
+                                                ui.label(RichText::new(format!("D: {d}")).color(tokens.accent()).strong());
+                                            }
+                                            if let Some(ref r) = mp.r_val {
+                                                ui.label(RichText::new(format!("R: {r}")).color(tokens.text()).strong());
+                                            }
+                                            if let Some(ref v) = mp.v_val {
+                                                ui.label(RichText::new(format!("V: {v}")).color(tokens.accent()).strong());
+                                            }
+                                        });
+
+                                        if let Some(ref comment) = mp.comments {
+                                            ui.label(RichText::new(format!("💬 {comment}")).color(tokens.text_dim()).small());
+                                        }
+                                    });
+                                    ui.add_space(2.0);
+                                }
+                            });
+                    }
                 }
             } else {
                 ui.label(RichText::new(i18n::tr(lang, "side_panel.click_pin_view_part")).color(tokens.text_dim()));
@@ -1292,6 +1325,36 @@ fn pin_metadata_suffix(b: &Board, lang: Language, part_name: &str, pin: &bvc_cor
     out
 }
 
+/// Suffix for technician measurements on a pin (e.g. ` · C: 100nF · D: 0.450V · R: 10k · V: 3.3V 📝`). Empty if none.
+fn pin_technician_measurements_suffix(notes_store: &bvc_core::BoardNotesStore, part_name: &str, pin_name: &str) -> String {
+    let Some(note) = notes_store.find_for_pin(part_name, pin_name) else {
+        return String::new();
+    };
+    let mut parts = Vec::new();
+    if let Some(c) = note.measurements.capacitance.as_deref() {
+        parts.push(format!("C: {c}"));
+    }
+    if let Some(d) = note.measurements.diode_drop.as_deref() {
+        parts.push(format!("D: {d}"));
+    }
+    if let Some(r) = note.measurements.resistance.as_deref() {
+        parts.push(format!("R: {r}"));
+    }
+    if let Some(v) = note.measurements.voltage.as_deref() {
+        parts.push(format!("V: {v}"));
+    }
+    if parts.is_empty() {
+        if !note.text.trim().is_empty() {
+            " 📝".to_string()
+        } else {
+            String::new()
+        }
+    } else {
+        let note_icon = if !note.text.trim().is_empty() { " 📝" } else { "" };
+        format!(" · {}{}", parts.join(" · "), note_icon)
+    }
+}
+
 pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
     let mut out = String::new();
     let side_str = match part.side {
@@ -1510,6 +1573,32 @@ mod tests {
         assert_eq!(voltage, None);
         let suffix = pin_metadata_suffix(&board, Language::default(), "U7", &board.pins[0]);
         assert!(suffix.contains("OL"));
+    }
+
+    #[test]
+    fn test_pin_technician_measurements_suffix() {
+        let mut notes_store = bvc_core::BoardNotesStore::default();
+        // No notes yet
+        assert_eq!(pin_technician_measurements_suffix(&notes_store, "U7", "1"), "");
+
+        // With measurements
+        notes_store.upsert(
+            bvc_core::NoteTarget::pin("U7", "1"),
+            "Tested OK".to_string(),
+            bvc_core::TechnicalMeasurements {
+                voltage: Some("3.3V".to_string()),
+                resistance: Some("10k".to_string()),
+                diode_drop: Some("0.450V".to_string()),
+                capacitance: Some("100nF".to_string()),
+                other: None,
+            },
+        );
+        let suffix = pin_technician_measurements_suffix(&notes_store, "U7", "1");
+        assert!(suffix.contains("C: 100nF"));
+        assert!(suffix.contains("D: 0.450V"));
+        assert!(suffix.contains("R: 10k"));
+        assert!(suffix.contains("V: 3.3V"));
+        assert!(suffix.contains("📝"));
     }
 
     fn board_with_part(side: Side, bbox: Option<bvc_core::Rect>) -> Board {
