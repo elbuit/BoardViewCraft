@@ -138,6 +138,8 @@
 	prefs.title	Preferències
 	prefs.language	Idioma:
 	prefs.language_auto	Automàtic (sistema)
+	prefs.ui_scale	Mida de la interfície
+	prefs.ui_scale_auto	Automàtic ({percent}%)
 	prefs.appearance	Aparença i Temes
 	prefs.app_theme	Tema de l'Aplicació:
 	prefs.pcb_theme	Tema del PCB:
@@ -147,6 +149,9 @@
 	prefs.color_board_outline	Contorn de la placa:
 	prefs.color_board_fill	Farciment de la placa:
 	prefs.color_part_body	Cos del component:
+	prefs.color_part_resistor	Resistència (SMD):
+	prefs.color_part_capacitor	Condensador (SMD):
+	prefs.color_part_ic	CI / Transistor:
 	prefs.color_part_text	Etiquetes de components:
 	prefs.color_pin_default	Pin estàndard:
 	prefs.color_pin_unconnected	Pin no connectat:
@@ -170,6 +175,7 @@
 	prefs.via_mode_radial	Radial (Línies des del punt seleccionat)
 	prefs.via_mode_web	Telaranya (Camí unint tots els punts)
 	prefs.net_lines_dashed	Línies de xarxa discontínues
+	prefs.color_components	Acoloreix components segons tipus
 	prefs.cross_layer_transparency	Transparència entre capes:
 	prefs.show_part_labels	Mostrar Noms de Component
 	prefs.show_pin_annotations	Mostrar Nombres i Anotacions de Pins
@@ -206,6 +212,7 @@
 	context_menu.copy_pin_info	Copiar detalls del pin
 	context_menu.part_title	Informació del Component
 	context_menu.pins	Pins:
+	context_menu.pin_word	pin
 	context_menu.copy_part_name	Copiar nom del component
 	context_menu.copy_part_details	Copiar detalls del component (TSV)
 	context_menu.copy_net_details	Copiar detalls de xarxa (TSV)

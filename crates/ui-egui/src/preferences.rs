@@ -4,6 +4,7 @@ use crate::board_tabs::{BoardTab, BothLayout, PaneContent};
 use crate::i18n::{self, Language, LanguagePref};
 use crate::keymap::{Action, CaptureOutcome, Keymap};
 use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
+use crate::ui_scale;
 use bvc_core::Side;
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
 use serde::{Deserialize, Serialize};
@@ -78,6 +79,8 @@ pub struct CustomPcbTheme {
     pub tokens: PcbTokens,
     #[serde(default)]
     pub net_lines_dashed: bool,
+    #[serde(default)]
+    pub color_components: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -99,11 +102,15 @@ pub struct Preferences {
     pub theme_overrides: std::collections::BTreeMap<String, PcbTokens>,
     #[serde(default)]
     pub theme_dashed_overrides: std::collections::BTreeMap<String, bool>,
+    #[serde(default)]
+    pub theme_color_components_overrides: std::collections::BTreeMap<String, bool>,
     pub show_net_web: bool,
     #[serde(default)]
     pub via_display_mode: ViaDisplayMode,
     #[serde(default)]
     pub net_lines_dashed: bool,
+    #[serde(default)]
+    pub color_components: bool,
     #[serde(default = "default_cross_layer_transparency")]
     pub cross_layer_transparency: f32,
     pub show_part_labels: bool,
@@ -154,6 +161,9 @@ pub struct Preferences {
     /// Keyboard shortcuts; missing or invalid entries fall back to the default keys.
     #[serde(default)]
     pub keymap: Keymap,
+    /// Interface size as a factor (1.0 = 100 %); `None` follows the system text scaling.
+    #[serde(default)]
+    pub ui_scale: Option<f32>,
 }
 
 impl Default for Preferences {
@@ -167,9 +177,11 @@ impl Default for Preferences {
             custom_pcb_themes: Vec::new(),
             theme_overrides: std::collections::BTreeMap::new(),
             theme_dashed_overrides: std::collections::BTreeMap::new(),
+            theme_color_components_overrides: std::collections::BTreeMap::new(),
             show_net_web: true,
             via_display_mode: ViaDisplayMode::Web,
             net_lines_dashed: false,
+            color_components: false,
             cross_layer_transparency: 0.60,
             show_part_labels: true,
             show_pin_annotations: true,
@@ -191,6 +203,7 @@ impl Default for Preferences {
             lock_zoom: false,
             side_panel_left: true,
             keymap: Keymap::default(),
+            ui_scale: None,
         }
     }
 }
@@ -238,7 +251,10 @@ impl Preferences {
             }
             built_in => {
                 let name = built_in.display_name();
-                if self.theme_overrides.contains_key(name) || self.theme_dashed_overrides.contains_key(name) {
+                if self.theme_overrides.contains_key(name)
+                    || self.theme_dashed_overrides.contains_key(name)
+                    || self.theme_color_components_overrides.contains_key(name)
+                {
                     format!("{} *", name)
                 } else {
                     name.to_string()
@@ -331,12 +347,51 @@ impl Preferences {
         }
     }
 
+    pub fn active_pcb_color_components(&self) -> bool {
+        match self.pcb_theme {
+            PcbTheme::Custom => {
+                if let Some(ref name) = self.custom_pcb_theme_name {
+                    if let Some(custom) = self.custom_pcb_themes.iter().find(|t| &t.name == name) {
+                        return custom.color_components;
+                    }
+                }
+                self.color_components
+            }
+            built_in => {
+                let name = built_in.display_name();
+                if let Some(&enabled) = self.theme_color_components_overrides.get(name) {
+                    enabled
+                } else {
+                    built_in == PcbTheme::Olive
+                }
+            }
+        }
+    }
+
+    pub fn set_active_pcb_color_components(&mut self, enabled: bool) {
+        self.color_components = enabled;
+        match self.pcb_theme {
+            PcbTheme::Custom => {
+                if let Some(ref name) = self.custom_pcb_theme_name {
+                    if let Some(custom) = self.custom_pcb_themes.iter_mut().find(|t| &t.name == name) {
+                        custom.color_components = enabled;
+                    }
+                }
+            }
+            built_in => {
+                self.theme_color_components_overrides.insert(built_in.display_name().to_string(), enabled);
+            }
+        }
+    }
+
     pub fn is_builtin_theme_modified(&self) -> bool {
         if self.pcb_theme == PcbTheme::Custom {
             false
         } else {
             let name = self.pcb_theme.display_name();
-            self.theme_overrides.contains_key(name) || self.theme_dashed_overrides.contains_key(name)
+            self.theme_overrides.contains_key(name)
+                || self.theme_dashed_overrides.contains_key(name)
+                || self.theme_color_components_overrides.contains_key(name)
         }
     }
 
@@ -345,13 +400,16 @@ impl Preferences {
             let name = self.pcb_theme.display_name();
             self.theme_overrides.remove(name);
             self.theme_dashed_overrides.remove(name);
+            self.theme_color_components_overrides.remove(name);
             self.net_lines_dashed = false;
+            self.color_components = self.pcb_theme == PcbTheme::Olive;
         }
     }
 
     pub fn select_builtin_theme(&mut self, theme: PcbTheme) {
         self.pcb_theme = theme;
         self.net_lines_dashed = self.active_pcb_net_lines_dashed();
+        self.color_components = self.active_pcb_color_components();
     }
 
     pub fn select_custom_theme(&mut self, name: &str) {
@@ -360,6 +418,7 @@ impl Preferences {
             self.custom_pcb_theme_name = Some(name.to_string());
             self.custom_pcb_tokens = Some(theme.tokens);
             self.net_lines_dashed = theme.net_lines_dashed;
+            self.color_components = theme.color_components;
         }
     }
 
@@ -370,21 +429,25 @@ impl Preferences {
             self.custom_pcb_theme_name = None;
             self.custom_pcb_tokens = None;
             self.net_lines_dashed = self.active_pcb_net_lines_dashed();
+            self.color_components = self.active_pcb_color_components();
         }
     }
 
     pub fn create_new_theme_from_current(&mut self, name: String) {
         let current_tokens = self.active_pcb_tokens();
         let current_dashed = self.active_pcb_net_lines_dashed();
+        let current_color_components = self.active_pcb_color_components();
         self.custom_pcb_themes.push(CustomPcbTheme {
             name: name.clone(),
             tokens: current_tokens,
             net_lines_dashed: current_dashed,
+            color_components: current_color_components,
         });
         self.pcb_theme = PcbTheme::Custom;
         self.custom_pcb_theme_name = Some(name);
         self.custom_pcb_tokens = Some(current_tokens);
         self.net_lines_dashed = current_dashed;
+        self.color_components = current_color_components;
     }
 
     pub fn load() -> Self {
@@ -589,13 +652,51 @@ pub fn capture_shortcut_keys(ctx: &Context, keymap: &mut Keymap) -> bool {
     changed
 }
 
+/// The Interface size row: a combo with "Auto (NN%)" and each preset percentage. Returns whether
+/// the size changed.
+fn show_ui_scale_picker(
+    ui: &mut egui::Ui,
+    ui_scale: &mut Option<f32>,
+    lang: Language,
+    tokens: &Tokens,
+    system_text_scale: f32,
+) -> bool {
+    let system_percent = ui_scale::percent(ui_scale::zoom(None, system_text_scale, 1.0));
+    let auto_label = i18n::tr(lang, "prefs.ui_scale_auto").replace("{percent}", &system_percent.to_string());
+    let selected = match ui_scale.and_then(|f| ui_scale::valid(f64::from(f))) {
+        Some(factor) => format!("{}%", ui_scale::percent(factor)),
+        None => auto_label.clone(),
+    };
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(i18n::tr(lang, "prefs.ui_scale")).strong().color(tokens.text()));
+        egui::ComboBox::from_id_salt("ui_scale_combo").selected_text(selected).show_ui(ui, |ui| {
+            if ui.radio(ui_scale.is_none(), auto_label.as_str()).clicked() && ui_scale.is_some() {
+                *ui_scale = None;
+                changed = true;
+            }
+            for preset in ui_scale::PRESETS {
+                let factor = f32::from(preset) / 100.0;
+                let checked = ui_scale.is_some_and(|f| ui_scale::percent(f) == u32::from(preset));
+                if ui.radio(checked, format!("{preset}%")).clicked() && !checked {
+                    *ui_scale = Some(factor);
+                    changed = true;
+                }
+            }
+        });
+    });
+    changed
+}
+
 /// Displays the preferences window dialog.
-/// Returns `true` if any preference was changed this frame.
+/// Returns `true` if any preference was changed this frame. `system_text_scale` is the desktop's
+/// text scaling, shown on the Interface size Auto entry.
 pub fn show_preferences_window(
     ctx: &Context,
     open: &mut bool,
     prefs: &mut Preferences,
     tokens: &Tokens,
+    system_text_scale: f32,
 ) -> bool {
     if !*open {
         return false;
@@ -654,6 +755,11 @@ pub fn show_preferences_window(
                                 }
                             });
                     });
+
+                    // Interface size: Auto (the system's text scaling) first, then each preset.
+                    if show_ui_scale_picker(ui, &mut prefs.ui_scale, lang, tokens, system_text_scale) {
+                        changed = true;
+                    }
 
                     ui.add_space(8.0);
                     ui.heading(RichText::new(i18n::tr(lang, "prefs.appearance")).color(tokens.text()));
@@ -790,6 +896,19 @@ pub fn show_preferences_window(
                         changed = true;
                     }
 
+                    // Theme color components by type option
+                    let mut current_color_components = prefs.active_pcb_color_components();
+                    if ui
+                        .checkbox(
+                            &mut current_color_components,
+                            RichText::new(i18n::tr(lang, "prefs.color_components")).color(tokens.text()),
+                        )
+                        .changed()
+                    {
+                        prefs.set_active_pcb_color_components(current_color_components);
+                        changed = true;
+                    }
+
                     // Theme Colors Grid
                     let mut active_tokens = prefs.active_pcb_tokens();
                     let mut tokens_modified = false;
@@ -828,6 +947,32 @@ pub fn show_preferences_window(
                                 tokens_modified = true;
                             }
                             ui.end_row();
+
+                            if prefs.active_pcb_color_components() || active_tokens.part_resistor.is_some() {
+                                ui.label(i18n::tr(lang, "prefs.color_part_resistor"));
+                                let mut c = active_tokens.part_resistor.unwrap_or(Color32::from_rgb(0x14, 0x14, 0x16)).to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    active_tokens.part_resistor = Some(Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]));
+                                    tokens_modified = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_part_capacitor"));
+                                let mut c = active_tokens.part_capacitor.unwrap_or(Color32::from_rgb(0x94, 0x5e, 0x38)).to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    active_tokens.part_capacitor = Some(Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]));
+                                    tokens_modified = true;
+                                }
+                                ui.end_row();
+
+                                ui.label(i18n::tr(lang, "prefs.color_part_ic"));
+                                let mut c = active_tokens.part_ic.unwrap_or(Color32::from_rgb(0x1e, 0x1e, 0x22)).to_array();
+                                if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                    active_tokens.part_ic = Some(Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]));
+                                    tokens_modified = true;
+                                }
+                                ui.end_row();
+                            }
 
                             ui.label(i18n::tr(lang, "prefs.color_part_body_line"));
                             let mut c = active_tokens.part_body_line.to_array();
@@ -1168,6 +1313,7 @@ mod tests {
             lock_zoom: true,
             side_panel_left: false,
             keymap: Keymap::default(),
+            ui_scale: Some(1.25),
             ..Preferences::default()
         };
 
@@ -1539,5 +1685,53 @@ mod tests {
         prefs.delete_custom_theme("Studio Emerald");
         assert_eq!(prefs.pcb_theme, PcbTheme::BlueCarrot);
         assert!(prefs.custom_pcb_themes.is_empty());
+    }
+
+    #[test]
+    fn test_color_components_preferences_behavior() {
+        let mut prefs = Preferences::default();
+        // Default BlueCarrot: color_components is false
+        assert_eq!(prefs.pcb_theme, PcbTheme::BlueCarrot);
+        assert!(!prefs.active_pcb_color_components());
+        assert!(!prefs.is_builtin_theme_modified());
+
+        // Select Olive: color_components defaults to true
+        prefs.select_builtin_theme(PcbTheme::Olive);
+        assert_eq!(prefs.pcb_theme, PcbTheme::Olive);
+        assert!(prefs.active_pcb_color_components());
+        assert!(!prefs.is_builtin_theme_modified());
+
+        // Toggle off for Olive -> modified
+        prefs.set_active_pcb_color_components(false);
+        assert!(!prefs.active_pcb_color_components());
+        assert!(prefs.is_builtin_theme_modified());
+        assert!(prefs.active_theme_display_name().contains('*'));
+
+        // Reset Olive -> back to true and unmodified
+        prefs.reset_active_built_in_theme();
+        assert!(prefs.active_pcb_color_components());
+        assert!(!prefs.is_builtin_theme_modified());
+
+        // Select Cyberpunk: defaults to false
+        prefs.select_builtin_theme(PcbTheme::Cyberpunk);
+        assert_eq!(prefs.pcb_theme, PcbTheme::Cyberpunk);
+        assert!(!prefs.active_pcb_color_components());
+
+        // Toggle on for Cyberpunk -> modified
+        prefs.set_active_pcb_color_components(true);
+        assert!(prefs.active_pcb_color_components());
+        assert!(prefs.is_builtin_theme_modified());
+
+        // Create custom theme from current Cyberpunk (with color_components = true)
+        prefs.create_new_theme_from_current("Cyber Real".to_string());
+        assert_eq!(prefs.pcb_theme, PcbTheme::Custom);
+        assert!(prefs.active_pcb_color_components());
+
+        // Toggle off in custom theme
+        prefs.set_active_pcb_color_components(false);
+        assert!(!prefs.active_pcb_color_components());
+
+        prefs.delete_custom_theme("Cyber Real");
+        assert_eq!(prefs.pcb_theme, PcbTheme::BlueCarrot);
     }
 }

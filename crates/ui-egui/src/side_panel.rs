@@ -1270,7 +1270,7 @@ pub fn export_net_details_tsv(b: &Board, net_name: &str) -> String {
 }
 
 /// Repair metadata for a pin: its own reading (falling back to its net's reading) and its net voltage.
-fn pin_metadata<'a>(b: &'a Board, part_name: &str, pin: &bvc_core::Pin) -> (Option<&'a str>, Option<&'a str>) {
+pub(crate) fn pin_metadata<'a>(b: &'a Board, part_name: &str, pin: &bvc_core::Pin) -> (Option<&'a str>, Option<&'a str>) {
     let reading = b
         .metadata
         .pin_reading(part_name, &pin.name)

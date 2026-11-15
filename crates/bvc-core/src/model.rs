@@ -39,6 +39,132 @@ pub enum PartType {
     ThroughHole,
 }
 
+/// High-level component category deduced from the part's reference designator.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum ComponentKind {
+    Resistor,
+    Capacitor,
+    Inductor,
+    IntegratedCircuit,
+    Diode,
+    Transistor,
+    Crystal,
+    Connector,
+    Fuse,
+    TestPoint,
+    #[default]
+    Other,
+}
+
+impl ComponentKind {
+    /// Classifies a component by its reference designator string (e.g. "R12", "C45", "U3", "PR101").
+    pub fn classify(name: &str) -> Self {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Self::Other;
+        }
+
+        // Support hierarchical / sub-board prefixes (e.g. "MB_R12" or "IO.C34")
+        let effective = if let Some(pos) = trimmed.rfind(|c| c == '_' || c == '.' || c == ':' || c == '/') {
+            let sub = &trimmed[pos + 1..];
+            if !sub.is_empty() { sub } else { trimmed }
+        } else {
+            trimmed
+        };
+
+        let upper = effective.to_ascii_uppercase();
+
+        // Multi-letter / descriptive prefixes
+        if is_refdes_prefix(&upper, "LED") || is_refdes_prefix(&upper, "ZD") || is_refdes_prefix(&upper, "PD") {
+            return Self::Diode;
+        }
+        if is_refdes_prefix(&upper, "CON") || is_refdes_prefix(&upper, "HDR") || is_refdes_prefix(&upper, "USB") {
+            return Self::Connector;
+        }
+        if is_refdes_prefix(&upper, "XTAL") || is_refdes_prefix(&upper, "OSC") {
+            return Self::Crystal;
+        }
+        if is_refdes_prefix(&upper, "FUSE") {
+            return Self::Fuse;
+        }
+        if is_refdes_prefix(&upper, "TEST") {
+            return Self::TestPoint;
+        }
+
+        // Common 2-letter EDA prefixes
+        if is_refdes_prefix(&upper, "PR") || is_refdes_prefix(&upper, "RN") || is_refdes_prefix(&upper, "RT")
+            || is_refdes_prefix(&upper, "RA") || is_refdes_prefix(&upper, "RP")
+        {
+            return Self::Resistor;
+        }
+        if is_refdes_prefix(&upper, "PC") || is_refdes_prefix(&upper, "TC") || is_refdes_prefix(&upper, "CA") || is_refdes_prefix(&upper, "CP") {
+            return Self::Capacitor;
+        }
+        if is_refdes_prefix(&upper, "PL") || is_refdes_prefix(&upper, "FB") {
+            return Self::Inductor;
+        }
+        if is_refdes_prefix(&upper, "PU") || is_refdes_prefix(&upper, "IC") {
+            return Self::IntegratedCircuit;
+        }
+        if is_refdes_prefix(&upper, "PQ") {
+            return Self::Transistor;
+        }
+        if is_refdes_prefix(&upper, "PF") {
+            return Self::Fuse;
+        }
+        if is_refdes_prefix(&upper, "CN") {
+            return Self::Connector;
+        }
+        if is_refdes_prefix(&upper, "TP") {
+            return Self::TestPoint;
+        }
+
+        // Standard 1-letter prefixes (checked after 2-letter to avoid collisions like PR -> P or CN -> C)
+        if is_refdes_prefix(&upper, "R") {
+            return Self::Resistor;
+        }
+        if is_refdes_prefix(&upper, "C") {
+            return Self::Capacitor;
+        }
+        if is_refdes_prefix(&upper, "L") {
+            return Self::Inductor;
+        }
+        if is_refdes_prefix(&upper, "U") {
+            return Self::IntegratedCircuit;
+        }
+        if is_refdes_prefix(&upper, "Q") || is_refdes_prefix(&upper, "T") {
+            return Self::Transistor;
+        }
+        if is_refdes_prefix(&upper, "D") {
+            return Self::Diode;
+        }
+        if is_refdes_prefix(&upper, "Y") || is_refdes_prefix(&upper, "X") {
+            return Self::Crystal;
+        }
+        if is_refdes_prefix(&upper, "J") || is_refdes_prefix(&upper, "P") {
+            return Self::Connector;
+        }
+        if is_refdes_prefix(&upper, "F") {
+            return Self::Fuse;
+        }
+
+        Self::Other
+    }
+}
+
+fn is_refdes_prefix(s: &str, pfx: &str) -> bool {
+    if let Some(rest) = s.strip_prefix(pfx) {
+        if rest.is_empty() {
+            return true;
+        }
+        let first = rest.chars().next().unwrap();
+        first.is_ascii_digit() || first == '_' || first == '-'
+    } else {
+        false
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct Point {
     pub x: f64,
@@ -155,6 +281,14 @@ pub struct Part {
     pub outline: Vec<Point>,
     /// Placement rotation in degrees (counter-clockwise, board coordinates).
     pub rotation_deg: f64,
+}
+
+impl Part {
+    /// Returns the deduced component kind based on its reference designator.
+    #[inline]
+    pub fn component_kind(&self) -> ComponentKind {
+        ComponentKind::classify(&self.name)
+    }
 }
 
 /// Represents a pin of a component.
@@ -455,5 +589,59 @@ mod metadata_tests {
         assert_eq!(meta.pin_reading("U1", "A1"), Some("0.512"));
         assert_eq!(meta.net_voltage("PP3V3"), Some("3.3V"));
         assert!(!meta.is_empty());
+    }
+
+    #[test]
+    fn test_component_kind_classification() {
+        use super::{ComponentKind, Part};
+
+        assert_eq!(ComponentKind::classify("R1"), ComponentKind::Resistor);
+        assert_eq!(ComponentKind::classify("r105"), ComponentKind::Resistor);
+        assert_eq!(ComponentKind::classify("PR101"), ComponentKind::Resistor);
+        assert_eq!(ComponentKind::classify("RN4"), ComponentKind::Resistor);
+        assert_eq!(ComponentKind::classify("RT2"), ComponentKind::Resistor);
+        assert_eq!(ComponentKind::classify("MB_R12"), ComponentKind::Resistor);
+
+        assert_eq!(ComponentKind::classify("C1"), ComponentKind::Capacitor);
+        assert_eq!(ComponentKind::classify("c24"), ComponentKind::Capacitor);
+        assert_eq!(ComponentKind::classify("PC50"), ComponentKind::Capacitor);
+        assert_eq!(ComponentKind::classify("TC1"), ComponentKind::Capacitor);
+
+        assert_eq!(ComponentKind::classify("U1"), ComponentKind::IntegratedCircuit);
+        assert_eq!(ComponentKind::classify("PU1"), ComponentKind::IntegratedCircuit);
+        assert_eq!(ComponentKind::classify("IC2"), ComponentKind::IntegratedCircuit);
+
+        assert_eq!(ComponentKind::classify("Q1"), ComponentKind::Transistor);
+        assert_eq!(ComponentKind::classify("PQ1"), ComponentKind::Transistor);
+
+        assert_eq!(ComponentKind::classify("D1"), ComponentKind::Diode);
+        assert_eq!(ComponentKind::classify("PD1"), ComponentKind::Diode);
+        assert_eq!(ComponentKind::classify("ZD1"), ComponentKind::Diode);
+        assert_eq!(ComponentKind::classify("LED1"), ComponentKind::Diode);
+
+        assert_eq!(ComponentKind::classify("L1"), ComponentKind::Inductor);
+        assert_eq!(ComponentKind::classify("PL1"), ComponentKind::Inductor);
+        assert_eq!(ComponentKind::classify("FB1"), ComponentKind::Inductor);
+
+        assert_eq!(ComponentKind::classify("J1"), ComponentKind::Connector);
+        assert_eq!(ComponentKind::classify("CN1"), ComponentKind::Connector);
+        assert_eq!(ComponentKind::classify("CON1"), ComponentKind::Connector);
+
+        assert_eq!(ComponentKind::classify("Y1"), ComponentKind::Crystal);
+        assert_eq!(ComponentKind::classify("X1"), ComponentKind::Crystal);
+
+        assert_eq!(ComponentKind::classify("F1"), ComponentKind::Fuse);
+        assert_eq!(ComponentKind::classify("PF1"), ComponentKind::Fuse);
+
+        assert_eq!(ComponentKind::classify("TP1"), ComponentKind::TestPoint);
+
+        // False positive prevention
+        assert_eq!(ComponentKind::classify("RESET"), ComponentKind::Other);
+        assert_eq!(ComponentKind::classify("CLOCK"), ComponentKind::Other);
+        assert_eq!(ComponentKind::classify("POWER"), ComponentKind::Other);
+        assert_eq!(ComponentKind::classify(""), ComponentKind::Other);
+
+        let part = Part { name: "R42".into(), ..Default::default() };
+        assert_eq!(part.component_kind(), ComponentKind::Resistor);
     }
 }

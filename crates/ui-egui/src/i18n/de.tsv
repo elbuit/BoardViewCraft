@@ -138,6 +138,8 @@
 	prefs.title	Einstellungen
 	prefs.language	Sprache:
 	prefs.language_auto	Automatisch (System)
+	prefs.ui_scale	Oberflächengröße
+	prefs.ui_scale_auto	Automatisch ({percent}%)
 	prefs.appearance	Erscheinungsbild & Designs
 	prefs.app_theme	Anwendungs-Design:
 	prefs.pcb_theme	PCB-Design:
@@ -147,6 +149,9 @@
 	prefs.color_board_outline	Platinenumriss:
 	prefs.color_board_fill	Platinenfüllung:
 	prefs.color_part_body	Bauteilkörper:
+	prefs.color_part_resistor	Widerstand (SMD):
+	prefs.color_part_capacitor	Kondensator (SMD):
+	prefs.color_part_ic	IC / Transistor:
 	prefs.color_part_text	Bauteilbeschriftungen:
 	prefs.color_pin_default	Standard-Pin:
 	prefs.color_pin_unconnected	Unverbundener Pin:
@@ -170,6 +175,7 @@
 	prefs.via_mode_radial	Radial (Linien vom ausgewählten Punkt)
 	prefs.via_mode_web	Netz (Verbindung aller Punkte)
 	prefs.net_lines_dashed	Gestrichelte Netzlinien
+	prefs.color_components	Bauteile nach Typ färben
 	prefs.cross_layer_transparency	Schichtübergreifende Transparenz:
 	prefs.show_part_labels	Bauteilbezeichnungen anzeigen
 	prefs.show_pin_annotations	Pin-Nummern und Annotationen anzeigen
@@ -206,6 +212,7 @@
 	context_menu.copy_pin_info	Pin-Details kopieren
 	context_menu.part_title	Bauteil-Information
 	context_menu.pins	Pins:
+	context_menu.pin_word	Pin
 	context_menu.copy_part_name	Bauteilnamen kopieren
 	context_menu.copy_part_details	Bauteildetails kopieren (TSV)
 	context_menu.copy_net_details	Netzdetails kopieren (TSV)

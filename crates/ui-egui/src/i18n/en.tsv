@@ -138,6 +138,8 @@
 	prefs.title	Preferences
 	prefs.language	Language:
 	prefs.language_auto	Auto (system)
+	prefs.ui_scale	Interface size
+	prefs.ui_scale_auto	Auto ({percent}%)
 	prefs.appearance	Appearance & Themes
 	prefs.app_theme	Application Theme:
 	prefs.pcb_theme	PCB Theme:
@@ -147,6 +149,9 @@
 	prefs.color_board_outline	Board Outline:
 	prefs.color_board_fill	Board Fill:
 	prefs.color_part_body	Component Body:
+	prefs.color_part_resistor	Resistor (SMD):
+	prefs.color_part_capacitor	Capacitor (SMD):
+	prefs.color_part_ic	IC / Transistor:
 	prefs.color_part_text	Component Labels:
 	prefs.color_pin_default	Pin Default:
 	prefs.color_pin_unconnected	Pin Unconnected:
@@ -170,6 +175,7 @@
 	prefs.via_mode_radial	Radial (Lines from selected point)
 	prefs.via_mode_web	Web (Spiderweb connecting all points)
 	prefs.net_lines_dashed	Dashed Net Lines
+	prefs.color_components	Color components by type
 	prefs.cross_layer_transparency	Cross-Layer Transparency:
 	prefs.show_part_labels	Show Part Designators
 	prefs.show_pin_annotations	Show Pin Annotations & Numbers
@@ -206,6 +212,7 @@
 	context_menu.copy_pin_info	Copy Pin Details
 	context_menu.part_title	Part Information
 	context_menu.pins	Pins:
+	context_menu.pin_word	pin
 	context_menu.copy_part_name	Copy Part Name
 	context_menu.copy_part_details	Copy Part Details (TSV)
 	context_menu.copy_net_details	Copy Net Details (TSV)

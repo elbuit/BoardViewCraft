@@ -17,6 +17,7 @@ mod preferences;
 mod render;
 mod side_panel;
 mod theme;
+mod ui_scale;
 mod toolbar;
 
 use board_tabs::{BoardTab, BothLayout, PaneContent};
@@ -128,6 +129,10 @@ pub struct BoardViewApp {
     nav: Navigation,
     /// Filter texts of the quick toolbar part/net pickers.
     toolbar_state: toolbar::ToolbarState,
+    /// The desktop's text scaling, read once at launch (Interface size ▸ Auto).
+    system_text_scale: f32,
+    /// The zoom factor last applied for the interface size, so it is only set when it changes.
+    applied_ui_scale: Option<f32>,
 }
 
 impl Default for BoardViewApp {
@@ -161,7 +166,24 @@ impl Default for BoardViewApp {
             notes_store: bvc_core::BoardNotesStore::default(),
             nav: Navigation::default(),
             toolbar_state: toolbar::ToolbarState::default(),
+            system_text_scale: 1.0,
+            applied_ui_scale: None,
         }
+    }
+}
+
+/// Base text sizes (as PdfCraft's), drawn larger or smaller by the Interface size preference.
+/// Applied to both themes so switching light/dark keeps them.
+fn apply_text_sizes(ctx: &egui::Context) {
+    use egui::{FontFamily, FontId, TextStyle};
+    for theme in [egui::Theme::Light, egui::Theme::Dark] {
+        ctx.style_mut_of(theme, |s| {
+            s.text_styles.insert(TextStyle::Small, FontId::new(11.0, FontFamily::Proportional));
+            s.text_styles.insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
+            s.text_styles.insert(TextStyle::Button, FontId::new(13.0, FontFamily::Proportional));
+            s.text_styles.insert(TextStyle::Monospace, FontId::new(12.5, FontFamily::Monospace));
+            s.text_styles.insert(TextStyle::Heading, FontId::new(17.0, FontFamily::Proportional));
+        });
     }
 }
 
@@ -175,8 +197,11 @@ impl BoardViewApp {
         );
         let is_light = preferences.app_theme == AppTheme::Light;
         cc.egui_ctx.set_visuals(tokens.egui_visuals(is_light));
+        apply_text_sizes(&cc.egui_ctx);
 
-        Self::restored(preferences, tokens)
+        let mut app = Self::restored(preferences, tokens);
+        app.system_text_scale = ui_scale::system_text_scale();
+        app
     }
 
     /// The app with saved preferences applied: the last tab is restored through `set_tab`, so
@@ -1183,6 +1208,10 @@ impl BoardViewApp {
 
 impl eframe::App for BoardViewApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let native_ppp = ui.ctx().input(|i| i.viewport().native_pixels_per_point).unwrap_or(1.0);
+        let zoom = ui_scale::zoom(self.preferences.ui_scale, self.system_text_scale, native_ppp);
+        ui_scale::sync(ui.ctx(), zoom, &mut self.applied_ui_scale);
+
         // A shortcut being rebound in Preferences takes this frame's key presses first, so no
         // hotkey (Preferences toggle included) or Esc handler sees them.
         if preferences::capture_shortcut_keys(ui.ctx(), &mut self.preferences.keymap) {
@@ -1830,6 +1859,7 @@ impl eframe::App for BoardViewApp {
             &mut self.preferences_open,
             &mut self.preferences,
             &self.tokens,
+            self.system_text_scale,
         ) {
             let active_tokens = self.preferences.active_pcb_tokens();
             self.tokens = Tokens::new_with_custom(
@@ -1988,6 +2018,8 @@ mod focus_tests {
             notes_store: bvc_core::BoardNotesStore::default(),
             nav: Navigation::default(),
             toolbar_state: toolbar::ToolbarState::default(),
+            system_text_scale: 1.0,
+            applied_ui_scale: None,
         };
 
         assert!(app.selected_pin_idx.is_some());

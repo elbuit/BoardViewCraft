@@ -138,6 +138,8 @@
 	prefs.title	Preferenze
 	prefs.language	Lingua:
 	prefs.language_auto	Automatico (sistema)
+	prefs.ui_scale	Dimensione interfaccia
+	prefs.ui_scale_auto	Automatico ({percent}%)
 	prefs.appearance	Aspetto e temi
 	prefs.app_theme	Tema dell'applicazione:
 	prefs.pcb_theme	Tema del PCB:
@@ -147,6 +149,9 @@
 	prefs.color_board_outline	Bordo della scheda:
 	prefs.color_board_fill	Riempimento della scheda:
 	prefs.color_part_body	Corpo del componente:
+	prefs.color_part_resistor	Resistore (SMD):
+	prefs.color_part_capacitor	Condensatore (SMD):
+	prefs.color_part_ic	CI / Transistore:
 	prefs.color_part_text	Etichette dei componenti:
 	prefs.color_pin_default	Pin predefinito:
 	prefs.color_pin_unconnected	Pin non connesso:
@@ -170,6 +175,7 @@
 	prefs.via_mode_radial	Radiale (linee dal punto selezionato)
 	prefs.via_mode_web	Ragnatela (collega tutti i punti)
 	prefs.net_lines_dashed	Linee di rete tratteggiate
+	prefs.color_components	Colora componenti per tipo
 	prefs.cross_layer_transparency	Trasparenza tra livelli:
 	prefs.show_part_labels	Mostra designatori componenti
 	prefs.show_pin_annotations	Mostra numeri e annotazioni dei pin
@@ -206,6 +212,7 @@
 	context_menu.copy_pin_info	Copia dettagli pin
 	context_menu.part_title	Informazioni sul componente
 	context_menu.pins	Pin:
+	context_menu.pin_word	pin
 	context_menu.copy_part_name	Copia nome componente
 	context_menu.copy_part_details	Copia dettagli componente (TSV)
 	context_menu.copy_net_details	Copia dettagli rete (TSV)

@@ -39,22 +39,26 @@ pub enum PcbTheme {
     #[serde(alias = "SweetBlue", alias = "SweetCold")]
     BlueCarrot,
     Cyberpunk,
+    #[serde(alias = "RealisticGreen", alias = "ClassicGreen", alias = "Green", alias = "RealGreen")]
+    Olive,
     #[serde(alias = "CadcraftDark", alias = "Cadcraft")]
     Custom,
 }
 
 impl PcbTheme {
-    pub const ALL: [PcbTheme; 6] = [
+    pub const ALL: [PcbTheme; 7] = [
         PcbTheme::Dark,
         PcbTheme::Light,
         PcbTheme::Warm,
         PcbTheme::BlueCarrot,
         PcbTheme::Cyberpunk,
+        PcbTheme::Olive,
         PcbTheme::Custom,
     ];
 
-    pub const BUILTIN: [PcbTheme; 5] = [
+    pub const BUILTIN: [PcbTheme; 6] = [
         PcbTheme::BlueCarrot,
+        PcbTheme::Olive,
         PcbTheme::Dark,
         PcbTheme::Light,
         PcbTheme::Warm,
@@ -68,6 +72,7 @@ impl PcbTheme {
             PcbTheme::Warm => "Warm",
             PcbTheme::BlueCarrot => "Blue Carrot",
             PcbTheme::Cyberpunk => "Cyberpunk",
+            PcbTheme::Olive => "Olive",
             PcbTheme::Custom => "Custom...",
         }
     }
@@ -79,6 +84,7 @@ impl PcbTheme {
             PcbTheme::Warm => PcbTokens::WARM,
             PcbTheme::BlueCarrot => PcbTokens::BLUE_CARROT,
             PcbTheme::Cyberpunk => PcbTokens::CYBERPUNK,
+            PcbTheme::Olive => PcbTokens::OLIVE,
             PcbTheme::Custom => PcbTokens::DARK,
         }
     }
@@ -193,6 +199,16 @@ pub struct PcbTokens {
     pub via_opp_side: Color32,
     pub via_highlight: Color32,
     pub net_web: Color32,
+
+    /// Optional specific body fill for resistors (e.g. SMD black).
+    #[serde(default)]
+    pub part_resistor: Option<Color32>,
+    /// Optional specific body fill for capacitors (e.g. SMD brown/tan).
+    #[serde(default)]
+    pub part_capacitor: Option<Color32>,
+    /// Optional specific body fill for integrated circuits (e.g. IC matte black).
+    #[serde(default)]
+    pub part_ic: Option<Color32>,
 }
 
 /// Body and pad colours of the dark/light themes come from TRACE Boardviewer's board palette.
@@ -227,6 +243,9 @@ impl PcbTokens {
         via_opp_side: Color32::from_rgba_premultiplied(0x38, 0x2a, 0x10, 128),
         via_highlight: Color32::from_rgb(0x32, 0xdd, 0x66),
         net_web: Color32::from_rgba_premultiplied(0x32, 0xdd, 0x66, 0xcc),
+        part_resistor: None,
+        part_capacitor: None,
+        part_ic: None,
     };
 
     pub const DARK: PcbTokens = PcbTokens {
@@ -252,6 +271,9 @@ impl PcbTokens {
         via_opp_side: Color32::from_rgba_premultiplied(0x3a, 0x2c, 0x11, 128),
         via_highlight: Color32::from_rgb(0x2e, 0xe0, 0x60),
         net_web: Color32::from_rgba_premultiplied(0x2e, 0xe0, 0x60, 0xd0),
+        part_resistor: None,
+        part_capacitor: None,
+        part_ic: None,
     };
 
     pub const LIGHT: PcbTokens = PcbTokens {
@@ -277,6 +299,9 @@ impl PcbTokens {
         via_opp_side: Color32::from_rgba_premultiplied(0x40, 0x2d, 0x10, 128),
         via_highlight: Color32::from_rgb(0x1a, 0x9e, 0x3d),
         net_web: Color32::from_rgba_premultiplied(0xa7, 0x1d, 0x26, 0xcc), // red
+        part_resistor: None,
+        part_capacitor: None,
+        part_ic: None,
     };
 
     pub const WARM: PcbTokens = PcbTokens {
@@ -302,6 +327,9 @@ impl PcbTokens {
         via_opp_side: Color32::from_rgba_premultiplied(0x2a, 0x22, 0x0c, 128),
         via_highlight: Color32::from_rgb(0xff, 0xd0, 0x00),
         net_web: Color32::from_rgba_premultiplied(0xff, 0xd0, 0x00, 0xb4),
+        part_resistor: None,
+        part_capacitor: None,
+        part_ic: None,
     };
 
     pub const BLUE_CARROT: PcbTokens = PcbTokens {
@@ -327,6 +355,9 @@ impl PcbTokens {
         via_opp_side: Color32::from_rgba_premultiplied(0x2d, 0x24, 0x16, 128),
         via_highlight: Color32::from_rgb(0xff, 0xb4, 0x54),
         net_web: Color32::from_rgba_premultiplied(0xff, 0x9e, 0x3b, 0xd0),
+        part_resistor: None,
+        part_capacitor: None,
+        part_ic: None,
     };
 
     pub const CYBERPUNK: PcbTokens = PcbTokens {
@@ -352,7 +383,42 @@ impl PcbTokens {
         via_opp_side: Color32::from_rgba_premultiplied(0x38, 0x2a, 0x0c, 128),
         via_highlight: Color32::from_rgb(0xff, 0x00, 0x7f),
         net_web: Color32::from_rgba_premultiplied(0xff, 0x00, 0x7f, 0xd0),
+        part_resistor: None,
+        part_capacitor: None,
+        part_ic: None,
     };
+
+    pub const OLIVE: PcbTokens = PcbTokens {
+        canvas: Color32::from_rgb(0x11, 0x14, 0x18), // Deep neutral dark workbench
+        grid_minor: Color32::from_rgb(0x19, 0x20, 0x26),
+        grid_major: Color32::from_rgb(0x23, 0x2d, 0x36),
+        axis_x: Color32::from_rgb(0x8a, 0x30, 0x30),
+        axis_y: Color32::from_rgb(0x28, 0x7a, 0x38),
+        text: Color32::from_rgb(0xee, 0xf2, 0xf6),
+        selection: Color32::from_rgb(0xff, 0xc8, 0x20), // Vivid gold/amber
+        hover: Color32::from_rgb(0x4d, 0xb8, 0xff), // Bright cyan
+
+        // Real green PCB elements
+        board_outline: Color32::from_rgb(0xe0, 0xe8, 0xec), // White silkscreen / routed edge
+        board_fill: Color32::from_rgba_premultiplied(0x13, 0x47, 0x23, 0xc0), // Rich classic solder mask green (#134723)
+        part_body: Color32::from_rgb(0x26, 0x2a, 0x30), // Dark charcoal for generic parts
+        part_body_line: Color32::from_rgb(0xe0, 0xe8, 0xf0), // Crisp white silkscreen component outline
+        part_text: Color32::from_rgb(0xf2, 0xf6, 0xfa), // White silkscreen refdes text
+        pin_default: Color32::from_rgb(0xd2, 0xd8, 0xe2), // Solder tinned silver / lead-free finish
+        pin_unconnected: Color32::from_rgb(0x72, 0x7c, 0x88), // Unconnected / unpopulated matte solder
+        pin_highlight_cur_side: Color32::from_rgb(0xff, 0xc8, 0x20), // Vivid amber-gold highlight
+        pin_highlight_opp_side: Color32::from_rgb(0x1e, 0x90, 0xff), // Electric dodger blue
+        via_cur_side: Color32::from_rgb(0xc8, 0x90, 0x30), // Copper / ENIG gold via ring
+        via_opp_side: Color32::from_rgba_premultiplied(0x38, 0x28, 0x10, 128),
+        via_highlight: Color32::from_rgb(0xff, 0xc8, 0x20),
+        net_web: Color32::from_rgba_premultiplied(0xff, 0xc8, 0x20, 0xd0), // Amber-gold flight lines
+
+        part_resistor: Some(Color32::from_rgb(0x14, 0x14, 0x16)), // SMD Resistor: pitch black center
+        part_capacitor: Some(Color32::from_rgb(0x94, 0x5e, 0x38)), // SMD MLCC Capacitor: authentic ceramic brown/tan center
+        part_ic: Some(Color32::from_rgb(0x1e, 0x1e, 0x22)), // IC / Transistor: matte molded epoxy black
+    };
+
+    pub const REALISTIC_GREEN: PcbTokens = Self::OLIVE;
 }
 
 /// Consolidated tokens for UI and PCB rendering
@@ -398,6 +464,16 @@ pub struct Tokens {
     pub via_opp_side: Color32,
     pub via_highlight: Color32,
     pub net_web: Color32,
+
+    /// Optional specific body fill for resistors (e.g. SMD black).
+    #[serde(default)]
+    pub part_resistor: Option<Color32>,
+    /// Optional specific body fill for capacitors (e.g. SMD brown/tan).
+    #[serde(default)]
+    pub part_capacitor: Option<Color32>,
+    /// Optional specific body fill for integrated circuits (e.g. IC matte black).
+    #[serde(default)]
+    pub part_ic: Option<Color32>,
 }
 
 impl Default for Tokens {
@@ -463,6 +539,28 @@ impl Tokens {
             via_opp_side: pcb.via_opp_side,
             via_highlight: pcb.via_highlight,
             net_web: pcb.net_web,
+            part_resistor: pcb.part_resistor,
+            part_capacitor: pcb.part_capacitor,
+            part_ic: pcb.part_ic,
+        }
+    }
+
+    /// Returns the body fill color for `part`, applying component-specific colors (resistor,
+    /// capacitor, IC) when configured in the PCB theme.
+    pub fn part_body_color(&self, part: &bvc_core::Part) -> Color32 {
+        match part.component_kind() {
+            bvc_core::ComponentKind::Resistor => {
+                self.part_resistor.unwrap_or(Color32::from_rgb(0x14, 0x14, 0x16))
+            }
+            bvc_core::ComponentKind::Capacitor => {
+                self.part_capacitor.unwrap_or(Color32::from_rgb(0x94, 0x5e, 0x38))
+            }
+            bvc_core::ComponentKind::IntegratedCircuit
+            | bvc_core::ComponentKind::Transistor
+            | bvc_core::ComponentKind::Diode => {
+                self.part_ic.unwrap_or(Color32::from_rgb(0x1e, 0x1e, 0x22))
+            }
+            _ => self.part_body,
         }
     }
 
@@ -583,6 +681,9 @@ impl Tokens {
         via_opp_side: PcbTokens::DARK.via_opp_side,
         via_highlight: PcbTokens::DARK.via_highlight,
         net_web: PcbTokens::DARK.net_web,
+        part_resistor: PcbTokens::DARK.part_resistor,
+        part_capacitor: PcbTokens::DARK.part_capacitor,
+        part_ic: PcbTokens::DARK.part_ic,
     };
     #[allow(dead_code)]
     pub const LIGHT: Tokens = Tokens {
@@ -623,7 +724,56 @@ impl Tokens {
         via_opp_side: PcbTokens::LIGHT.via_opp_side,
         via_highlight: PcbTokens::LIGHT.via_highlight,
         net_web: PcbTokens::LIGHT.net_web,
+        part_resistor: PcbTokens::LIGHT.part_resistor,
+        part_capacitor: PcbTokens::LIGHT.part_capacitor,
+        part_ic: PcbTokens::LIGHT.part_ic,
     };
+    #[allow(dead_code)]
+    pub const OLIVE: Tokens = Tokens {
+        app: AppTokens::DARK,
+        pcb: PcbTokens::OLIVE,
+        chrome: AppTokens::DARK.chrome,
+        chrome_dark: AppTokens::DARK.chrome_dark,
+        panel: AppTokens::DARK.panel,
+        panel_header: AppTokens::DARK.panel_header,
+        tab_active: AppTokens::DARK.tab_active,
+        control: AppTokens::DARK.control,
+        control_hover: AppTokens::DARK.control_hover,
+        border: AppTokens::DARK.border,
+        text: AppTokens::DARK.text,
+        text_dim: AppTokens::DARK.text_dim,
+        text_faint: AppTokens::DARK.text_faint,
+        accent: AppTokens::DARK.accent,
+        selection: AppTokens::DARK.selection,
+        hover: AppTokens::DARK.hover,
+        status_bar_bg: AppTokens::DARK.status_bar_bg,
+        status_bar_text: AppTokens::DARK.status_bar_text,
+
+        canvas: PcbTokens::OLIVE.canvas,
+        grid_minor: PcbTokens::OLIVE.grid_minor,
+        grid_major: PcbTokens::OLIVE.grid_major,
+        axis_x: PcbTokens::OLIVE.axis_x,
+        axis_y: PcbTokens::OLIVE.axis_y,
+        part_text: PcbTokens::OLIVE.part_text,
+        board_outline: PcbTokens::OLIVE.board_outline,
+        board_fill: PcbTokens::OLIVE.board_fill,
+        part_body: PcbTokens::OLIVE.part_body,
+        part_body_line: PcbTokens::OLIVE.part_body_line,
+        pin_default: PcbTokens::OLIVE.pin_default,
+        pin_unconnected: PcbTokens::OLIVE.pin_unconnected,
+        pin_highlight_cur_side: PcbTokens::OLIVE.pin_highlight_cur_side,
+        pin_highlight_opp_side: PcbTokens::OLIVE.pin_highlight_opp_side,
+        via_cur_side: PcbTokens::OLIVE.via_cur_side,
+        via_opp_side: PcbTokens::OLIVE.via_opp_side,
+        via_highlight: PcbTokens::OLIVE.via_highlight,
+        net_web: PcbTokens::OLIVE.net_web,
+        part_resistor: PcbTokens::OLIVE.part_resistor,
+        part_capacitor: PcbTokens::OLIVE.part_capacitor,
+        part_ic: PcbTokens::OLIVE.part_ic,
+    };
+
+    #[allow(dead_code)]
+    pub const REALISTIC_GREEN: Tokens = Self::OLIVE;
 }
 
 #[cfg(test)]

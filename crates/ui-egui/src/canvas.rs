@@ -249,6 +249,7 @@ pub struct ViewCacheKey {
     pub show_vias: bool,
     pub show_unnamed_vias: bool,
     pub show_pins: bool,
+    pub color_components: bool,
 }
 
 impl ViewCacheKey {
@@ -284,6 +285,7 @@ impl ViewCacheKey {
             show_vias: prefs.show_vias,
             show_unnamed_vias: prefs.show_unnamed_vias,
             show_pins: prefs.show_pins,
+            color_components: prefs.active_pcb_color_components(),
         }
     }
 }
@@ -1167,6 +1169,7 @@ pub fn show_canvas(
                 prefs.show_vias,
                 prefs.show_unnamed_vias,
                 prefs.show_pins,
+                prefs.active_pcb_color_components(),
             )
         });
         let vp = &canvas_state.viewport;
@@ -1373,6 +1376,10 @@ pub fn show_canvas(
                     .map(|p| p.name.as_str())
                     .unwrap_or("?");
                 let lang = prefs.ui_language();
+                let has_net = !pin.net_name.is_empty();
+                let part_value = b.metadata.part_value(part_name).filter(|v| !v.is_empty());
+                let (reading, voltage) = crate::side_panel::pin_metadata(b, part_name, pin);
+                let signal = if has_net { b.metadata.net_signal(&pin.net_name) } else { None };
 
                 let mut close_menu = false;
                 let menu_id = egui::Id::unique(("pin_context_menu_area", vp.side));
@@ -1388,57 +1395,44 @@ pub fn show_canvas(
                             .inner_margin(8.0)
                             .show(ui, |ui| {
                                 ui.set_min_width(180.0);
+                                ui.set_max_width(CONTEXT_MENU_MAX_WIDTH);
+
+                                // Info block
                                 ui.heading(
-                                    RichText::new(format!("{}.{}", part_name, pin.name))
-                                        .color(tokens.accent)
-                                        .strong(),
+                                    RichText::new(pin_owner_line(
+                                        part_name,
+                                        part_value,
+                                        crate::i18n::tr(lang, "context_menu.pin_word"),
+                                        &pin.name,
+                                    ))
+                                    .color(tokens.accent)
+                                    .strong(),
                                 );
-                                ui.separator();
-
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.net")).color(tokens.text_dim));
-                                    ui.label(
-                                        RichText::new(if pin.net_name.is_empty() {
-                                            "UNCONNECTED"
-                                        } else {
-                                            &pin.net_name
-                                        })
-                                        .color(tokens.text)
-                                        .strong(),
-                                    );
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.side")).color(tokens.text_dim));
-                                    ui.label(
-                                        RichText::new(if pin.side.is_top() { "TOP" } else { "BOTTOM" })
-                                            .color(tokens.text),
-                                    );
-                                });
-
-                                ui.add_space(6.0);
-                                ui.separator();
-
-                                if !pin.net_name.is_empty() {
-                                    if ui
-                                        .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_net")).color(tokens.text))
-                                        .clicked()
-                                    {
-                                        ui.ctx().copy_text(pin.net_name.clone());
-                                        close_menu = true;
-                                    }
+                                let net_text = if has_net { pin.net_name.as_str() } else { "UNCONNECTED" };
+                                let side_text = if pin.side.is_top() { "TOP" } else { "BOTTOM" };
+                                let rows = [
+                                    (menu_label(lang, "context_menu.net"), Some(net_text), true),
+                                    (menu_label(lang, "context_menu.side"), Some(side_text), false),
+                                    (menu_label(lang, "side_panel.reading"), non_empty(reading), false),
+                                    (menu_label(lang, "side_panel.voltage"), non_empty(voltage), false),
+                                ];
+                                menu_info_grid(ui, egui::IdSalt::new(("pin_context_menu_grid", vp.side)), &rows, tokens);
+                                if let Some(signal) = non_empty(signal) {
+                                    menu_long_text(ui, menu_label(lang, "side_panel.signal"), signal, tokens);
                                 }
 
-                                let pin_info = format!(
-                                    "{}.{} ({})",
-                                    part_name,
-                                    pin.name,
-                                    if pin.net_name.is_empty() {
-                                        "UNCONNECTED"
-                                    } else {
-                                        &pin.net_name
-                                    }
-                                );
+                                // Copy actions
+                                ui.separator();
+                                if has_net
+                                    && ui
+                                        .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_net")).color(tokens.text))
+                                        .clicked()
+                                {
+                                    ui.ctx().copy_text(pin.net_name.clone());
+                                    close_menu = true;
+                                }
+
+                                let pin_info = format!("{}.{} ({})", part_name, pin.name, net_text);
                                 if ui
                                     .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_pin_info")).color(tokens.text))
                                     .clicked()
@@ -1447,7 +1441,18 @@ pub fn show_canvas(
                                     close_menu = true;
                                 }
 
-                                if canvas_state.schematic_available && !pin.net_name.is_empty() {
+                                if has_net
+                                    && ui
+                                        .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_net_details")).color(tokens.text))
+                                        .clicked()
+                                {
+                                    ui.ctx().copy_text(crate::side_panel::export_net_details_tsv(b, &pin.net_name));
+                                    close_menu = true;
+                                }
+
+                                // Schematic action
+                                if canvas_state.schematic_available && has_net {
+                                    ui.separator();
                                     let schematic_net = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &pin.net_name);
                                     if ui
                                         .button(RichText::new(schematic_net).color(tokens.accent).strong())
@@ -1474,6 +1479,7 @@ pub fn show_canvas(
         if let Some((part_idx, menu_pos)) = canvas_state.context_menu_part {
             if let Some(part) = b.parts.get(part_idx) {
                 let lang = prefs.ui_language();
+                let part_value = b.metadata.part_value(&part.name);
                 let mut close_menu = false;
                 let menu_id = egui::Id::unique(("part_context_menu_area", vp.side));
 
@@ -1488,44 +1494,30 @@ pub fn show_canvas(
                             .inner_margin(8.0)
                             .show(ui, |ui| {
                                 ui.set_min_width(180.0);
+                                ui.set_max_width(CONTEXT_MENU_MAX_WIDTH);
+
+                                // Info block
                                 ui.heading(
                                     RichText::new(&part.name)
                                         .color(tokens.accent)
                                         .strong(),
                                 );
+                                let side_str = match part.side {
+                                    Side::Top => "TOP",
+                                    Side::Bottom => "BOTTOM",
+                                    Side::Both => "BOTH",
+                                };
+                                let pin_count = part.pin_indices.len().to_string();
+                                let rows = [
+                                    (menu_label(lang, "side_panel.value"), non_empty(part_value), true),
+                                    (menu_label(lang, "side_panel.package"), non_empty(Some(part.mfg_code.as_str())), false),
+                                    (menu_label(lang, "context_menu.side"), Some(side_str), false),
+                                    (menu_label(lang, "context_menu.pins"), Some(pin_count.as_str()), false),
+                                ];
+                                menu_info_grid(ui, egui::IdSalt::new(("part_context_menu_grid", vp.side)), &rows, tokens);
+
+                                // Copy actions
                                 ui.separator();
-
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.side")).color(tokens.text_dim));
-                                    let side_str = match part.side {
-                                        Side::Top => "TOP",
-                                        Side::Bottom => "BOTTOM",
-                                        Side::Both => "BOTH",
-                                    };
-                                    ui.label(RichText::new(side_str).color(tokens.text));
-                                });
-
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(crate::i18n::tr(lang, "context_menu.pins")).color(tokens.text_dim));
-                                    ui.label(RichText::new(part.pin_indices.len().to_string()).color(tokens.text));
-                                });
-
-                                ui.add_space(6.0);
-                                ui.separator();
-
-                                if canvas_state.schematic_available {
-                                    let schematic_label = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &part.name);
-                                    if ui
-                                        .button(RichText::new(schematic_label).color(tokens.accent).strong())
-                                        .clicked()
-                                    {
-                                        canvas_state.navigate_to_schematic = Some(part.name.clone());
-                                        close_menu = true;
-                                    }
-
-                                    ui.separator();
-                                }
-
                                 if ui
                                     .button(RichText::new(crate::i18n::tr(lang, "context_menu.copy_part_name")).color(tokens.text))
                                     .clicked()
@@ -1541,6 +1533,19 @@ pub fn show_canvas(
                                     let tsv = crate::side_panel::export_part_details_tsv(b, part);
                                     ui.ctx().copy_text(tsv);
                                     close_menu = true;
+                                }
+
+                                // Schematic action
+                                if canvas_state.schematic_available {
+                                    ui.separator();
+                                    let schematic_label = format!("{} ({})", crate::i18n::tr(lang, "context_menu.show_in_schematic"), &part.name);
+                                    if ui
+                                        .button(RichText::new(schematic_label).color(tokens.accent).strong())
+                                        .clicked()
+                                    {
+                                        canvas_state.navigate_to_schematic = Some(part.name.clone());
+                                        close_menu = true;
+                                    }
                                 }
 
                                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -1938,8 +1943,16 @@ fn append_part_body(
     axis_y: egui::Vec2,
     to_screen: &dyn Fn(Point) -> Pos2,
     tokens: &Tokens,
+    color_components: bool,
 ) {
     let (line_color, line_px) = if is_selected { (tokens.selection, 2.0) } else { (tokens.part_body_line, 0.95) };
+    let body_fill = if is_selected {
+        tokens.selection
+    } else if color_components {
+        tokens.part_body_color(part)
+    } else {
+        tokens.part_body
+    };
     if bbox.width().max(bbox.height()) * (scale as f64) < TINY_PART_PX {
         // Display-only footprint marker keeps tiny parts visible without changing geometry.
         let at_least = |v: egui::Vec2, px: f32| {
@@ -1948,8 +1961,7 @@ fn append_part_body(
         };
         let half_u = at_least(axis_x * (bbox.width() * 0.5) as f32, TINY_PART_MARKER_PX * 0.5);
         let half_v = at_least(axis_y * (bbox.height() * 0.5) as f32, TINY_PART_MARKER_PX * 0.5);
-        let fill = if is_selected { tokens.selection } else { tokens.part_body };
-        Renderer::append_rotated_rect_to_mesh(mesh, to_screen(bbox.center()), half_u, half_v, fill);
+        Renderer::append_rotated_rect_to_mesh(mesh, to_screen(bbox.center()), half_u, half_v, body_fill);
         return;
     }
     let mut outline: &[Point] = &part.outline;
@@ -1969,7 +1981,7 @@ fn append_part_body(
         .map(to_screen)
         .collect()
     };
-    Renderer::append_polygon_fill_to_mesh(mesh, &points, tokens.part_body);
+    Renderer::append_polygon_fill_to_mesh(mesh, &points, body_fill);
     Renderer::append_closed_polyline_to_mesh(mesh, &points, line_px * 0.5, line_color);
 }
 
@@ -2096,6 +2108,7 @@ pub fn generate_board_meshes(
     show_vias: bool,
     show_unnamed_vias: bool,
     show_pins: bool,
+    color_components: bool,
 ) -> Vec<Mesh> {
     generate_board_meshes_in(
         b,
@@ -2118,6 +2131,7 @@ pub fn generate_board_meshes(
         show_vias,
         show_unnamed_vias,
         show_pins,
+        color_components,
     )
 }
 
@@ -2145,6 +2159,7 @@ pub fn generate_board_meshes_in(
     show_vias: bool,
     show_unnamed_vias: bool,
     show_pins: bool,
+    color_components: bool,
 ) -> Vec<Mesh> {
     let mut new_meshes = Vec::new();
     let visible_world = cull_world;
@@ -2190,7 +2205,7 @@ pub fn generate_board_meshes_in(
             |mut mesh, part| {
                 if let Some(bbox) = part.bounding_box {
                     let is_part_selected = selected_part_idx == Some(part.id);
-                    append_part_body(&mut mesh, part, bbox, is_part_selected, vp.scale, axis_x, axis_y, &to_screen, tokens);
+                    append_part_body(&mut mesh, part, bbox, is_part_selected, vp.scale, axis_x, axis_y, &to_screen, tokens, color_components);
                 }
                 mesh
             },
@@ -2638,12 +2653,90 @@ pub fn generate_board_meshes_in(
     new_meshes
 }
 
+/// Maximum width of the canvas context menus; long values wrap inside it.
+const CONTEXT_MENU_MAX_WIDTH: f32 = 320.0;
+/// Long free-text values (e.g. net signal descriptions) are cut to this many characters.
+const CONTEXT_MENU_LONG_TEXT_MAX_CHARS: usize = 240;
+
+/// Heading line identifying a pin by its owning part, e.g. `C1234 · 100nF · pin 2`.
+fn pin_owner_line(part_name: &str, part_value: Option<&str>, pin_word: &str, pin_name: &str) -> String {
+    match part_value.filter(|v| !v.trim().is_empty()) {
+        Some(value) => format!("{part_name} · {} · {pin_word} {pin_name}", value.trim()),
+        None => format!("{part_name} · {pin_word} {pin_name}"),
+    }
+}
+
+/// `Some` only when the value contains non-whitespace text.
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|v| !v.is_empty())
+}
+
+/// Translated menu label without a trailing colon, so grid labels look uniform.
+fn menu_label(lang: crate::i18n::Language, key: &'static str) -> &'static str {
+    crate::i18n::tr(lang, key).trim_end_matches(':').trim_end()
+}
+
+/// Cuts `text` to at most `max_chars` characters, appending an ellipsis when shortened.
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    match text.char_indices().nth(max_chars) {
+        Some((byte_idx, _)) => format!("{}…", text[..byte_idx].trim_end()),
+        None => text.to_string(),
+    }
+}
+
+/// Aligned key/value info rows (dim label, normal value); rows with no value are skipped.
+/// The boolean marks a value rendered in strong text.
+fn menu_info_grid(ui: &mut Ui, id: egui::IdSalt, rows: &[(&str, Option<&str>, bool)], tokens: &Tokens) {
+    egui::Grid::new(id)
+        .num_columns(2)
+        .spacing([12.0, 2.0])
+        .show(ui, |ui| {
+            for (label, value, strong) in rows {
+                let Some(value) = value else { continue };
+                ui.label(RichText::new(*label).color(tokens.text_dim));
+                let text = RichText::new(*value).color(tokens.text);
+                ui.label(if *strong { text.strong() } else { text });
+                ui.end_row();
+            }
+        });
+}
+
+/// A dim label followed by a wrapped, length-capped free-text value.
+fn menu_long_text(ui: &mut Ui, label: &str, value: &str, tokens: &Tokens) {
+    ui.add_space(2.0);
+    ui.label(RichText::new(label).color(tokens.text_dim));
+    let text = truncate_chars(value, CONTEXT_MENU_LONG_TEXT_MAX_CHARS);
+    ui.add(egui::Label::new(RichText::new(text).color(tokens.text)).wrap());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{AppTheme, PcbTheme};
     use bvc_core::{Pin, Point, Side, Via};
     use std::time::Instant;
 
+
+    #[test]
+    fn test_pin_owner_line_with_and_without_value() {
+        assert_eq!(pin_owner_line("C1234", Some("100nF"), "pin", "2"), "C1234 · 100nF · pin 2");
+        assert_eq!(pin_owner_line("C1234", None, "pin", "2"), "C1234 · pin 2");
+        assert_eq!(pin_owner_line("C1234", Some("  "), "pin", "2"), "C1234 · pin 2");
+    }
+
+    #[test]
+    fn test_truncate_chars_keeps_short_and_cuts_long_on_char_boundary() {
+        assert_eq!(truncate_chars("abc", 5), "abc");
+        assert_eq!(truncate_chars("abcdef", 3), "abc…");
+        assert_eq!(truncate_chars("电压电压", 2), "电压…");
+    }
+
+    #[test]
+    fn test_non_empty_filters_blank_values() {
+        assert_eq!(non_empty(Some(" 3.3V ")), Some("3.3V"));
+        assert_eq!(non_empty(Some("  ")), None);
+        assert_eq!(non_empty(None), None);
+    }
     fn key_input(keys: &[(egui::Key, egui::Modifiers)]) -> egui::InputState {
         let events = keys
             .iter()
@@ -2752,6 +2845,7 @@ mod tests {
             true,  // show_vias
             false, // show_unnamed_vias
             true,  // show_pins
+            false, // color_components
         );
 
         println!("Generated {} meshes for whole board view", meshes.len());
@@ -2826,6 +2920,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
 
         // Benchmark pass
@@ -2850,6 +2945,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         let elapsed = start.elapsed();
 
@@ -2943,7 +3039,7 @@ mod tests {
         let mut renderer = Renderer::new();
         let meshes = generate_board_meshes(
             &board, &vp, rect, &tokens, None, None, None, None, None, None, &mut renderer,
-            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
+            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
         );
         assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.part_body)));
         assert!(meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.pin_default)));
@@ -2970,7 +3066,7 @@ mod tests {
         sync_board_meshes(state, key, vp, rect, |coverage| {
             generate_board_meshes_in(
                 board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, None, None, &mut renderer,
-                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
+                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
             )
         })
     }
@@ -3045,7 +3141,7 @@ mod tests {
         assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
         let fresh = generate_board_meshes_in(
             &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, None, None, &mut Renderer::new(),
-            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
+            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
         );
         // Pads have true size, so the re-mapped pad mesh (the last one) equals a fresh one.
         let (remapped, fresh) = (state.cached_meshes.last().unwrap(), fresh.last().unwrap());
@@ -3065,7 +3161,7 @@ mod tests {
         let pin_vertices = |vp: &Viewport| -> Vec<Pos2> {
             let meshes = generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, false,
             );
             meshes.last().unwrap().vertices.iter().map(|v| v.pos).collect()
         };
@@ -3090,7 +3186,7 @@ mod tests {
         let vertices = |vp: &Viewport| -> usize {
             generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
             )
             .iter()
             .map(|m| m.vertices.len())
@@ -3261,7 +3357,7 @@ mod tests {
         let mut renderer = Renderer::new();
         let meshes = generate_board_meshes(
             &board, &vp, rect, &tokens, None, None, None, None, None, None, &mut renderer,
-            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
+            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
         );
         let vertices: usize = meshes.iter().map(|m| m.vertices.len()).sum();
         assert!(meshes.len() <= 8, "{} meshes", meshes.len());
@@ -3293,7 +3389,7 @@ mod tests {
                 let start = Instant::now();
                 let meshes = generate_board_meshes(
                     &board, view, canvas_rect, &tokens, None, None, None, None, None, None, &mut renderer,
-                    true, ViaDisplayMode::Web, false, 0.60, false, true, false, true,
+                    true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
                 );
                 times.push(start.elapsed());
                 vertices = meshes.iter().map(|m| m.vertices.len()).sum::<usize>();
@@ -3547,6 +3643,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         // Only board outline/fill meshes, no net web
         assert!(!meshes_none.iter().any(|m| m.vertices.len() == 4 || m.vertices.len() == 12));
@@ -3572,6 +3669,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         let web = meshes_web.last().unwrap();
         assert_eq!(web.vertices.len(), 12);
@@ -3597,6 +3695,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         let web_radial = meshes_radial.last().unwrap();
         assert_eq!(web_radial.vertices.len(), 12);
@@ -3622,6 +3721,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         let web_radial_via = meshes_radial_via.last().unwrap();
         assert_eq!(web_radial_via.vertices.len(), 12);
@@ -3647,6 +3747,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         let web_dashed = meshes_dashed.last().unwrap();
         assert!(web_dashed.vertices.len() > 12, "Dashed lines must be subdivided into multiple dash vertices");
@@ -3709,6 +3810,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
 
         // Verify that cross-layer mesh has transparency applied (alpha = net_web.a() * 0.4)
@@ -3720,6 +3822,277 @@ mod tests {
         let expected_opp_pin_alpha = ((tokens.pin_highlight_opp_side.a() as f32) * 0.40).round() as u8;
         let opp_pin_mesh = meshes.iter().find(|m| m.vertices.iter().any(|v| v.color.a() == expected_opp_pin_alpha));
         assert!(opp_pin_mesh.is_some(), "Expected destination pin on opposite side with 60% transparency (alpha {})", expected_opp_pin_alpha);
+    }
+
+    #[test]
+    fn test_olive_and_cyberpunk_theme_component_colors() {
+        let mut board = Board::new();
+        // R1: Resistor (black body)
+        board.parts.push(bvc_core::Part {
+            id: 0,
+            name: "R1".into(),
+            side: Side::Top,
+            outline: vec![
+                Point::new(10.0, 10.0),
+                Point::new(30.0, 10.0),
+                Point::new(30.0, 20.0),
+                Point::new(10.0, 20.0),
+            ],
+            pin_indices: vec![0, 1],
+            bounding_box: Some(Rect { min_x: 10.0, min_y: 10.0, max_x: 30.0, max_y: 20.0 }),
+            ..Default::default()
+        });
+        board.pins.push(Pin { id: 0, part_id: 0, pos: Point::new(12.0, 15.0), radius: 3.0, side: Side::Top, net_name: "N1".into(), ..Default::default() });
+        board.pins.push(Pin { id: 1, part_id: 0, pos: Point::new(28.0, 15.0), radius: 3.0, side: Side::Top, net_name: "N2".into(), ..Default::default() });
+
+        // C1: Capacitor (brown body)
+        board.parts.push(bvc_core::Part {
+            id: 1,
+            name: "C1".into(),
+            side: Side::Top,
+            outline: vec![
+                Point::new(40.0, 10.0),
+                Point::new(60.0, 10.0),
+                Point::new(60.0, 20.0),
+                Point::new(40.0, 20.0),
+            ],
+            pin_indices: vec![2, 3],
+            bounding_box: Some(Rect { min_x: 40.0, min_y: 10.0, max_x: 60.0, max_y: 20.0 }),
+            ..Default::default()
+        });
+        board.pins.push(Pin { id: 2, part_id: 1, pos: Point::new(42.0, 15.0), radius: 3.0, side: Side::Top, net_name: "N3".into(), ..Default::default() });
+        board.pins.push(Pin { id: 3, part_id: 1, pos: Point::new(58.0, 15.0), radius: 3.0, side: Side::Top, net_name: "N4".into(), ..Default::default() });
+
+        // U1: IC (matte black body)
+        board.parts.push(bvc_core::Part {
+            id: 2,
+            name: "U1".into(),
+            side: Side::Top,
+            outline: vec![
+                Point::new(70.0, 10.0),
+                Point::new(100.0, 10.0),
+                Point::new(100.0, 40.0),
+                Point::new(70.0, 40.0),
+            ],
+            pin_indices: vec![4],
+            bounding_box: Some(Rect { min_x: 70.0, min_y: 10.0, max_x: 100.0, max_y: 40.0 }),
+            ..Default::default()
+        });
+        board.pins.push(Pin { id: 4, part_id: 2, pos: Point::new(75.0, 12.0), radius: 2.0, side: Side::Top, net_name: "N5".into(), ..Default::default() });
+
+        board.rebuild_indices();
+
+        let vp = Viewport {
+            side: Side::Top,
+            center: Point::new(55.0, 25.0),
+            scale: 2.0,
+            ..Viewport::default()
+        };
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let tokens_olive = Tokens::OLIVE;
+        let mut renderer = Renderer::new();
+
+        // 1. Olive theme with color_components: true
+        let meshes_olive = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens_olive,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &mut renderer,
+            false,
+            ViaDisplayMode::Web,
+            false,
+            0.60,
+            false,
+            true,
+            false,
+            true,
+            true,
+        );
+
+        // Verify R1 gets resistor black color
+        let res_color = tokens_olive.part_resistor.expect("Olive has part_resistor color");
+        assert!(
+            meshes_olive.iter().any(|m| m.vertices.iter().any(|v| v.color == res_color)),
+            "Expected R1 body to render with resistor black color"
+        );
+
+        // Verify C1 gets capacitor brown color
+        let cap_color = tokens_olive.part_capacitor.expect("Olive has part_capacitor color");
+        assert!(
+            meshes_olive.iter().any(|m| m.vertices.iter().any(|v| v.color == cap_color)),
+            "Expected C1 body to render with capacitor brown color"
+        );
+
+        // Verify U1 gets IC matte black color
+        let ic_color = tokens_olive.part_ic.expect("Olive has part_ic color");
+        assert!(
+            meshes_olive.iter().any(|m| m.vertices.iter().any(|v| v.color == ic_color)),
+            "Expected U1 body to render with IC matte black color"
+        );
+
+        // Verify pads are rendered in silver solder color
+        assert!(
+            meshes_olive.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens_olive.pin_default)),
+            "Expected pads to render in silver solder color"
+        );
+
+        // 2. Cyberpunk theme with color_components: true (falls back to realistic component colors)
+        let tokens_cp = Tokens::new(AppTheme::Dark, PcbTheme::Cyberpunk);
+        let meshes_cp_colored = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens_cp,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &mut renderer,
+            false,
+            ViaDisplayMode::Web,
+            false,
+            0.60,
+            false,
+            true,
+            false,
+            true,
+            true,
+        );
+        assert!(
+            meshes_cp_colored.iter().any(|m| m.vertices.iter().any(|v| v.color == Color32::from_rgb(0x14, 0x14, 0x16))),
+            "Expected R1 body to render with fallback resistor black in Cyberpunk"
+        );
+        assert!(
+            meshes_cp_colored.iter().any(|m| m.vertices.iter().any(|v| v.color == Color32::from_rgb(0x94, 0x5e, 0x38))),
+            "Expected C1 body to render with fallback capacitor brown in Cyberpunk"
+        );
+
+        // 3. Cyberpunk theme with color_components: false (uniform part_body color)
+        let meshes_cp_plain = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens_cp,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &mut renderer,
+            false,
+            ViaDisplayMode::Web,
+            false,
+            0.60,
+            false,
+            true,
+            false,
+            true,
+            false,
+        );
+        assert!(
+            !meshes_cp_plain.iter().any(|m| m.vertices.iter().any(|v| v.color == Color32::from_rgb(0x94, 0x5e, 0x38))),
+            "Expected C1 body NOT to render with brown color when color_components is false"
+        );
+        assert!(
+            meshes_cp_plain.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens_cp.part_body)),
+            "Expected parts to render with tokens.part_body when color_components is false"
+        );
+    }
+
+    #[test]
+    fn test_diagonal_component_body_renders_rotated_polygon() {
+        let mut board = Board::new();
+        // C0456 oriented diagonally at 208.6 degrees
+        board.parts.push(bvc_core::Part {
+            id: 0,
+            name: "C0456".into(),
+            side: Side::Top,
+            rotation_deg: 208.6,
+            pin_indices: vec![0, 1],
+            ..Default::default()
+        });
+        board.pins.push(Pin {
+            id: 0,
+            part_id: 0,
+            name: "1".into(),
+            pos: Point::new(525.601, 134.023),
+            radius: 3.0,
+            side: Side::Top,
+            net_name: "N1".into(),
+            width: Some(38.976),
+            height: Some(50.0),
+            rotation_deg: 208.6,
+            shape: bvc_core::model::PadShape::Rect,
+        });
+        board.pins.push(Pin {
+            id: 1,
+            part_id: 0,
+            name: "2".into(),
+            pos: Point::new(584.364, 166.061),
+            radius: 3.0,
+            side: Side::Top,
+            net_name: "N2".into(),
+            width: Some(38.976),
+            height: Some(50.0),
+            rotation_deg: 208.6,
+            shape: bvc_core::model::PadShape::Rect,
+        });
+        board.rebuild_indices();
+
+        let vp = Viewport {
+            side: Side::Top,
+            center: Point::new(555.0, 150.0),
+            scale: 2.0,
+            ..Viewport::default()
+        };
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let tokens = Tokens::OLIVE;
+        let mut renderer = Renderer::new();
+
+        let meshes = generate_board_meshes(
+            &board,
+            &vp,
+            canvas_rect,
+            &tokens,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &mut renderer,
+            false,
+            ViaDisplayMode::Web,
+            false,
+            0.60,
+            false,
+            true,
+            false,
+            true,
+            true,
+        );
+
+        let cap_color = tokens.part_capacitor.expect("Olive has capacitor color");
+        let body_mesh = meshes.iter().find(|m| m.vertices.iter().any(|v| v.color == cap_color)).expect("Capacitor mesh must exist");
+
+        // The body mesh must have vertices whose positions are diagonal (i.e. not purely axis-aligned rectangle where x0 == x1 and y0 == y3)
+        let cap_vertices: Vec<Pos2> = body_mesh.vertices.iter().filter(|v| v.color == cap_color).map(|v| v.pos).collect();
+        assert!(!cap_vertices.is_empty());
+        // For an axis-aligned rectangle, vertices only have 2 distinct X values. For a rotated rectangle, there are 4 distinct X values.
+        let mut xs: Vec<i32> = cap_vertices.iter().map(|p| (p.x * 10.0).round() as i32).collect();
+        xs.sort();
+        xs.dedup();
+        assert!(xs.len() >= 3, "Rotated component must have distinct X coordinates across corners, got {:?}", xs);
     }
 }
 

@@ -138,6 +138,8 @@
 	prefs.title	Préférences
 	prefs.language	Langue :
 	prefs.language_auto	Automatique (système)
+	prefs.ui_scale	Taille de l'interface
+	prefs.ui_scale_auto	Automatique ({percent} %)
 	prefs.appearance	Apparence et thèmes
 	prefs.app_theme	Thème de l'application :
 	prefs.pcb_theme	Thème du circuit :
@@ -147,6 +149,9 @@
 	prefs.color_board_outline	Contour du circuit :
 	prefs.color_board_fill	Remplissage du circuit :
 	prefs.color_part_body	Corps du composant :
+	prefs.color_part_resistor	Résistance (CMS) :
+	prefs.color_part_capacitor	Condensateur (CMS) :
+	prefs.color_part_ic	CI / Transistor :
 	prefs.color_part_text	Étiquettes des composants :
 	prefs.color_pin_default	Broche par défaut :
 	prefs.color_pin_unconnected	Broche non connectée :
@@ -170,6 +175,7 @@
 	prefs.via_mode_radial	Radial (lignes depuis le point sélectionné)
 	prefs.via_mode_web	Toile (reliant tous les points)
 	prefs.net_lines_dashed	Lignes de réseau en pointillés
+	prefs.color_components	Colorer les composants par type
 	prefs.cross_layer_transparency	Transparence entre couches :
 	prefs.show_part_labels	Afficher les désignateurs de composants
 	prefs.show_pin_annotations	Afficher les numéros et annotations de broches
@@ -206,6 +212,7 @@
 	context_menu.copy_pin_info	Copier les détails de la broche
 	context_menu.part_title	Informations sur le composant
 	context_menu.pins	Broches :
+	context_menu.pin_word	broche
 	context_menu.copy_part_name	Copier le nom du composant
 	context_menu.copy_part_details	Copier les détails du composant (TSV)
 	context_menu.copy_net_details	Copier les détails du réseau (TSV)
