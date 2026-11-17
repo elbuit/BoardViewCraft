@@ -79,6 +79,36 @@ pub fn find_matching_schematic_pdf(board_path: &std::path::Path) -> Option<std::
     find_matching_schematic(board_path)
 }
 
+/// Searches for a co-located OpenBoardData (.obdata) file matching the given boardview file path.
+pub fn find_matching_obdata(board_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    let parent = board_path.parent()?;
+    let stem = board_path.file_stem()?.to_str()?;
+
+    for ext in &["obdata", "OBDATA"] {
+        let candidate = parent.join(format!("{stem}.{ext}"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    if let Ok(entries) = std::fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let (Some(entry_stem), Some(entry_ext)) = (path.file_stem(), path.extension()) {
+                    if entry_stem.to_string_lossy().eq_ignore_ascii_case(stem)
+                        && entry_ext.to_string_lossy().eq_ignore_ascii_case("obdata")
+                    {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
 /// The schematic PDF remembered for `board_path`, when that file still exists.
 pub fn remembered_schematic_pdf(prefs: &Preferences, board_path: &std::path::Path) -> Option<std::path::PathBuf> {
     prefs.board_schematic(board_path).filter(|pdf| pdf.is_file()).map(std::path::Path::to_path_buf)
@@ -279,6 +309,14 @@ impl BoardViewApp {
                 self.board_path = Some(path.to_path_buf());
                 self.preferences.add_recent_file(path.to_path_buf());
                 let _ = self.preferences.save_atomic();
+
+                // Auto-load matching OpenBoardData (.obdata) if present in the same folder.
+                if let Some(obdata_path) = find_matching_obdata(path) {
+                    let count = self.import_obdata_from_path(&obdata_path);
+                    if count > 0 {
+                        self.status_msg = format!("{}; auto-loaded {count} OpenBoardData measurements", self.status_msg);
+                    }
+                }
 
                 // Reopen the board's remembered schematic; otherwise offer a matching PDF in the same folder.
                 if let Some(pdf) = remembered_schematic_pdf(&self.preferences, path) {
@@ -493,6 +531,71 @@ impl BoardViewApp {
             self.save_prefs_pending = true;
         }
         opened
+    }
+
+    /// Imports OpenBoardData (.obdata) from text and applies it to the active board and notes store.
+    pub fn import_obdata_from_str(&mut self, text: &str) -> usize {
+        let Some(board) = self.board.as_mut() else {
+            self.status_msg = "No board loaded to apply OpenBoardData measurements.".to_string();
+            return 0;
+        };
+
+        match bvc_core::OpenBoardData::parse(text) {
+            Ok(obdata) => {
+                let count = obdata.apply_to_board(board, Some(&mut self.notes_store));
+                if let Some(ref fname) = self.filename {
+                    Self::save_notes_for_board(fname, &self.notes_store);
+                }
+                self.canvases.invalidate_caches();
+                self.side_panel_state.search.invalidate();
+                count
+            }
+            Err(err) => {
+                self.status_msg = format!("Failed to parse OpenBoardData: {err}");
+                0
+            }
+        }
+    }
+
+    /// Imports OpenBoardData from a file path.
+    pub fn import_obdata_from_path(&mut self, path: &std::path::Path) -> usize {
+        match std::fs::read_to_string(path) {
+            Ok(text) => self.import_obdata_from_str(&text),
+            Err(err) => {
+                self.status_msg = format!("Failed to read {}: {err}", path.display());
+                0
+            }
+        }
+    }
+
+    /// Imports OpenBoardData from raw bytes (e.g. from drag & drop).
+    pub fn import_obdata_from_bytes(&mut self, filename: &str, bytes: &[u8]) -> usize {
+        match std::str::from_utf8(bytes) {
+            Ok(text) => self.import_obdata_from_str(text),
+            Err(err) => {
+                self.status_msg = format!("Invalid UTF-8 in OpenBoardData {filename}: {err}");
+                0
+            }
+        }
+    }
+
+    /// Opens a file dialog to pick an OpenBoardData (.obdata) file.
+    pub fn open_obdata_file_dialog(&mut self) -> bool {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter_any_case("OpenBoardData (*.obdata)", &["obdata"])
+            .add_filter("All files (*.*)", &["*"])
+            .pick_file()
+        else {
+            return false;
+        };
+
+        let count = self.import_obdata_from_path(&path);
+        if count > 0 {
+            self.status_msg = format!("Imported {count} OpenBoardData measurements from {}", path.display());
+            true
+        } else {
+            false
+        }
     }
 
     /// Normalizes the tab enum and divisions/panes.
@@ -1258,6 +1361,14 @@ impl eframe::App for BoardViewApp {
                                 self.set_tab(BoardTab::Pdf);
                             }
                         }
+                        "obdata" => {
+                            let count = self.import_obdata_from_path(path);
+                            if count > 0 {
+                                self.status_msg = format!("Imported {count} OpenBoardData measurements from {}", path.display());
+                            } else {
+                                self.status_msg = format!("No OpenBoardData measurements imported from {}", path.display());
+                            }
+                        }
                         _ => {
                             self.open_file_from_path(path);
                         }
@@ -1291,6 +1402,14 @@ impl eframe::App for BoardViewApp {
                             } else {
                                 self.status_msg = format!("Opened schematic: {file_name}");
                                 self.set_tab(BoardTab::Pdf);
+                            }
+                        }
+                        "obdata" => {
+                            let count = self.import_obdata_from_bytes(file_name, &bytes);
+                            if count > 0 {
+                                self.status_msg = format!("Imported {count} OpenBoardData measurements from {file_name}");
+                            } else {
+                                self.status_msg = format!("No OpenBoardData measurements imported from {file_name}");
                             }
                         }
                         _ => {
@@ -1443,6 +1562,10 @@ impl eframe::App for BoardViewApp {
                         close_board = true;
                         ui.close();
                     }
+                    if ui.add_enabled(self.board.is_some(), egui::Button::new(i18n::tr(lang, "menu.import_obdata"))).clicked() {
+                        self.open_obdata_file_dialog();
+                        ui.close();
+                    }
                     ui.separator();
                     if ui.button(i18n::tr(lang, "toolbar.preferences")).clicked() {
                         self.preferences_open = true;
@@ -1501,6 +1624,10 @@ impl eframe::App for BoardViewApp {
                     }
                     if ui.button(i18n::tr(lang, "schematic.open_cad")).clicked() {
                         self.open_cad_schematic_dialog();
+                        ui.close();
+                    }
+                    if ui.add_enabled(self.board.is_some(), egui::Button::new(i18n::tr(lang, "menu.import_obdata"))).clicked() {
+                        self.open_obdata_file_dialog();
                         ui.close();
                     }
                     ui.separator();
@@ -2268,6 +2395,56 @@ mod focus_tests {
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_find_matching_obdata() {
+        let temp_dir = std::env::temp_dir().join(format!("bvc_obdata_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let board_path = temp_dir.join("Switch_OLED.pcb");
+        let obdata_path = temp_dir.join("Switch_OLED.obdata");
+        let board2_path = temp_dir.join("BOARD2.brd");
+        let obdata2_path = temp_dir.join("board2.OBDATA");
+        let board3_path = temp_dir.join("BOARD3.fz");
+
+        std::fs::write(&board_path, b"test").unwrap();
+        std::fs::write(&obdata_path, b"OBDATA_V002").unwrap();
+        std::fs::write(&board2_path, b"test2").unwrap();
+        std::fs::write(&obdata2_path, b"OBDATA_V002").unwrap();
+        std::fs::write(&board3_path, b"test3").unwrap();
+
+        assert_eq!(find_matching_obdata(&board_path), Some(obdata_path));
+        assert_eq!(find_matching_obdata(&board2_path), Some(obdata2_path));
+        assert_eq!(find_matching_obdata(&board3_path), None);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_import_obdata_into_app() {
+        let mut app = BoardViewApp::default();
+        let mut board = Board::new();
+        board.parts.push(bvc_core::Part { name: "C1".into(), ..Default::default() });
+        board.pins.push(bvc_core::Pin {
+            part_id: 0,
+            name: "1".into(),
+            net_name: "Net1".into(),
+            ..Default::default()
+        });
+        app.board = Some(board);
+
+        let obdata_sample = "HEADER_DATA_START\nOBDATA_V002\nHEADER_DATA_END\nCOMPONENTS_DATA_START\nC1 v 10uF\nCOMPONENTS_DATA_END\nNETS_DATA_START\nNet1 d 0.433 'Test Net'\nNETS_DATA_END\n";
+        let count = app.import_obdata_from_str(obdata_sample);
+        assert_eq!(count, 2);
+
+        let b = app.board.as_ref().unwrap();
+        assert_eq!(b.metadata.part_value("C1"), Some("10uF"));
+        assert_eq!(b.metadata.net_reading("Net1"), Some("0.433"));
+
+        let pin_note = app.notes_store.find_for_pin("C1", "1");
+        assert!(pin_note.is_some());
+        assert_eq!(pin_note.unwrap().measurements.diode_drop.as_deref(), Some("0.433 V"));
     }
 }
 

@@ -298,3 +298,5 @@
 	prefs.hatching_horizontal	Horizontal lines
 	prefs.hatching_diagonal	Oblique lines (45°)
 	prefs.hatching_crosshatch	Diamonds / Crosshatch
+	prefs.highlight_obdata_pins	Highlight OpenBoardData pins
+	menu.import_obdata	Import OpenBoardData...

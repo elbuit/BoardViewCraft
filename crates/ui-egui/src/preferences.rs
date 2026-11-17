@@ -125,6 +125,8 @@ pub struct Preferences {
     pub show_pins: bool,
     #[serde(default = "default_true")]
     pub show_board_hatching: bool,
+    #[serde(default = "default_true")]
+    pub highlight_obdata_pins: bool,
     #[serde(default)]
     pub recent_files: Vec<PathBuf>,
     /// Each board's schematic PDF, most recently used first (at most `MAX_BOARD_SCHEMATICS`).
@@ -193,6 +195,7 @@ impl Default for Preferences {
             show_unnamed_vias: false,
             show_pins: true,
             show_board_hatching: true,
+            highlight_obdata_pins: true,
             recent_files: Vec::new(),
             board_schematics: Vec::new(),
             board_tab: BoardTab::Top,
@@ -1227,6 +1230,17 @@ pub fn show_preferences_window(
                                     }
                                 });
                         });
+                    }
+
+                    if ui
+                        .checkbox(
+                            &mut prefs.highlight_obdata_pins,
+                            RichText::new(i18n::tr(lang, "prefs.highlight_obdata_pins")).color(tokens.text()),
+                        )
+                        .on_hover_text("Highlight pins that have OpenBoardData measurements on the board.")
+                        .changed()
+                    {
+                        changed = true;
                     }
 
                     if ui

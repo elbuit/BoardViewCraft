@@ -226,6 +226,9 @@ pub struct PcbTokens {
     pub part_text: Color32,
     /// Fill of ordinary pads.
     pub pin_default: Color32,
+    /// Fill of pads with OpenBoardData measurements.
+    #[serde(default = "PcbTokens::default_pin_obdata")]
+    pub pin_obdata: Color32,
     pub pin_unconnected: Color32,
     pub pin_highlight_cur_side: Color32,
     pub pin_highlight_opp_side: Color32,
@@ -254,6 +257,11 @@ impl PcbTokens {
         Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x50)
     }
 
+    /// Default pad color for pins with OpenBoardData values.
+    pub fn default_pin_obdata() -> Color32 {
+        Color32::from_rgb(0x38, 0xd8, 0xd0)
+    }
+
     /// Body stroke for custom themes saved before the token existed (trace dark `chipLine`).
     pub fn default_part_body_line() -> Color32 {
         Color32::from_rgb(0x96, 0xb3, 0xc7)
@@ -277,6 +285,7 @@ impl PcbTokens {
         part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xc0, 0xc6, 0xd0),
         pin_default: Color32::from_rgb(0xd6, 0xdd, 0xc8), // trace dark pad
+        pin_obdata: Color32::from_rgb(0x38, 0xd8, 0xd0),
         pin_unconnected: Color32::from_rgb(0x70, 0x78, 0x84), // Gray for unconnected pins
         pin_highlight_cur_side: Color32::from_rgb(0x32, 0xdd, 0x66), // Bright vivid emerald green
         pin_highlight_opp_side: Color32::from_rgb(0x1b, 0x7d, 0xa8), // Deep cyan/blue
@@ -307,6 +316,7 @@ impl PcbTokens {
         part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xd5, 0xdc, 0xe5),
         pin_default: Color32::from_rgb(0xd6, 0xdd, 0xc8), // trace dark pad
+        pin_obdata: Color32::from_rgb(0x38, 0xd8, 0xd0),
         pin_unconnected: Color32::from_rgb(0x65, 0x70, 0x80),
         pin_highlight_cur_side: Color32::from_rgb(0x2e, 0xe0, 0x60),
         pin_highlight_opp_side: Color32::from_rgb(0x20, 0x90, 0xc8),
@@ -337,6 +347,7 @@ impl PcbTokens {
         part_body_line: Color32::from_rgb(0x4d, 0x6a, 0x80), // trace light chipLine
         part_text: Color32::from_rgb(0x24, 0x29, 0x2f),
         pin_default: Color32::from_rgb(0x36, 0x5b, 0x4a), // trace light pad
+        pin_obdata: Color32::from_rgb(0x00, 0x85, 0x8a),
         pin_unconnected: Color32::from_rgb(0x8c, 0x95, 0x9f),
         pin_highlight_cur_side: Color32::from_rgb(0x1a, 0x9e, 0x3d),
         pin_highlight_opp_side: Color32::from_rgb(0x09, 0x69, 0xda),
@@ -367,6 +378,7 @@ impl PcbTokens {
         part_body_line: Color32::from_rgb(0x8a, 0x8a, 0x8a),
         part_text: Color32::from_rgb(0xdd, 0xdd, 0xdd),
         pin_default: Color32::from_rgb(0xcc, 0x44, 0x33), // orange-red
+        pin_obdata: Color32::from_rgb(0x30, 0xd5, 0xc8),
         pin_unconnected: Color32::from_rgb(0x60, 0x60, 0x60),
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0xd0, 0x00), // bright yellow/gold
         pin_highlight_opp_side: Color32::from_rgb(0x00, 0x88, 0xff), // royal blue
@@ -397,6 +409,7 @@ impl PcbTokens {
         part_body_line: Color32::from_rgb(0x79, 0xa8, 0xd8),
         part_text: Color32::from_rgb(0xd0, 0xdf, 0xf0),
         pin_default: Color32::from_rgb(0x4d, 0x90, 0xcd), // pastel soft slate blue
+        pin_obdata: Color32::from_rgb(0x26, 0xd6, 0xc8),
         pin_unconnected: Color32::from_rgb(0x55, 0x64, 0x78),
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0x9e, 0x3b), // agy warm pastel orange
         pin_highlight_opp_side: Color32::from_rgb(0x79, 0xc0, 0xff), // agy pastel cyan-blue
@@ -427,6 +440,7 @@ impl PcbTokens {
         part_body_line: Color32::from_rgb(0x8a, 0x42, 0xb4),
         part_text: Color32::from_rgb(0xee, 0xd0, 0xff),
         pin_default: Color32::from_rgb(0x38, 0xd8, 0xd0),
+        pin_obdata: Color32::from_rgb(0x00, 0xf0, 0xff),
         pin_unconnected: Color32::from_rgb(0x60, 0x55, 0x78),
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0x00, 0x7f),
         pin_highlight_opp_side: Color32::from_rgb(0x00, 0xf0, 0xff),
@@ -458,6 +472,7 @@ impl PcbTokens {
         part_body_line: Color32::from_rgb(0xe0, 0xe8, 0xf0), // Crisp white silkscreen component outline
         part_text: Color32::from_rgb(0xf2, 0xf6, 0xfa), // White silkscreen refdes text
         pin_default: Color32::from_rgb(0xd2, 0xd8, 0xe2), // Solder tinned silver / lead-free finish
+        pin_obdata: Color32::from_rgb(0x30, 0xd0, 0xc0),
         pin_unconnected: Color32::from_rgb(0x72, 0x7c, 0x88), // Unconnected / unpopulated matte solder
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0xc8, 0x20), // Vivid amber-gold highlight
         pin_highlight_opp_side: Color32::from_rgb(0x1e, 0x90, 0xff), // Electric dodger blue
@@ -512,6 +527,7 @@ pub struct Tokens {
     pub part_body: Color32,
     pub part_body_line: Color32,
     pub pin_default: Color32,
+    pub pin_obdata: Color32,
     pub pin_unconnected: Color32,
     pub pin_highlight_cur_side: Color32,
     pub pin_highlight_opp_side: Color32,
@@ -589,6 +605,7 @@ impl Tokens {
             part_body: pcb.part_body,
             part_body_line: pcb.part_body_line,
             pin_default: pcb.pin_default,
+            pin_obdata: pcb.pin_obdata,
             pin_unconnected: pcb.pin_unconnected,
             pin_highlight_cur_side: pcb.pin_highlight_cur_side,
             pin_highlight_opp_side: pcb.pin_highlight_opp_side,
@@ -690,6 +707,8 @@ impl Tokens {
     #[allow(dead_code)]
     pub fn pin_default(&self) -> Color32 { self.pcb.pin_default }
     #[allow(dead_code)]
+    pub fn pin_obdata(&self) -> Color32 { self.pcb.pin_obdata }
+    #[allow(dead_code)]
     pub fn pin_unconnected(&self) -> Color32 { self.pcb.pin_unconnected }
     #[allow(dead_code)]
     pub fn pin_highlight_cur_side(&self) -> Color32 { self.pcb.pin_highlight_cur_side }
@@ -737,6 +756,7 @@ impl Tokens {
         part_body: PcbTokens::DARK.part_body,
         part_body_line: PcbTokens::DARK.part_body_line,
         pin_default: PcbTokens::DARK.pin_default,
+        pin_obdata: PcbTokens::DARK.pin_obdata,
         pin_unconnected: PcbTokens::DARK.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::DARK.pin_highlight_cur_side,
         pin_highlight_opp_side: PcbTokens::DARK.pin_highlight_opp_side,
@@ -782,6 +802,7 @@ impl Tokens {
         part_body: PcbTokens::LIGHT.part_body,
         part_body_line: PcbTokens::LIGHT.part_body_line,
         pin_default: PcbTokens::LIGHT.pin_default,
+        pin_obdata: PcbTokens::LIGHT.pin_obdata,
         pin_unconnected: PcbTokens::LIGHT.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::LIGHT.pin_highlight_cur_side,
         pin_highlight_opp_side: PcbTokens::LIGHT.pin_highlight_opp_side,
@@ -827,6 +848,7 @@ impl Tokens {
         part_body: PcbTokens::OLIVE.part_body,
         part_body_line: PcbTokens::OLIVE.part_body_line,
         pin_default: PcbTokens::OLIVE.pin_default,
+        pin_obdata: PcbTokens::OLIVE.pin_obdata,
         pin_unconnected: PcbTokens::OLIVE.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::OLIVE.pin_highlight_cur_side,
         pin_highlight_opp_side: PcbTokens::OLIVE.pin_highlight_opp_side,

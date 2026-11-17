@@ -251,6 +251,7 @@ pub struct ViewCacheKey {
     pub show_pins: bool,
     pub show_board_hatching: bool,
     pub board_hatching_pattern: BoardHatchingPattern,
+    pub highlight_obdata_pins: bool,
     pub color_components: bool,
 }
 
@@ -289,6 +290,7 @@ impl ViewCacheKey {
             show_pins: prefs.show_pins,
             show_board_hatching: prefs.show_board_hatching,
             board_hatching_pattern: prefs.active_pcb_tokens().board_hatching_pattern,
+            highlight_obdata_pins: prefs.highlight_obdata_pins,
             color_components: prefs.active_pcb_color_components(),
         }
     }
@@ -1180,6 +1182,7 @@ pub fn show_canvas(
                 prefs.show_unnamed_vias,
                 prefs.show_pins,
                 prefs.show_board_hatching,
+                prefs.highlight_obdata_pins,
                 prefs.active_pcb_color_components(),
             )
         });
@@ -1355,11 +1358,39 @@ pub fn show_canvas(
                         tokens.text
                     };
 
+                    let part_name = b.parts.get(pin.part_id).map(|p| p.name.as_str()).unwrap_or("");
                     let has_pin_note = notes_store.is_some_and(|store| {
-                        let part_name = b.parts.get(pin.part_id).map(|p| p.name.as_str()).unwrap_or("");
                         store.notes.iter().any(|n| n.target.component_name == part_name && n.target.pin_name.as_deref() == Some(&pin.name))
                     });
-                    let pin_text = if has_pin_note {
+                    let obdata_reading = (!pin.net_name.is_empty())
+                        .then(|| b.metadata.net_reading(&pin.net_name))
+                        .flatten()
+                        .or_else(|| b.metadata.pin_reading(part_name, &pin.name));
+                    let obdata_voltage = (!pin.net_name.is_empty())
+                        .then(|| b.metadata.net_voltage(&pin.net_name))
+                        .flatten();
+
+                    let has_obdata = obdata_reading.is_some() || obdata_voltage.is_some();
+
+                    if prefs.highlight_obdata_pins && is_on_cur_side && has_obdata {
+                        painter.circle_stroke(
+                            screen_pos,
+                            r_screen.clamp(3.0, 40.0) + 2.0,
+                            Stroke::new(1.5, tokens.pin_obdata),
+                        );
+                    }
+
+                    let pin_text = if prefs.highlight_obdata_pins && has_obdata {
+                        if let Some(r) = obdata_reading {
+                            format!("{} [{r}]", pin.name)
+                        } else if let Some(v) = obdata_voltage {
+                            format!("{} [{v}]", pin.name)
+                        } else if has_pin_note {
+                            format!("{} 📝", pin.name)
+                        } else {
+                            pin.name.clone()
+                        }
+                    } else if has_pin_note {
                         format!("{} 📝", pin.name)
                     } else {
                         pin.name.clone()
@@ -2209,6 +2240,7 @@ pub fn generate_board_meshes(
         show_unnamed_vias,
         show_pins,
         false,
+        false,
         color_components,
     )
 }
@@ -2458,6 +2490,7 @@ pub fn generate_board_meshes_in(
     show_unnamed_vias: bool,
     show_pins: bool,
     show_board_hatching: bool,
+    highlight_obdata_pins: bool,
     color_components: bool,
 ) -> Vec<Mesh> {
     let mut new_meshes = Vec::new();
@@ -2742,8 +2775,15 @@ pub fn generate_board_meshes_in(
                         }
                     }
                 } else {
+                    let has_obdata = highlight_obdata_pins && is_on_cur_side && (
+                        (!pin.net_name.is_empty() && (b.metadata.net_reading(&pin.net_name).is_some() || b.metadata.net_voltage(&pin.net_name).is_some()))
+                            || (b.parts.get(pin.part_id).map_or(false, |p| b.metadata.pin_reading(&p.name, &pin.name).is_some()))
+                    );
+
                     let color = if !is_on_cur_side {
                         Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x40)
+                    } else if has_obdata {
+                        tokens.pin_obdata
                     } else if pin.net_name.is_empty() || pin.net_name == "UNCONNECTED" {
                         tokens.pin_unconnected
                     } else {
@@ -3374,7 +3414,7 @@ mod tests {
         sync_board_meshes(state, key, vp, rect, |coverage| {
             generate_board_meshes_in(
                 board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, None, None, &mut renderer,
-                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false,
+                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false, false,
             )
         })
     }
@@ -3449,7 +3489,7 @@ mod tests {
         assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
         let fresh = generate_board_meshes_in(
             &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, None, None, &mut Renderer::new(),
-            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false,
+            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false, false,
         );
         // Pads have true size, so the re-mapped pad mesh (the last one) equals a fresh one.
         let (remapped, fresh) = (state.cached_meshes.last().unwrap(), fresh.last().unwrap());
@@ -3469,7 +3509,7 @@ mod tests {
         let pin_vertices = |vp: &Viewport| -> Vec<Pos2> {
             let meshes = generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, true, false,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, true, false, false,
             );
             meshes.last().unwrap().vertices.iter().map(|v| v.pos).collect()
         };
@@ -3494,7 +3534,7 @@ mod tests {
         let vertices = |vp: &Viewport| -> usize {
             generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false, false,
             )
             .iter()
             .map(|m| m.vertices.len())

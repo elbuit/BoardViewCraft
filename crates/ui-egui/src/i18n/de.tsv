@@ -298,3 +298,5 @@
 	prefs.hatching_horizontal	Horizontale Linien
 	prefs.hatching_diagonal	Diagonale Linien (45°)
 	prefs.hatching_crosshatch	Rauten / Kreuzschraffur
+	prefs.highlight_obdata_pins	Pins mit OpenBoardData hervorheben
+	menu.import_obdata	OpenBoardData importieren...

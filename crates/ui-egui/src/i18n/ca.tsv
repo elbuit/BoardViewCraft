@@ -298,3 +298,5 @@
 	prefs.hatching_horizontal	Línies horitzontals
 	prefs.hatching_diagonal	Línies obliqües (45°)
 	prefs.hatching_crosshatch	Rombes / Malla creuada
+	prefs.highlight_obdata_pins	Ressaltar pins amb OpenBoardData
+	menu.import_obdata	Importar OpenBoardData...

@@ -147,6 +147,7 @@ pub fn show_toolbar(
                     (&mut prefs.show_pin_annotations, "prefs.show_pin_annotations"),
                     (&mut prefs.show_part_labels, "prefs.show_part_labels"),
                     (&mut prefs.show_board_hatching, "prefs.show_board_hatching"),
+                    (&mut prefs.highlight_obdata_pins, "prefs.highlight_obdata_pins"),
                     (&mut prefs.show_net_web, "prefs.show_net_web"),
                     (&mut prefs.net_lines_dashed, "prefs.net_lines_dashed"),
                 ] {

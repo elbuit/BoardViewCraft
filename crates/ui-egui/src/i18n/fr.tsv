@@ -298,3 +298,5 @@
 	prefs.hatching_horizontal	Lignes horizontales
 	prefs.hatching_diagonal	Lignes obliques (45°)
 	prefs.hatching_crosshatch	Losanges / Quadrillage
+	prefs.highlight_obdata_pins	Mettre en surbrillance les broches OpenBoardData
+	menu.import_obdata	Importer OpenBoardData...

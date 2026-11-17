@@ -298,3 +298,5 @@
 	prefs.hatching_horizontal	Linee orizzontali
 	prefs.hatching_diagonal	Linee oblique (45°)
 	prefs.hatching_crosshatch	Rombi / Tratteggio incrociato
+	prefs.highlight_obdata_pins	Evidenziare i pin con OpenBoardData
+	menu.import_obdata	Importa OpenBoardData...
