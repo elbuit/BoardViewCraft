@@ -293,3 +293,8 @@
 	measurement.cancel	Abbrechen
 	side_panel.pin_measurements	Pin-Messwerte
 	side_panel.add_pin_measurement	Pin-Messwert hinzufügen
+	prefs.board_hatching_pattern	Substratmuster
+	prefs.hatching_none	Vollflächig / Kein Muster
+	prefs.hatching_horizontal	Horizontale Linien
+	prefs.hatching_diagonal	Diagonale Linien (45°)
+	prefs.hatching_crosshatch	Rauten / Kreuzschraffur

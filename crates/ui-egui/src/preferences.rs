@@ -3,7 +3,7 @@
 use crate::board_tabs::{BoardTab, BothLayout, PaneContent};
 use crate::i18n::{self, Language, LanguagePref};
 use crate::keymap::{Action, CaptureOutcome, Keymap};
-use crate::theme::{AppTheme, PcbTheme, PcbTokens, Tokens};
+use crate::theme::{AppTheme, BoardHatchingPattern, PcbTheme, PcbTokens, Tokens};
 use crate::ui_scale;
 use bvc_core::Side;
 use egui::{Align2, Color32, Context, RichText, Vec2, Window};
@@ -951,6 +951,20 @@ pub fn show_preferences_window(
                             }
                             ui.end_row();
 
+                            ui.label(i18n::tr(lang, "prefs.board_hatching_pattern"));
+                            let mut pattern = active_tokens.board_hatching_pattern;
+                            egui::ComboBox::from_id_salt("theme_hatching_pattern")
+                                .selected_text(pattern.display_name(lang))
+                                .show_ui(ui, |ui| {
+                                    for p in BoardHatchingPattern::ALL {
+                                        if ui.selectable_value(&mut pattern, p, p.display_name(lang)).changed() {
+                                            active_tokens.board_hatching_pattern = pattern;
+                                            tokens_modified = true;
+                                        }
+                                    }
+                                });
+                            ui.end_row();
+
                             ui.label(i18n::tr(lang, "prefs.color_part_body"));
                             let mut c = active_tokens.part_body.to_array();
                             if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
@@ -1189,10 +1203,30 @@ pub fn show_preferences_window(
                             &mut prefs.show_board_hatching,
                             RichText::new(i18n::tr(lang, "prefs.show_board_hatching")).color(tokens.text()),
                         )
-                        .on_hover_text("Render subtle horizontal substrate hatching lines across the board.")
+                        .on_hover_text("Render subtle substrate hatching lines across the board.")
                         .changed()
                     {
                         changed = true;
+                    }
+
+                    if prefs.show_board_hatching {
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.label(RichText::new(i18n::tr(lang, "prefs.board_hatching_pattern")).color(tokens.text()));
+                            let mut active_tokens = prefs.active_pcb_tokens();
+                            let mut pattern = active_tokens.board_hatching_pattern;
+                            egui::ComboBox::from_id_salt("vis_hatching_pattern")
+                                .selected_text(pattern.display_name(lang))
+                                .show_ui(ui, |ui| {
+                                    for p in BoardHatchingPattern::ALL {
+                                        if ui.selectable_value(&mut pattern, p, p.display_name(lang)).changed() {
+                                            active_tokens.board_hatching_pattern = pattern;
+                                            prefs.set_active_pcb_tokens(active_tokens);
+                                            changed = true;
+                                        }
+                                    }
+                                });
+                        });
                     }
 
                     if ui

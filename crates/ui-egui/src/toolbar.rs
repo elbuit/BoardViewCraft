@@ -152,6 +152,23 @@ pub fn show_toolbar(
                 ] {
                     changed |= ui.checkbox(value, tr(key)).changed();
                 }
+                if prefs.show_board_hatching {
+                    ui.separator();
+                    ui.label(tr("prefs.board_hatching_pattern"));
+                    let mut active_tokens = prefs.active_pcb_tokens();
+                    let mut pattern = active_tokens.board_hatching_pattern;
+                    ComboBox::from_id_salt("toolbar_hatching_pattern")
+                        .selected_text(pattern.display_name(lang))
+                        .show_ui(ui, |ui| {
+                            for p in crate::theme::BoardHatchingPattern::ALL {
+                                if ui.selectable_value(&mut pattern, p, p.display_name(lang)).changed() {
+                                    active_tokens.board_hatching_pattern = pattern;
+                                    prefs.set_active_pcb_tokens(active_tokens);
+                                    changed = true;
+                                }
+                            }
+                        });
+                }
                 if changed {
                     actions.push(ToolbarAction::PrefsChanged);
                 }

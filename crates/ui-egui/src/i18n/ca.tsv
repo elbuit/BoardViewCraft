@@ -293,3 +293,8 @@
 	measurement.cancel	Cancel·lar
 	side_panel.pin_measurements	Mesures dels Pins
 	side_panel.add_pin_measurement	Afegir Mesura al Pin
+	prefs.board_hatching_pattern	Patró del substrat
+	prefs.hatching_none	Llis / Sense patró
+	prefs.hatching_horizontal	Línies horitzontals
+	prefs.hatching_diagonal	Línies obliqües (45°)
+	prefs.hatching_crosshatch	Rombes / Malla creuada

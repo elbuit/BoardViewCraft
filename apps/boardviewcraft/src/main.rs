@@ -21,6 +21,24 @@ fn app_icon() -> Result<egui::IconData, String> {
 }
 
 fn main() -> eframe::Result<()> {
+    #[cfg(target_os = "linux")]
+    {
+        // On Linux under Wayland (KDE Plasma, GNOME, etc.), winit 0.30 lacks Wayland
+        // data_device drag-and-drop support (upstream winit issue #412).
+        // If an X11 display / XWayland is available and the user hasn't explicitly set
+        // BVC_WAYLAND=1, route winit through XWayland so that dragging and dropping
+        // board and PDF files from KDE Dolphin works reliably.
+        if std::env::var("DISPLAY").map(|s| !s.is_empty()).unwrap_or(false)
+            && std::env::var("BVC_WAYLAND").is_err()
+        {
+            // SAFETY: main() has just started and no background threads have been spawned yet.
+            unsafe {
+                std::env::remove_var("WAYLAND_DISPLAY");
+                std::env::remove_var("WAYLAND_SOCKET");
+            }
+        }
+    }
+
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size(Vec2::new(1280.0, 800.0))
         .with_title("BoardViewCraft - Pure Rust CAD Board Viewer")

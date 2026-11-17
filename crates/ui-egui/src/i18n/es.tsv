@@ -293,3 +293,8 @@
 	measurement.cancel	Cancelar
 	side_panel.pin_measurements	Medidas de Pines
 	side_panel.add_pin_measurement	Añadir Medida al Pin
+	prefs.board_hatching_pattern	Patrón del sustrato
+	prefs.hatching_none	Liso / Sin patrón
+	prefs.hatching_horizontal	Líneas horizontales
+	prefs.hatching_diagonal	Líneas oblicuas (45°)
+	prefs.hatching_crosshatch	Rombos / Malla cruzada

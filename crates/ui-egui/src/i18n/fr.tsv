@@ -293,3 +293,8 @@
 	measurement.cancel	Annuler
 	side_panel.pin_measurements	Mesures des broches
 	side_panel.add_pin_measurement	Ajouter une mesure à la broche
+	prefs.board_hatching_pattern	Motif du substrat
+	prefs.hatching_none	Plein / Sans motif
+	prefs.hatching_horizontal	Lignes horizontales
+	prefs.hatching_diagonal	Lignes obliques (45°)
+	prefs.hatching_crosshatch	Losanges / Quadrillage

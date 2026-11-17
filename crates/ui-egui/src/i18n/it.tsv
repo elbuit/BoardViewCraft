@@ -293,3 +293,8 @@
 	measurement.cancel	Annulla
 	side_panel.pin_measurements	Misure dei pin
 	side_panel.add_pin_measurement	Aggiungi misura al pin
+	prefs.board_hatching_pattern	Motivo del substrato
+	prefs.hatching_none	Pieno / Nessun motivo
+	prefs.hatching_horizontal	Linee orizzontali
+	prefs.hatching_diagonal	Linee oblique (45°)
+	prefs.hatching_crosshatch	Rombi / Tratteggio incrociato

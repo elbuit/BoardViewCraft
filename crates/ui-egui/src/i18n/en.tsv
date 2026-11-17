@@ -293,3 +293,8 @@
 	measurement.cancel	Cancel
 	side_panel.pin_measurements	Pin Measurements
 	side_panel.add_pin_measurement	Add Pin Measurement
+	prefs.board_hatching_pattern	Substrate pattern
+	prefs.hatching_none	Solid / None
+	prefs.hatching_horizontal	Horizontal lines
+	prefs.hatching_diagonal	Oblique lines (45°)
+	prefs.hatching_crosshatch	Diamonds / Crosshatch

@@ -5,7 +5,7 @@ use crate::overlay::OverlayManager;
 use crate::overlay_align::{AlignmentSession, AlignmentState};
 use crate::preferences::{Preferences, ViaDisplayMode};
 use crate::render::Renderer;
-use crate::theme::Tokens;
+use crate::theme::{BoardHatchingPattern, Tokens};
 use bvc_core::{Board, Point, Rect, Side};
 use egui::epaint::Mesh;
 use egui::{Color32, FontId, Pos2, Rect as EguiRect, Response, RichText, Sense, Shape, Stroke, Ui};
@@ -250,6 +250,7 @@ pub struct ViewCacheKey {
     pub show_unnamed_vias: bool,
     pub show_pins: bool,
     pub show_board_hatching: bool,
+    pub board_hatching_pattern: BoardHatchingPattern,
     pub color_components: bool,
 }
 
@@ -287,6 +288,7 @@ impl ViewCacheKey {
             show_unnamed_vias: prefs.show_unnamed_vias,
             show_pins: prefs.show_pins,
             show_board_hatching: prefs.show_board_hatching,
+            board_hatching_pattern: prefs.active_pcb_tokens().board_hatching_pattern,
             color_components: prefs.active_pcb_color_components(),
         }
     }
@@ -2211,69 +2213,223 @@ pub fn generate_board_meshes(
     )
 }
 
-/// Appends horizontal substrate hatching lines across the board polygon in screen space (FlexBV style).
+/// Clips a 2D line segment `p1 -> p2` against the bounding rectangle `rect` using Liang-Barsky.
+fn clip_segment_to_rect(p1: Pos2, p2: Pos2, rect: EguiRect) -> Option<(Pos2, Pos2)> {
+    let mut t0 = 0.0f32;
+    let mut t1 = 1.0f32;
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+
+    let p = [-dx, dx, -dy, dy];
+    let q = [p1.x - rect.min.x, rect.max.x - p1.x, p1.y - rect.min.y, rect.max.y - p1.y];
+
+    for i in 0..4 {
+        if p[i].abs() < 1e-6 {
+            if q[i] < 0.0 {
+                return None;
+            }
+        } else {
+            let t = q[i] / p[i];
+            if p[i] < 0.0 {
+                if t > t1 {
+                    return None;
+                }
+                if t > t0 {
+                    t0 = t;
+                }
+            } else {
+                if t < t0 {
+                    return None;
+                }
+                if t < t1 {
+                    t1 = t;
+                }
+            }
+        }
+    }
+
+    if t0 <= t1 {
+        Some((
+            Pos2::new(p1.x + t0 * dx, p1.y + t0 * dy),
+            Pos2::new(p1.x + t1 * dx, p1.y + t1 * dy),
+        ))
+    } else {
+        None
+    }
+}
+
+/// Appends substrate hatching lines (horizontal, diagonal, or crosshatch/diamonds)
+/// across the board polygon in screen space.
 pub fn append_board_hatching_to_mesh(
     mesh: &mut Mesh,
     screen_pts: &[Pos2],
     rect: EguiRect,
     color: Color32,
+    pattern: BoardHatchingPattern,
 ) {
-    if screen_pts.len() < 3 || color.a() == 0 {
+    if screen_pts.len() < 3 || color.a() == 0 || pattern == BoardHatchingPattern::None {
         return;
     }
 
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
     let mut min_y = f32::INFINITY;
     let mut max_y = f32::NEG_INFINITY;
     for pt in screen_pts {
+        min_x = min_x.min(pt.x);
+        max_x = max_x.max(pt.x);
         min_y = min_y.min(pt.y);
         max_y = max_y.max(pt.y);
     }
 
-    let start_y = min_y.max(rect.min.y);
-    let end_y = max_y.min(rect.max.y);
-    if start_y >= end_y {
+    let board_w = (max_x - min_x).max(0.0);
+    let board_h = (max_y - min_y).max(0.0);
+    let min_dim = board_w.min(board_h);
+
+    // Fade out hatching when PCB is far away / tiny on screen so lines never dominate.
+    if min_dim < 30.0 {
         return;
     }
+    let alpha_scale = ((min_dim - 30.0) / 90.0).clamp(0.0, 1.0);
+    if alpha_scale <= 0.0 {
+        return;
+    }
+    let effective_alpha = ((color.a() as f32) * alpha_scale).round() as u8;
+    if effective_alpha == 0 {
+        return;
+    }
+    let final_color = Color32::from_rgba_premultiplied(
+        ((color.r() as f32) * alpha_scale).round() as u8,
+        ((color.g() as f32) * alpha_scale).round() as u8,
+        ((color.b() as f32) * alpha_scale).round() as u8,
+        effective_alpha,
+    );
 
-    // Step between horizontal lines in screen points (subtle 8.0 pt spacing)
-    let step = 8.0f32;
-    let first_line_y = (start_y / step).ceil() * step;
-    let mut intersections = Vec::with_capacity(8);
+    // Hairline stroke (half_w = 0.35 gives ~0.7px line for a pleasant subtle trace)
+    let half_w = 0.35f32;
+
+    // Adaptive step: scales with board size so far-away boards don't have chunky bar lines
+    let step = (board_h / 45.0).clamp(5.0, 11.0);
 
     let n = screen_pts.len();
-    let mut y = first_line_y;
-    while y <= end_y {
-        intersections.clear();
-        for i in 0..n {
-            let p1 = screen_pts[i];
-            let p2 = screen_pts[(i + 1) % n];
-            if (p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y) {
-                let dy = p2.y - p1.y;
-                if dy.abs() > 1e-4 {
-                    let t = (y - p1.y) / dy;
-                    let x = p1.x + t * (p2.x - p1.x);
-                    intersections.push(x);
+
+    // 1. Horizontal lines (y = const)
+    if pattern == BoardHatchingPattern::Horizontal {
+        let start_y = min_y.max(rect.min.y);
+        let end_y = max_y.min(rect.max.y);
+        if start_y < end_y {
+            let first_y = (start_y / step).ceil() * step;
+            let mut intersections = Vec::with_capacity(8);
+            let mut y = first_y;
+            while y <= end_y {
+                intersections.clear();
+                for i in 0..n {
+                    let p1 = screen_pts[i];
+                    let p2 = screen_pts[(i + 1) % n];
+                    if (p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y) {
+                        let dy = p2.y - p1.y;
+                        if dy.abs() > 1e-4 {
+                            let t = (y - p1.y) / dy;
+                            let x = p1.x + t * (p2.x - p1.x);
+                            intersections.push(x);
+                        }
+                    }
+                }
+                intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                for chunk in intersections.chunks_exact(2) {
+                    let x0 = chunk[0].max(rect.min.x);
+                    let x1 = chunk[1].min(rect.max.x);
+                    if x0 < x1 {
+                        Renderer::append_line_segment_to_mesh(
+                            mesh,
+                            Pos2::new(x0, y),
+                            Pos2::new(x1, y),
+                            half_w,
+                            final_color,
+                        );
+                    }
+                }
+                y += step;
+            }
+        }
+    }
+
+    // 2. Diagonal lines (+45°, x - y = const) for Diagonal and CrossHatch
+    if pattern == BoardHatchingPattern::Diagonal || pattern == BoardHatchingPattern::CrossHatch {
+        let dc = step * std::f32::consts::SQRT_2;
+        let mut min_u = f32::INFINITY;
+        let mut max_u = f32::NEG_INFINITY;
+        for pt in screen_pts {
+            let u = pt.x - pt.y;
+            min_u = min_u.min(u);
+            max_u = max_u.max(u);
+        }
+        let first_c = (min_u / dc).ceil() * dc;
+        let mut intersections = Vec::with_capacity(8);
+        let mut c = first_c;
+        while c <= max_u {
+            intersections.clear();
+            for i in 0..n {
+                let p1 = screen_pts[i];
+                let p2 = screen_pts[(i + 1) % n];
+                let u1 = p1.x - p1.y;
+                let u2 = p2.x - p2.y;
+                if (u1 <= c && u2 > c) || (u2 <= c && u1 > c) {
+                    let du = u2 - u1;
+                    if du.abs() > 1e-4 {
+                        let t = (c - u1) / du;
+                        let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+                        intersections.push(p);
+                    }
                 }
             }
-        }
-
-        intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-        for chunk in intersections.chunks_exact(2) {
-            let x0 = chunk[0].max(rect.min.x);
-            let x1 = chunk[1].min(rect.max.x);
-            if x0 < x1 {
-                Renderer::append_line_segment_to_mesh(
-                    mesh,
-                    Pos2::new(x0, y),
-                    Pos2::new(x1, y),
-                    0.5,
-                    color,
-                );
+            intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+            for chunk in intersections.chunks_exact(2) {
+                if let Some((p_a, p_b)) = clip_segment_to_rect(chunk[0], chunk[1], rect) {
+                    Renderer::append_line_segment_to_mesh(mesh, p_a, p_b, half_w, final_color);
+                }
             }
+            c += dc;
         }
+    }
 
-        y += step;
+    // 3. Opposite Diagonal lines (-45°, x + y = const) for CrossHatch (forming diamonds / rombos)
+    if pattern == BoardHatchingPattern::CrossHatch {
+        let dc = step * std::f32::consts::SQRT_2;
+        let mut min_v = f32::INFINITY;
+        let mut max_v = f32::NEG_INFINITY;
+        for pt in screen_pts {
+            let v = pt.x + pt.y;
+            min_v = min_v.min(v);
+            max_v = max_v.max(v);
+        }
+        let first_c = (min_v / dc).ceil() * dc;
+        let mut intersections = Vec::with_capacity(8);
+        let mut c = first_c;
+        while c <= max_v {
+            intersections.clear();
+            for i in 0..n {
+                let p1 = screen_pts[i];
+                let p2 = screen_pts[(i + 1) % n];
+                let v1 = p1.x + p1.y;
+                let v2 = p2.x + p2.y;
+                if (v1 <= c && v2 > c) || (v2 <= c && v1 > c) {
+                    let dv = v2 - v1;
+                    if dv.abs() > 1e-4 {
+                        let t = (c - v1) / dv;
+                        let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+                        intersections.push(p);
+                    }
+                }
+            }
+            intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
+            for chunk in intersections.chunks_exact(2) {
+                if let Some((p_a, p_b)) = clip_segment_to_rect(chunk[0], chunk[1], rect) {
+                    Renderer::append_line_segment_to_mesh(mesh, p_a, p_b, half_w, final_color);
+                }
+            }
+            c += dc;
+        }
     }
 }
 
@@ -2320,9 +2476,10 @@ pub fn generate_board_meshes_in(
             new_meshes.push(fill_mesh);
         }
 
-        if show_board_hatching && tokens.board_hatching.a() > 0 {
+        let pattern = tokens.board_hatching_pattern;
+        if show_board_hatching && pattern != BoardHatchingPattern::None && tokens.board_hatching.a() > 0 {
             let mut hatch_mesh = Mesh::default();
-            append_board_hatching_to_mesh(&mut hatch_mesh, &screen_pts, rect, tokens.board_hatching);
+            append_board_hatching_to_mesh(&mut hatch_mesh, &screen_pts, rect, tokens.board_hatching, pattern);
             if !hatch_mesh.is_empty() {
                 new_meshes.push(hatch_mesh);
             }
@@ -3384,16 +3541,34 @@ mod tests {
             Pos2::new(100.0, 300.0),
         ];
         let rect = EguiRect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(500.0, 500.0));
-        let mut mesh = Mesh::default();
         let color = Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x50);
-        append_board_hatching_to_mesh(&mut mesh, &screen_pts, rect, color);
-        assert!(!mesh.is_empty(), "Hatching lines should be added to mesh");
+
+        // Horizontal pattern
+        let mut mesh = Mesh::default();
+        append_board_hatching_to_mesh(&mut mesh, &screen_pts, rect, color, BoardHatchingPattern::Horizontal);
+        assert!(!mesh.is_empty(), "Horizontal hatching lines should be added to mesh");
         assert!(mesh.vertices.len() >= 4, "Should have at least one line segment (4 vertices)");
         assert_eq!(mesh.vertices[0].color, color);
 
+        // Diagonal pattern
+        let mut diag_mesh = Mesh::default();
+        append_board_hatching_to_mesh(&mut diag_mesh, &screen_pts, rect, color, BoardHatchingPattern::Diagonal);
+        assert!(!diag_mesh.is_empty(), "Diagonal hatching lines should be added to mesh");
+
+        // CrossHatch (diamonds) pattern
+        let mut diamond_mesh = Mesh::default();
+        append_board_hatching_to_mesh(&mut diamond_mesh, &screen_pts, rect, color, BoardHatchingPattern::CrossHatch);
+        assert!(!diamond_mesh.is_empty(), "CrossHatch hatching lines should be added to mesh");
+        assert!(diamond_mesh.vertices.len() > diag_mesh.vertices.len(), "CrossHatch has two sets of diagonals");
+
+        // None pattern should produce empty mesh
+        let mut none_mesh = Mesh::default();
+        append_board_hatching_to_mesh(&mut none_mesh, &screen_pts, rect, color, BoardHatchingPattern::None);
+        assert!(none_mesh.is_empty(), "None pattern should not generate hatching");
+
         // Alpha 0 should produce empty mesh
         let mut empty_mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut empty_mesh, &screen_pts, rect, Color32::TRANSPARENT);
+        append_board_hatching_to_mesh(&mut empty_mesh, &screen_pts, rect, Color32::TRANSPARENT, BoardHatchingPattern::Horizontal);
         assert!(empty_mesh.is_empty(), "Transparent color should not generate hatching");
     }
 
