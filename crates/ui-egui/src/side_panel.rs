@@ -562,12 +562,11 @@ pub fn show_side_panel(
                             }
                         });
 
-                    // Pin Measurements Section: Collect all pins that have measurements
+                    // Pin Measurements Section: Collect all pins that have measurements (D, R, V, comments)
                     struct MeasuredPin<'a> {
                         pin_idx: usize,
                         pin_name: &'a str,
                         net_name: &'a str,
-                        c_val: Option<String>,
                         d_val: Option<String>,
                         r_val: Option<String>,
                         v_val: Option<String>,
@@ -579,24 +578,21 @@ pub fn show_side_panel(
                     for &pidx in &part.pin_indices {
                         if let Some(pin) = b.pins.get(pidx) {
                             let note = notes_store.find_for_pin(&part.name, &pin.name);
-                            let user_c = note.and_then(|n| n.measurements.capacitance.clone());
                             let user_d = note.and_then(|n| n.measurements.diode_drop.clone());
                             let user_r = note.and_then(|n| n.measurements.resistance.clone());
                             let user_v = note.and_then(|n| n.measurements.voltage.clone());
                             let user_comm = note.and_then(|n| (!n.text.trim().is_empty()).then(|| n.text.clone()));
 
-                            let c_val = user_c;
                             let d_val = user_d.or_else(|| b.metadata.pin_reading(&part.name, &pin.name).map(String::from));
                             let r_val = user_r;
                             let v_val = user_v.or_else(|| (!pin.net_name.is_empty()).then(|| b.metadata.net_voltage(&pin.net_name).map(String::from)).flatten());
                             let comments = user_comm;
 
-                            if c_val.is_some() || d_val.is_some() || r_val.is_some() || v_val.is_some() || comments.is_some() {
+                            if d_val.is_some() || r_val.is_some() || v_val.is_some() || comments.is_some() {
                                 measured_pins.push(MeasuredPin {
                                     pin_idx: pidx,
                                     pin_name: &pin.name,
                                     net_name: &pin.net_name,
-                                    c_val,
                                     d_val,
                                     r_val,
                                     v_val,
@@ -661,9 +657,6 @@ pub fn show_side_panel(
                                         });
 
                                         ui.horizontal_wrapped(|ui| {
-                                            if let Some(ref c) = mp.c_val {
-                                                ui.label(RichText::new(format!("C: {c}")).color(tokens.accent()).strong());
-                                            }
                                             if let Some(ref d) = mp.d_val {
                                                 ui.label(RichText::new(format!("D: {d}")).color(tokens.accent()).strong());
                                             }
@@ -1331,9 +1324,6 @@ fn pin_technician_measurements_suffix(notes_store: &bvc_core::BoardNotesStore, p
         return String::new();
     };
     let mut parts = Vec::new();
-    if let Some(c) = note.measurements.capacitance.as_deref() {
-        parts.push(format!("C: {c}"));
-    }
     if let Some(d) = note.measurements.diode_drop.as_deref() {
         parts.push(format!("D: {d}"));
     }
@@ -1589,12 +1579,12 @@ mod tests {
                 voltage: Some("3.3V".to_string()),
                 resistance: Some("10k".to_string()),
                 diode_drop: Some("0.450V".to_string()),
-                capacitance: Some("100nF".to_string()),
+                capacitance: None,
                 other: None,
             },
         );
         let suffix = pin_technician_measurements_suffix(&notes_store, "U7", "1");
-        assert!(suffix.contains("C: 100nF"));
+        assert!(!suffix.contains("C:"));
         assert!(suffix.contains("D: 0.450V"));
         assert!(suffix.contains("R: 10k"));
         assert!(suffix.contains("V: 3.3V"));

@@ -1,4 +1,4 @@
-//! Modal dialog for entering and editing pin measurements (C, R, V, comments).
+//! Modal dialog for entering and editing pin measurements (D, R, V, comments).
 
 use eframe::egui::{self, Button, Color32, RichText, TextEdit, Window};
 use bvc_core::{Board, BoardNotesStore, NoteTarget, TechnicalMeasurements};
@@ -11,7 +11,6 @@ pub struct PinMeasurementDialog {
     pub target: NoteTarget,
     pub net_name: String,
     pub available_pins: Vec<String>,
-    pub c_val: String,
     pub d_val: String,
     pub r_val: String,
     pub v_val: String,
@@ -60,13 +59,11 @@ impl PinMeasurementDialog {
         // Load existing note if present
         let pin_name = self.target.pin_name.as_deref().unwrap_or("");
         if let Some(existing) = notes_store.find_for_pin(&self.target.component_name, pin_name) {
-            self.c_val = existing.measurements.capacitance.clone().unwrap_or_default();
             self.d_val = existing.measurements.diode_drop.clone().unwrap_or_default();
             self.r_val = existing.measurements.resistance.clone().unwrap_or_default();
             self.v_val = existing.measurements.voltage.clone().unwrap_or_default();
             self.comments = existing.text.clone();
         } else {
-            self.c_val.clear();
             self.d_val.clear();
             self.r_val.clear();
             self.v_val.clear();
@@ -91,13 +88,11 @@ impl PinMeasurementDialog {
             }
         }
         if let Some(existing) = notes_store.find_for_pin(&self.target.component_name, pin_name) {
-            self.c_val = existing.measurements.capacitance.clone().unwrap_or_default();
             self.d_val = existing.measurements.diode_drop.clone().unwrap_or_default();
             self.r_val = existing.measurements.resistance.clone().unwrap_or_default();
             self.v_val = existing.measurements.voltage.clone().unwrap_or_default();
             self.comments = existing.text.clone();
         } else {
-            self.c_val.clear();
             self.d_val.clear();
             self.r_val.clear();
             self.v_val.clear();
@@ -167,15 +162,11 @@ impl PinMeasurementDialog {
                 ui.separator();
                 ui.add_space(6.0);
 
-                // Measurement inputs: C, D, R, V
+                // Measurement inputs: D, R, V (standard diode, resistance, voltage + comments)
                 egui::Grid::new("meas_input_grid")
                     .num_columns(2)
                     .spacing([8.0, 8.0])
                     .show(ui, |ui| {
-                        ui.label(RichText::new(i18n::tr(lang, "measurement.c_label")).strong());
-                        ui.add(TextEdit::singleline(&mut self.c_val).hint_text("e.g. 100nF, 10µF").desired_width(180.0));
-                        ui.end_row();
-
                         ui.label(RichText::new(i18n::tr(lang, "measurement.d_label")).strong());
                         ui.add(TextEdit::singleline(&mut self.d_val).hint_text("e.g. 0.450V, 450mV").desired_width(180.0));
                         ui.end_row();
@@ -207,7 +198,7 @@ impl PinMeasurementDialog {
                             voltage: (!self.v_val.trim().is_empty()).then(|| self.v_val.trim().to_string()),
                             resistance: (!self.r_val.trim().is_empty()).then(|| self.r_val.trim().to_string()),
                             diode_drop: (!self.d_val.trim().is_empty()).then(|| self.d_val.trim().to_string()),
-                            capacitance: (!self.c_val.trim().is_empty()).then(|| self.c_val.trim().to_string()),
+                            capacitance: None,
                             other: None,
                         };
                         let text = self.comments.trim().to_string();
@@ -294,7 +285,7 @@ mod tests {
             voltage: Some("3.3V".to_string()),
             resistance: Some("10k".to_string()),
             diode_drop: Some("0.450V".to_string()),
-            capacitance: Some("100nF".to_string()),
+            capacitance: None,
             other: None,
         };
         notes_store.upsert(NoteTarget::pin("U1", "1"), "Normal operation".to_string(), measurements);
@@ -307,7 +298,6 @@ mod tests {
         assert_eq!(dialog.target.pin_name.as_deref(), Some("1"));
         assert_eq!(dialog.net_name, "VCC");
         assert_eq!(dialog.available_pins, vec!["1", "2"]);
-        assert_eq!(dialog.c_val, "100nF");
         assert_eq!(dialog.d_val, "0.450V");
         assert_eq!(dialog.r_val, "10k");
         assert_eq!(dialog.v_val, "3.3V");
@@ -326,7 +316,9 @@ mod tests {
         dialog.switch_pin("2", Some(&board), &notes_store);
         assert_eq!(dialog.target.pin_name.as_deref(), Some("2"));
         assert_eq!(dialog.net_name, "GND");
-        assert!(dialog.c_val.is_empty());
+        assert!(dialog.d_val.is_empty());
+        assert!(dialog.r_val.is_empty());
+        assert!(dialog.v_val.is_empty());
     }
 
     #[test]

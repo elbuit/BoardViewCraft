@@ -42,7 +42,7 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   - Native vector parsing and rendering for KiCad (`.kicad_sch`) and Eagle (`.sch`) files.
   - Sheet switching, symbol graphics, net label inspection, and cross-probing.
 - **Technician Notes & Reference Measurements**:
-  - Attach structured inspection notes and physical test readings to individual component pins with dedicated inputs for **Capacitance (C)**, **Diode Drop (D)**, **Resistance (R)**, **Voltage (V)**, and technician comments.
+  - Attach structured inspection notes and physical test readings to individual component pins with dedicated inputs for **Diode Drop (D)**, **Resistance (R)**, **Voltage (V)**, and technician comments / diagnostic solutions.
   - Quick right-click context menu (**Add / Edit Measurement**) on any pin or component directly from the board canvas or side panel.
   - Component pin measurements overview: selecting any component automatically displays all recorded measurements across its pins in the side panel, cleanly omitting unmeasured entries.
   - Automatic extraction and display of repair metadata from XZZ and TVW formats: component values (e.g. 560Ω, 100nF), diode readings, net voltages, and signal descriptions directly in the side panel and exported TSV reports.
