@@ -274,6 +274,8 @@
 	toolbar.quick_prefs	Quick view options
 	shortcut.nav_back	Go back (selection history)
 	shortcut.nav_forward	Go forward (selection history)
+	shortcut.toggle_pads	Toggle pads and pins visibility
+	toolbar.toggle_pads	Show or hide pads/pins
 	prefs.side_panel_position	Side Panel:
 	prefs.side_panel_left	Left
 	prefs.side_panel_right	Right

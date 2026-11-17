@@ -29,6 +29,8 @@ pub struct SidePanelState {
     /// Part the board view should be centered on, requested by a search click.
     /// Consumed (and cleared) by the app right after `show_side_panel` runs.
     pub focus_part: Option<usize>,
+    /// Specific point and side the board view should be centered on (e.g. clicking a pin in Net or Part tab).
+    pub focus_point: Option<(bvc_core::Point, bvc_core::Side)>,
     /// Part whose details stay on screen while one of its pins, picked from those
     /// details, is selected. Dropped as soon as a different part (or none) is selected.
     pub stay_on_part: Option<usize>,
@@ -399,6 +401,7 @@ pub fn show_side_panel(
                                         *selected_pin_idx = Some(pin_idx);
                                         *selected_via_idx = None;
                                         *selected_part_idx = Some(pin.part_id);
+                                        state.focus_point = Some((pin.pos, pin.side));
                                     }
                                     response.context_menu(|ui| {
                                         let pin_has_meas = notes_store.find_for_pin(part_name, &pin.name).is_some();
@@ -535,6 +538,7 @@ pub fn show_side_panel(
                                         } else {
                                             Some(pin.net_name.clone())
                                         };
+                                        state.focus_point = Some((pin.pos, pin.side));
                                     }
                                     response.context_menu(|ui| {
                                         let pin_has_meas = notes_store.find_for_pin(&part.name, &pin.name).is_some();
@@ -640,6 +644,9 @@ pub fn show_side_panel(
                                                 *selected_via_idx = None;
                                                 state.stay_on_part = *selected_part_idx;
                                                 *selected_net = if mp.net_name.is_empty() { None } else { Some(mp.net_name.to_string()) };
+                                                if let Some(pin) = b.pins.get(mp.pin_idx) {
+                                                    state.focus_point = Some((pin.pos, pin.side));
+                                                }
                                             }
                                             ui.label(RichText::new(format!("({net_str})")).color(tokens.text_dim()).small());
 

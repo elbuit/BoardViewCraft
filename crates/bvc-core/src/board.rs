@@ -453,9 +453,15 @@ impl Board {
         best.map(|(idx, _)| idx)
     }
 
-    /// Finds a part whose bounding box contains `world_pos` on `view_side`.
+    /// Finds a part whose bounding box contains or is within a default near-miss tolerance of `world_pos` on `view_side`.
     /// When multiple components overlap, prefers the one with the smallest bounding box area.
     pub fn find_part_near(&self, world_pos: Point, view_side: Side) -> Option<usize> {
+        self.find_part_near_with_tolerance(world_pos, view_side, 6.0)
+    }
+
+    /// Finds a part whose bounding box contains or is within `tolerance` (mils) of `world_pos` on `view_side`.
+    /// When multiple components overlap, prefers the one with the smallest bounding box area.
+    pub fn find_part_near_with_tolerance(&self, world_pos: Point, view_side: Side, tolerance: f64) -> Option<usize> {
         let mut best_idx: Option<usize> = None;
         let mut best_area = f64::INFINITY;
 
@@ -464,7 +470,14 @@ impl Board {
                 continue;
             }
             if let Some(bbox) = &part.bounding_box {
-                if bbox.contains(world_pos) {
+                let tol = tolerance.max(0.0);
+                let expanded = Rect {
+                    min_x: bbox.min_x - tol,
+                    min_y: bbox.min_y - tol,
+                    max_x: bbox.max_x + tol,
+                    max_y: bbox.max_y + tol,
+                };
+                if expanded.contains(world_pos) {
                     let area = bbox.width() * bbox.height();
                     if area < best_area {
                         best_area = area;
@@ -607,6 +620,35 @@ mod tests {
         // In vicinity (near) but outside pad geometry
         assert_eq!(board.find_pin_at(Point::new(115.0, 100.0), Side::Top, 1.0), None);
         assert_eq!(board.find_pin_near(Point::new(115.0, 100.0), Side::Top, 20.0), Some(0));
+    }
+
+    #[test]
+    fn test_find_part_near_with_near_miss_tolerance() {
+        let mut a = pin(0, 50.0, 50.0);
+        a.width = Some(20.0);
+        a.height = Some(20.0);
+        a.shape = PadShape::Rect;
+        a.side = Side::Top;
+
+        let mut board = Board::new();
+        board.parts.push(Part {
+            id: 0,
+            name: "R1".into(),
+            side: Side::Top,
+            ..Default::default()
+        });
+        board.pins.push(a);
+        board.rebuild_indices();
+
+        // Bounding box of R1 is [40, 40, 60, 60]
+        assert_eq!(board.find_part_near(Point::new(50.0, 50.0), Side::Top), Some(0));
+
+        // 4 mils outside boundary: at (64.0, 50.0) -> detected via default 6 mil tolerance
+        assert_eq!(board.find_part_near(Point::new(64.0, 50.0), Side::Top), Some(0));
+
+        // 10 mils outside boundary: at (70.0, 50.0) -> not detected with default 6 mils, but detected with 15 mils tolerance
+        assert_eq!(board.find_part_near(Point::new(70.0, 50.0), Side::Top), None);
+        assert_eq!(board.find_part_near_with_tolerance(Point::new(70.0, 50.0), Side::Top, 15.0), Some(0));
     }
 
     #[test]

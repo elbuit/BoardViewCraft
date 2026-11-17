@@ -15,6 +15,7 @@ use egui::{Button, ComboBox, PopupCloseBehavior, RichText, ScrollArea, TextEdit,
 pub const ICON_BACK: &str = "⏴";
 pub const ICON_FORWARD: &str = "⏵";
 pub const ICON_FIT: &str = "⛶";
+pub const ICON_PADS: &str = "◎";
 pub const ICON_FLIP_H: &str = "⬌";
 pub const ICON_FLIP_V: &str = "⬍";
 pub const ICON_LAYERS: &str = "🗐";
@@ -126,6 +127,10 @@ pub fn show_toolbar(
         if icon_button(ui, has_board, ICON_FLIP_V, cx.mirror_y, prefs.keymap.hint(tr("toolbar.flip_v"), Action::MirrorY)) {
             actions.push(ToolbarAction::MirrorY);
         }
+        if icon_button(ui, has_board, ICON_PADS, prefs.show_pins, prefs.keymap.hint(tr("toolbar.toggle_pads"), Action::TogglePads)) {
+            prefs.show_pins = !prefs.show_pins;
+            actions.push(ToolbarAction::PrefsChanged);
+        }
 
         ui.separator();
         ui.add_enabled(false, Button::new(RichText::new(ICON_LAYERS).size(15.0)))
@@ -227,7 +232,7 @@ mod tests {
         let font = egui::FontId::proportional(15.0);
         let mut missing = Vec::new();
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
-            for glyph in [ICON_BACK, ICON_FORWARD, ICON_FIT, ICON_FLIP_H, ICON_FLIP_V, ICON_LAYERS, ICON_MORE] {
+            for glyph in [ICON_BACK, ICON_FORWARD, ICON_FIT, ICON_FLIP_H, ICON_FLIP_V, ICON_PADS, ICON_LAYERS, ICON_MORE] {
                 if !ui.fonts_mut(|f| f.has_glyphs(&font, glyph)) {
                     missing.push(glyph);
                 }

@@ -1047,7 +1047,8 @@ pub fn show_canvas(
             }
         } else if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
             let world_pos = vp.screen_to_world(hover_pos, rect);
-            if let Some(part_idx) = b.find_part_near(world_pos, vp.side) {
+            let hit_tol = (6.0 / vp.scale as f64).clamp(4.0, 30.0);
+            if let Some(part_idx) = b.find_part_near_with_tolerance(world_pos, vp.side, hit_tol) {
                 *selected_pin_idx = None;
                 *selected_via_idx = None;
                 *selected_part_idx = Some(part_idx);
@@ -1097,7 +1098,8 @@ pub fn show_canvas(
             }
         } else if let (Some(b), Some(hover_pos)) = (board, response.hover_pos()) {
             let world_pos = vp.screen_to_world(hover_pos, rect);
-            if let Some(part_idx) = b.find_part_near(world_pos, vp.side) {
+            let hit_tol = (6.0 / vp.scale as f64).clamp(4.0, 30.0);
+            if let Some(part_idx) = b.find_part_near_with_tolerance(world_pos, vp.side, hit_tol) {
                 if *selected_part_idx == Some(part_idx) && selected_pin_idx.is_none() {
                     // Clicking selected part body deselects it
                     *selected_pin_idx = None;
@@ -1222,6 +1224,9 @@ pub fn show_canvas(
                     // Dynamic font size scaled with component footprint dimensions (clamp between 10.0 and 28.0 pt)
                     let min_dim = w_screen.min(h_screen);
                     let font_size = label_font_size(10.0 + (min_dim - 24.0).max(0.0) * 0.12, 10.0, 28.0);
+                    if font_size < MIN_ON_SCREEN_FONT_SIZE {
+                        continue;
+                    }
 
                     let center = vp.world_to_screen(c_rect.center(), rect);
                     let has_part_note = notes_store.is_some_and(|store| {
@@ -1315,16 +1320,21 @@ pub fn show_canvas(
 
                     if !display_text.is_empty() {
                         let font_size = label_font_size(r_screen * 0.9, 8.0, 16.0);
-                        painter.text(
-                            screen_pos,
-                            egui::Align2::CENTER_CENTER,
-                            display_text,
-                            FontId::monospace(font_size),
-                            tokens.selection,
-                        );
+                        if font_size >= MIN_ON_SCREEN_FONT_SIZE {
+                            painter.text(
+                                screen_pos,
+                                egui::Align2::CENTER_CENTER,
+                                display_text,
+                                FontId::monospace(font_size),
+                                tokens.selection,
+                            );
+                        }
                     }
                 } else if !pin.name.is_empty() {
                     let font_size = label_font_size(r_screen * 1.1, 8.0, 14.0);
+                    if font_size < MIN_ON_SCREEN_FONT_SIZE {
+                        continue;
+                    }
                     let text_color = if is_hovered {
                         tokens.hover
                     } else if is_net_selected {
@@ -1948,6 +1958,9 @@ pub fn wheel_zoom_factor(scroll_y: f32, line_points: f32) -> f32 {
 
 /// Step (points) between the font sizes canvas labels may use.
 pub const LABEL_FONT_STEP: f32 = 2.0;
+
+/// Minimum on-screen font size (points) below which text is culled entirely (adapted from OpenBoardView #371).
+pub const MIN_ON_SCREEN_FONT_SIZE: f32 = 1.0;
 
 /// Font size (points) of a zoom-dependent canvas label: clamped to `min..=max` and snapped to a
 /// multiple of `LABEL_FONT_STEP`.

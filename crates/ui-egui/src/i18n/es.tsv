@@ -274,6 +274,8 @@
 	toolbar.quick_prefs	Opciones rápidas de vista
 	shortcut.nav_back	Volver (historial de selección)
 	shortcut.nav_forward	Avanzar (historial de selección)
+	shortcut.toggle_pads	Mostrar u ocultar pads y pines
+	toolbar.toggle_pads	Mostrar u ocultar pads y pines
 	prefs.side_panel_position	Panel lateral:
 	prefs.side_panel_left	Izquierda
 	prefs.side_panel_right	Derecha

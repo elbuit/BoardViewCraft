@@ -274,6 +274,8 @@
 	toolbar.quick_prefs	Opzioni di vista rapide
 	shortcut.nav_back	Indietro (cronologia selezione)
 	shortcut.nav_forward	Avanti (cronologia selezione)
+	shortcut.toggle_pads	Mostra o nascondi pad e pin
+	toolbar.toggle_pads	Mostra o nascondi pad e pin
 	prefs.side_panel_position	Pannello laterale:
 	prefs.side_panel_left	Sinistra
 	prefs.side_panel_right	Destra

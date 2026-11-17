@@ -354,6 +354,7 @@ impl BoardViewApp {
         self.canvases.clear_board();
         self.side_panel_state.overlay_editing = false;
         self.side_panel_state.focus_part = None;
+        self.side_panel_state.focus_point = None;
         self.side_panel_state.stay_on_part = None;
         self.side_panel_state.search.invalidate();
         self.overlay_manager.top.clear();
@@ -1359,6 +1360,17 @@ impl eframe::App for BoardViewApp {
                         };
                         ui.ctx().request_repaint();
                     }
+                    Action::TogglePads => {
+                        self.preferences.show_pins = !self.preferences.show_pins;
+                        self.canvases.invalidate_caches();
+                        self.save_prefs_pending = true;
+                        self.status_msg = if self.preferences.show_pins {
+                            "Pads & pins visible.".to_string()
+                        } else {
+                            "Pads & pins hidden.".to_string()
+                        };
+                        ui.ctx().request_repaint();
+                    }
                     _ => {}
                 }
             }
@@ -1695,6 +1707,12 @@ impl eframe::App for BoardViewApp {
             ui.ctx().request_repaint();
         }
 
+        // Center the board view on a specific point/pin picked in the side panel (e.g. Net or Part pins)
+        if let Some((point, side)) = self.side_panel_state.focus_point.take() {
+            self.focus_point(point, side, true);
+            ui.ctx().request_repaint();
+        }
+
         // Automatic cross-probing: sync with PDF schematic whenever a component is selected, from
         // any tab. Only on a selection change, so a search typed in the PDF tab is not overridden.
         if self.pdf_viewer.is_loaded() {
@@ -1907,7 +1925,7 @@ impl eframe::App for BoardViewApp {
 
 
 /// Board actions handled by the global hotkey block (pan/zoom live in the canvas).
-const BOARD_HOTKEY_ACTIONS: [Action; 9] = [
+const BOARD_HOTKEY_ACTIONS: [Action; 10] = [
     Action::RotateCw,
     Action::RotateCcw,
     Action::FlipSide,
@@ -1917,6 +1935,7 @@ const BOARD_HOTKEY_ACTIONS: [Action; 9] = [
     Action::Measure,
     Action::NavBack,
     Action::NavForward,
+    Action::TogglePads,
 ];
 
 /// Board actions whose shortcut was pressed this frame. None fire while Preferences is open or
@@ -1950,9 +1969,11 @@ mod hotkey_tests {
         assert_eq!(fire(Key::R, Modifiers::SHIFT), vec![Action::RotateCcw]);
         assert_eq!(fire(Key::Space, Modifiers::NONE), vec![Action::FlipSide]);
         assert_eq!(fire(Key::M, Modifiers::NONE), vec![Action::MirrorX]);
+        assert_eq!(fire(Key::X, Modifiers::NONE), vec![Action::MirrorX]);
         assert_eq!(fire(Key::M, Modifiers::SHIFT), vec![Action::MirrorY]);
         assert_eq!(fire(Key::F, Modifiers::NONE), vec![Action::FitView]);
         assert_eq!(fire(Key::Q, Modifiers::NONE), vec![Action::Measure]);
+        assert_eq!(fire(Key::P, Modifiers::NONE), vec![Action::TogglePads]);
         assert_eq!(fire(Key::ArrowLeft, Modifiers::ALT), vec![Action::NavBack]);
         assert_eq!(fire(Key::ArrowRight, Modifiers::ALT), vec![Action::NavForward]);
         // Pan/zoom and the Preferences toggle are not handled here.
@@ -2200,6 +2221,15 @@ mod tab_tests {
         // A part visible on the shown side does not switch.
         assert!(app.focus_part(1, true));
         assert_eq!(app.tab, BoardTab::Bottom);
+    }
+
+    #[test]
+    fn focusing_a_point_on_opposite_side_switches_single_side_tab_and_centers() {
+        let mut app = app_on(BoardTab::Top);
+        app.focus_point(Point::new(450.0, 300.0), Side::Bottom, true);
+        assert_eq!(app.tab, BoardTab::Bottom);
+        assert_eq!(app.canvases.active, Side::Bottom);
+        assert_eq!(app.canvases.bottom.viewport.center, Point::new(450.0, 300.0));
     }
 
     /// A photo alignment stays on the side it started on: hovering the other canvas in Both

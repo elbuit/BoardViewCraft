@@ -32,11 +32,12 @@ pub enum Action {
     Measure,
     NavBack,
     NavForward,
+    TogglePads,
 }
 
 impl Action {
     /// Every action, in display order.
-    pub const ALL: [Action; 16] = [
+    pub const ALL: [Action; 17] = [
         Action::RotateCw,
         Action::RotateCcw,
         Action::FlipSide,
@@ -53,6 +54,7 @@ impl Action {
         Action::Measure,
         Action::NavBack,
         Action::NavForward,
+        Action::TogglePads,
     ];
 
     /// Translation key of the action's label.
@@ -74,6 +76,7 @@ impl Action {
             Action::Measure => "shortcut.measure",
             Action::NavBack => "shortcut.nav_back",
             Action::NavForward => "shortcut.nav_forward",
+            Action::TogglePads => "shortcut.toggle_pads",
         }
     }
 
@@ -84,7 +87,7 @@ impl Action {
             Action::RotateCw => plain(Key::R),
             Action::RotateCcw => shifted(Key::R),
             Action::FlipSide => plain(Key::Space),
-            Action::MirrorX => plain(Key::M),
+            Action::MirrorX => vec![Binding::new(Key::M, Mods::NONE), Binding::new(Key::X, Mods::NONE)],
             Action::MirrorY => shifted(Key::M),
             Action::FitView => plain(Key::F),
             Action::ZoomIn => vec![Binding::new(Key::Plus, Mods::NONE), Binding::new(Key::Equals, Mods::NONE)],
@@ -97,6 +100,7 @@ impl Action {
             Action::Measure => plain(Key::Q),
             Action::NavBack => vec![Binding::new(Key::ArrowLeft, Mods::ALT)],
             Action::NavForward => vec![Binding::new(Key::ArrowRight, Mods::ALT)],
+            Action::TogglePads => plain(Key::P),
         }
     }
 }
@@ -369,7 +373,7 @@ mod tests {
             (Action::RotateCw, vec![b(Key::R, Mods::NONE)]),
             (Action::RotateCcw, vec![b(Key::R, Mods::SHIFT)]),
             (Action::FlipSide, vec![b(Key::Space, Mods::NONE)]),
-            (Action::MirrorX, vec![b(Key::M, Mods::NONE)]),
+            (Action::MirrorX, vec![b(Key::M, Mods::NONE), b(Key::X, Mods::NONE)]),
             (Action::MirrorY, vec![b(Key::M, Mods::SHIFT)]),
             (Action::FitView, vec![b(Key::F, Mods::NONE)]),
             (Action::ZoomIn, vec![b(Key::Plus, Mods::NONE), b(Key::Equals, Mods::NONE)]),
@@ -382,6 +386,7 @@ mod tests {
             (Action::Measure, vec![b(Key::Q, Mods::NONE)]),
             (Action::NavBack, vec![b(Key::ArrowLeft, Mods::ALT)]),
             (Action::NavForward, vec![b(Key::ArrowRight, Mods::ALT)]),
+            (Action::TogglePads, vec![b(Key::P, Mods::NONE)]),
         ];
         assert_eq!(expect.len(), Action::ALL.len());
         for (action, bindings) in expect {

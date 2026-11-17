@@ -274,6 +274,8 @@
 	toolbar.quick_prefs	Schnelle Ansichtsoptionen
 	shortcut.nav_back	Zurück (Auswahlverlauf)
 	shortcut.nav_forward	Vor (Auswahlverlauf)
+	shortcut.toggle_pads	Pads und Pins ein-/ausblenden
+	toolbar.toggle_pads	Pads und Pins ein-/ausblenden
 	prefs.side_panel_position	Seitenleiste:
 	prefs.side_panel_left	Links
 	prefs.side_panel_right	Rechts
