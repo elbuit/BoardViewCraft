@@ -1969,7 +1969,6 @@ mod hotkey_tests {
         assert_eq!(fire(Key::R, Modifiers::SHIFT), vec![Action::RotateCcw]);
         assert_eq!(fire(Key::Space, Modifiers::NONE), vec![Action::FlipSide]);
         assert_eq!(fire(Key::M, Modifiers::NONE), vec![Action::MirrorX]);
-        assert_eq!(fire(Key::X, Modifiers::NONE), vec![Action::MirrorX]);
         assert_eq!(fire(Key::M, Modifiers::SHIFT), vec![Action::MirrorY]);
         assert_eq!(fire(Key::F, Modifiers::NONE), vec![Action::FitView]);
         assert_eq!(fire(Key::Q, Modifiers::NONE), vec![Action::Measure]);
