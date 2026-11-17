@@ -17,6 +17,7 @@ mod measurement_dialog;
 mod preferences;
 mod render;
 mod side_panel;
+mod substrate;
 mod theme;
 mod ui_scale;
 mod toolbar;
@@ -127,6 +128,10 @@ pub struct BoardViewApp {
     save_prefs_pending: bool,
     /// Screen rectangle of each canvas drawn in the last frame, for fitting to the real size.
     canvas_rects: Vec<(Side, Rect)>,
+    /// Screen rectangle of the both-faces scene canvas drawn in the last frame.
+    scene_rect: Option<Rect>,
+    /// Both-faces scene of the current board, rebuilt when the board or the face offset changes.
+    both_scene: Option<BothSceneCache>,
     side_panel_state: SidePanelState,
     overlay_manager: OverlayManager,
     alignment_session: AlignmentSession,
@@ -168,6 +173,12 @@ pub struct BoardViewApp {
     applied_ui_scale: Option<f32>,
 }
 
+/// The both-faces scene and the bottom-face offset it was built with.
+struct BothSceneCache {
+    offset: Point,
+    scene: bvc_core::BothFacesScene,
+}
+
 impl Default for BoardViewApp {
     fn default() -> Self {
         Self {
@@ -179,6 +190,8 @@ impl Default for BoardViewApp {
             tab: BoardTab::Top,
             save_prefs_pending: false,
             canvas_rects: Vec::new(),
+            scene_rect: None,
+            both_scene: None,
             side_panel_state: SidePanelState::default(),
             overlay_manager: OverlayManager::default(),
             alignment_session: AlignmentSession::default(),
@@ -294,6 +307,7 @@ impl BoardViewApp {
         }
 
         self.board = Some(board);
+        self.both_scene = None;
     }
 
     pub fn open_file_from_path(&mut self, path: &std::path::Path) {
@@ -382,6 +396,7 @@ impl BoardViewApp {
         }
         self.notes_store = bvc_core::BoardNotesStore::default();
         self.board = None;
+        self.both_scene = None;
         self.board_path = None;
         self.selected_pin_idx = None;
         self.selected_via_idx = None;
@@ -543,6 +558,7 @@ impl BoardViewApp {
         match bvc_core::OpenBoardData::parse(text) {
             Ok(obdata) => {
                 let count = obdata.apply_to_board(board, Some(&mut self.notes_store));
+                self.both_scene = None;
                 if let Some(ref fname) = self.filename {
                     Self::save_notes_for_board(fname, &self.notes_store);
                 }
@@ -746,6 +762,9 @@ impl BoardViewApp {
         for &(side, rect) in &self.canvas_rects {
             self.canvases.side_mut(side).viewport.fit_to_rect(bbox, rect);
         }
+        if let (Some(rect), Some(scene_bbox)) = (self.scene_rect, self.both_scene.as_ref().and_then(|c| c.scene.board.bounding_box)) {
+            self.canvases.scene.viewport.fit_to_rect(scene_bbox, rect);
+        }
         true
     }
 
@@ -780,6 +799,50 @@ impl BoardViewApp {
         for side in targets {
             self.canvases.side_mut(side).viewport.center = center;
         }
+        if self.scene_shown() && let Some(cache) = &self.both_scene {
+            self.canvases.scene.viewport.center = cache.scene.to_scene(center, item_side);
+        }
+    }
+
+    /// Whether the both-faces scene canvas receives keyboard input: it is shown and either was
+    /// clicked last or no single-face canvas is shown beside it.
+    fn scene_takes_input(&self) -> bool {
+        let p = &self.preferences;
+        let face_canvas_shown = p.view_divisions == 2
+            && [p.pane_first, p.pane_second].iter().any(|c| matches!(c, PaneContent::Top | PaneContent::Bottom));
+        self.scene_shown() && (self.canvases.scene_active || !face_canvas_shown)
+    }
+
+    /// Whether a pane currently shows the both-faces scene.
+    fn scene_shown(&self) -> bool {
+        let p = &self.preferences;
+        p.pane_first == PaneContent::Both || (p.view_divisions == 2 && p.pane_second == PaneContent::Both)
+    }
+
+    /// Split view with one face per pane: when the selected part or pin changed since
+    /// `before` (`(part, pin)`), centers the face other than the active canvas on it, so the
+    /// opposite side follows the selection. Returns whether a view moved.
+    fn center_opposite_side_on_selection(&mut self, before: (Option<usize>, Option<usize>)) -> bool {
+        let p = &self.preferences;
+        if p.view_divisions != 2 || p.pane_first == PaneContent::Both || p.pane_second == PaneContent::Both {
+            return false;
+        }
+        let sides = self.tab_sides();
+        if !(sides.contains(&Side::Top) && sides.contains(&Side::Bottom)) {
+            return false;
+        }
+        let Some(board) = &self.board else { return false };
+        let center = if self.selected_pin_idx != before.1 {
+            self.selected_pin_idx.and_then(|i| board.pins.get(i)).map(|pin| pin.pos)
+        } else if self.selected_part_idx != before.0 {
+            self.selected_part_idx.and_then(|i| side_panel::part_focus_target(board, i, Side::Both)).map(|(c, _)| c)
+        } else {
+            None
+        };
+        let Some(center) = center else { return false };
+        let opposite = if self.canvases.active == Side::Bottom { Side::Top } else { Side::Bottom };
+        self.canvases.side_mut(opposite).viewport.center = center;
+        true
     }
 
     /// Centers the board view on part `part_id` (see `focus_point`). Returns whether it exists.
@@ -1204,6 +1267,10 @@ impl BoardViewApp {
         }
     }
     fn show_pane_content(&mut self, ui: &mut Ui, area: Rect, content: PaneContent, split_horizontal: Option<bool>) {
+        if content == PaneContent::Both {
+            self.show_scene_canvas(ui, area, split_horizontal);
+            return;
+        }
         let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
         let rects = board_tabs::pane_canvas_rects(
             content,
@@ -1229,6 +1296,84 @@ impl BoardViewApp {
 
 
 
+    /// Draws the Both pane: one canvas with both faces as a single scene (bottom face mirrored
+    /// beside or below the top face, whichever fits `area` better unless a layout is forced),
+    /// so panning and zooming move both faces together.
+    fn show_scene_canvas(&mut self, ui: &mut Ui, area: Rect, split_horizontal: Option<bool>) {
+        let side_by_side = match (split_horizontal, self.preferences.both_layout) {
+            (None, BothLayout::Horizontal) => true,
+            (None, BothLayout::Vertical) => false,
+            _ => self.board.as_ref().and_then(|b| b.bounding_box).is_some_and(|bbox| {
+                board_tabs::scene_side_by_side(bbox, self.canvases.rotation(), area.size())
+            }),
+        };
+        self.ensure_both_scene(side_by_side);
+
+        let schematic_available = self.pdf_viewer.is_loaded() || self.cad_schematic_viewer.is_loaded();
+        self.canvases.scene.schematic_available = schematic_available;
+        let mut zoom_delta = None;
+        let is_active = self.scene_takes_input();
+        let response = show_canvas(
+            ui,
+            area,
+            is_active,
+            &self.tokens,
+            self.both_scene.as_ref().map(|c| &c.scene.board),
+            &mut self.canvases.scene,
+            &mut self.overlay_manager,
+            &mut self.alignment_session,
+            false,
+            &mut self.selected_pin_idx,
+            &mut self.selected_via_idx,
+            &mut self.selected_part_idx,
+            &mut self.selected_net,
+            &mut self.renderer,
+            &self.preferences,
+            Some(&self.notes_store),
+            &mut zoom_delta,
+        );
+        // Bottom-face duplicates of through-hole pins and vias stand for the real items.
+        if let Some(cache) = &self.both_scene {
+            self.selected_pin_idx = self.selected_pin_idx.map(|i| cache.scene.original_pin(i));
+            self.selected_via_idx = self.selected_via_idx.map(|i| cache.scene.original_via(i));
+        }
+        if !is_active && canvas::activates_canvas(response.clicked(), response.secondary_clicked(), response.drag_started()) {
+            self.canvases.scene_active = true;
+        }
+        let requests = (self.canvases.scene.navigate_to_schematic.take(), self.canvases.scene.open_measurement_target.take());
+        self.handle_canvas_requests(ui, requests);
+
+        self.scene_rect = Some(area);
+        if self.pending_auto_fit && area.width() > 10.0 && area.height() > 10.0 {
+            if let Some(bbox) = self.board.as_ref().and_then(|b| b.bounding_box) {
+                for side in [Side::Top, Side::Bottom] {
+                    self.canvases.side_mut(side).viewport.fit_to_rect(bbox, area);
+                }
+            }
+            if let Some(scene_bbox) = self.both_scene.as_ref().and_then(|c| c.scene.board.bounding_box) {
+                self.canvases.scene.viewport.fit_to_rect(scene_bbox, area);
+                ui.ctx().request_repaint();
+            }
+            self.pending_auto_fit = false;
+        }
+    }
+
+    /// Builds (or keeps) the both-faces scene with the bottom face beside (`side_by_side`) or
+    /// below the top face on screen.
+    fn ensure_both_scene(&mut self, side_by_side: bool) {
+        let Some(board) = &self.board else {
+            self.both_scene = None;
+            return;
+        };
+        let Some(bbox) = board.bounding_box else { return };
+        let offset = board_tabs::scene_face_offset(bbox, self.canvases.rotation(), side_by_side);
+        if self.both_scene.as_ref().is_some_and(|c| c.offset == offset) {
+            return;
+        }
+        self.both_scene = bvc_core::BothFacesScene::build(board, offset).map(|scene| BothSceneCache { offset, scene });
+        self.canvases.scene.cached_view_key = None;
+    }
+
     /// Draws the canvas of each `(side, rect)`, tracks the active canvas (last hovered or
     /// clicked) and applies a pending auto-fit to the real canvas rectangles.
     fn show_board_canvases(&mut self, ui: &mut Ui, rects: &[(Side, Rect)]) {
@@ -1236,7 +1381,7 @@ impl BoardViewApp {
         let mut zoom_delta: Option<(Side, f32)> = None;
         let schematic_available = self.pdf_viewer.is_loaded() || self.cad_schematic_viewer.is_loaded();
         for &(side, rect) in rects {
-            let is_active = self.canvases.active == side;
+            let is_active = self.canvases.active == side && !self.scene_takes_input();
             self.canvases.side_mut(side).schematic_available = schematic_available;
             let response = show_canvas(
                 ui,
@@ -1259,10 +1404,22 @@ impl BoardViewApp {
             );
             if !is_active && canvas::activates_canvas(response.clicked(), response.secondary_clicked(), response.drag_started()) {
                 self.canvases.active = side;
+                self.canvases.scene_active = false;
             }
 
+            let state = self.canvases.side_mut(side);
+            let requests = (state.navigate_to_schematic.take(), state.open_measurement_target.take());
+            self.handle_canvas_requests(ui, requests);
+        }
+        self.finish_side_canvases(ui, rects, zoom_delta);
+    }
+
+    /// Acts on what a canvas context menu asked for: open the schematic at a part, or open the
+    /// measurement dialog of a pin.
+    fn handle_canvas_requests(&mut self, ui: &Ui, (schematic, measurement): (Option<String>, Option<bvc_core::NoteTarget>)) {
+        {
             // Check if user requested navigation to Schematic from PCB context menu
-            if let Some(target) = self.canvases.side_mut(side).navigate_to_schematic.take() {
+            if let Some(target) = schematic {
                 if self.cad_schematic_viewer.is_loaded() {
                     self.cad_schematic_viewer.search_input = target.clone();
                     self.cad_schematic_viewer.cross_probe(&target);
@@ -1281,11 +1438,14 @@ impl BoardViewApp {
             }
 
             // Check if user requested opening measurement dialog from PCB context menu
-            if let Some(target) = self.canvases.side_mut(side).open_measurement_target.take() {
+            if let Some(target) = measurement {
                 self.pin_measurement_dialog.open(target, self.board.as_ref(), &self.notes_store);
             }
         }
+    }
 
+    /// Zoom locking, rectangle bookkeeping and pending auto-fit after the side canvases drew.
+    fn finish_side_canvases(&mut self, ui: &Ui, rects: &[(Side, Rect)], zoom_delta: Option<(Side, f32)>) {
         // Apply synchronized zoom when lock_zoom preference is enabled
         if self.preferences.lock_zoom && let Some((source_side, factor)) = zoom_delta {
             self.canvases.sync_zoom(source_side, factor);
@@ -1964,6 +2124,7 @@ impl eframe::App for BoardViewApp {
             .frame(egui::Frame::NONE.fill(self.tokens.canvas()))
             .show(ui, |ui: &mut Ui| {
                 self.canvas_rects.clear();
+                self.scene_rect = None;
                 self.show_tab_bar(ui, lang);
 
                 if self.preferences.view_divisions == 2 {
@@ -2036,9 +2197,13 @@ impl eframe::App for BoardViewApp {
                     }
 
                     let split_h = self.preferences.split_horizontal;
+                    let selection_before = (self.selected_part_idx, self.selected_pin_idx);
                     // Render first and second panes
                     self.render_pane(ui, first_rect, self.preferences.pane_first, Some(split_h), lang);
                     self.render_pane(ui, second_rect, self.preferences.pane_second, Some(split_h), lang);
+                    if self.center_opposite_side_on_selection(selection_before) {
+                        ui.ctx().request_repaint();
+                    }
                 } else {
                     let area = ui.available_rect_before_wrap();
                     self.render_pane(ui, area, self.preferences.pane_first, None, lang);
@@ -2258,6 +2423,8 @@ mod focus_tests {
             tab: BoardTab::Top,
             save_prefs_pending: false,
             canvas_rects: Vec::new(),
+            scene_rect: None,
+            both_scene: None,
             side_panel_state: SidePanelState::default(),
             overlay_manager: OverlayManager::default(),
             alignment_session: AlignmentSession::default(),
@@ -2624,6 +2791,110 @@ mod tab_tests {
         app.apply_pdf_token("U2", false); // U2 is part 1 on Bottom
         assert_eq!(app.split_side(), Side::Bottom);
         assert_eq!(app.selected_part_idx, Some(1));
+    }
+
+    #[test]
+    fn both_view_builds_one_scene_with_the_bottom_face_beside_the_top() {
+        let mut app = app_on(BoardTab::Both);
+        app.ensure_both_scene(true);
+        let scene = &app.both_scene.as_ref().expect("scene").scene;
+        // Board bbox 0..1000 x -10..10: gap 50, bottom face mirrored to 1050..2050.
+        let u2 = scene.board.parts[1].bounding_box.expect("bbox");
+        assert_eq!((u2.min_x, u2.max_x), (1140.0, 1160.0));
+        let bbox = scene.board.bounding_box.expect("scene bbox");
+        assert_eq!((bbox.min_x, bbox.max_x), (0.0, 2050.0));
+
+        // Same offset keeps the cached scene; a new arrangement rebuilds it.
+        let ptr = scene as *const _;
+        app.ensure_both_scene(true);
+        assert!(std::ptr::eq(ptr, &app.both_scene.as_ref().unwrap().scene));
+        app.ensure_both_scene(false);
+        assert_eq!(app.both_scene.as_ref().unwrap().offset, Point::new(0.0, -70.0));
+    }
+
+    #[test]
+    fn focusing_in_the_both_scene_centers_the_face_holding_the_part() {
+        let mut app = app_on(BoardTab::Both);
+        assert!(app.scene_shown());
+        app.ensure_both_scene(true);
+        assert!(app.focus_part(0, true));
+        assert_eq!(app.canvases.scene.viewport.center.x, 100.0);
+        // U2 (bottom, x = 900) sits mirrored on the right face: 1000 - 900 + 1050.
+        assert!(app.focus_part(1, true));
+        assert_eq!(app.canvases.scene.viewport.center.x, 1150.0);
+        assert_eq!(app.tab, BoardTab::Both);
+    }
+
+    #[test]
+    fn keyboard_goes_to_the_scene_unless_a_face_canvas_was_clicked_last() {
+        let mut app = app_on(BoardTab::Both);
+        assert!(app.scene_takes_input(), "Both alone: the scene is the only canvas");
+        app.set_tab(BoardTab::Top);
+        assert!(!app.scene_takes_input(), "no scene shown on the Top tab");
+
+        let mut split = split_top_bottom_app();
+        split.preferences.pane_second = PaneContent::Both;
+        assert!(!split.scene_takes_input(), "a face canvas is shown and the scene was not clicked");
+        split.canvases.scene_active = true;
+        assert!(split.scene_takes_input());
+    }
+
+    #[test]
+    fn fitting_the_both_scene_frames_both_faces() {
+        let mut app = app_on(BoardTab::Both);
+        app.ensure_both_scene(true);
+        let rect = Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 400.0));
+        app.scene_rect = Some(rect);
+        assert!(app.fit_shown_canvases(rect));
+        let mut expected = app.canvases.scene.viewport.clone();
+        expected.fit_to_rect(app.both_scene.as_ref().unwrap().scene.board.bounding_box.unwrap(), rect);
+        assert_eq!(app.canvases.scene.viewport.center, expected.center);
+        assert_eq!(app.canvases.scene.viewport.scale, expected.scale);
+        assert_eq!(app.canvases.scene.viewport.center.x, 1025.0);
+    }
+
+    fn split_top_bottom_app() -> BoardViewApp {
+        let mut app = app_on(BoardTab::Split);
+        app.preferences.view_divisions = 2;
+        app.preferences.pane_first = PaneContent::Top;
+        app.preferences.pane_second = PaneContent::Bottom;
+        app.canvases.active = Side::Top;
+        app
+    }
+
+    #[test]
+    fn selecting_in_split_view_centers_the_opposite_face() {
+        let mut app = split_top_bottom_app();
+        let top_center = app.canvases.top.viewport.center;
+
+        // Part U1 (top, x = 100) picked on the top canvas: only the bottom view follows.
+        app.selected_part_idx = Some(0);
+        assert!(app.center_opposite_side_on_selection((None, None)));
+        assert_eq!(app.canvases.bottom.viewport.center.x, 100.0);
+        assert_eq!(app.canvases.top.viewport.center, top_center);
+
+        // Unchanged selection moves nothing.
+        app.canvases.bottom.viewport.center = Point::new(0.0, 0.0);
+        assert!(!app.center_opposite_side_on_selection((Some(0), None)));
+        assert_eq!(app.canvases.bottom.viewport.center.x, 0.0);
+
+        // Picked on the bottom canvas: the top view follows.
+        app.canvases.active = Side::Bottom;
+        app.selected_part_idx = Some(1);
+        assert!(app.center_opposite_side_on_selection((Some(0), None)));
+        assert_eq!(app.canvases.top.viewport.center.x, 900.0);
+    }
+
+    #[test]
+    fn selection_does_not_recenter_without_both_faces_in_split() {
+        let mut app = split_top_bottom_app();
+        app.preferences.pane_second = PaneContent::Pdf;
+        app.selected_part_idx = Some(0);
+        assert!(!app.center_opposite_side_on_selection((None, None)));
+
+        let mut single = app_on(BoardTab::Top);
+        single.selected_part_idx = Some(0);
+        assert!(!single.center_opposite_side_on_selection((None, None)));
     }
 
     #[test]

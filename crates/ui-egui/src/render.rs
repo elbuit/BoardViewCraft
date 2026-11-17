@@ -48,6 +48,10 @@ impl LodLevel {
 pub struct Renderer {
     fill_tess: FillTessellator,
     stroke_tess: StrokeTessellator,
+    /// Substrate tile for the current frame; set by the canvas before meshes are built.
+    pub substrate_tiles: Option<crate::substrate::SubstrateTileSet>,
+    /// Uploaded substrate tile textures, reused across frames.
+    pub substrate_textures: crate::substrate::SubstrateTextures,
 }
 
 impl Default for Renderer {
@@ -55,6 +59,8 @@ impl Default for Renderer {
         Self {
             fill_tess: FillTessellator::new(),
             stroke_tess: StrokeTessellator::new(),
+            substrate_tiles: None,
+            substrate_textures: crate::substrate::SubstrateTextures::default(),
         }
     }
 }

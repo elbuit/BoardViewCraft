@@ -468,6 +468,24 @@ impl NetMembership {
 }
 
 
+/// True for ground net names: `GND`, `GROUND`, `VSS` and variants such as `AGND`, `PGND`,
+/// `GND1`, `GND_AUDIO` or `CHASSIS_GND` (any `_`/`-`/space-separated word built around `GND`).
+pub fn is_ground_net(name: &str) -> bool {
+    let upper = name.trim().to_ascii_uppercase();
+    if matches!(upper.as_str(), "GROUND" | "VSS" | "0V") {
+        return true;
+    }
+    upper.split(['_', '-', ' ', '/']).any(|word| {
+        word.find("GND").is_some_and(|at| {
+            let (prefix, suffix) = (&word[..at], &word[at + 3..]);
+            prefix.len() <= 4
+                && prefix.chars().all(|c| c.is_ascii_alphabetic())
+                && suffix.len() <= 2
+                && suffix.chars().all(|c| c.is_ascii_alphanumeric())
+        })
+    })
+}
+
 /// Repair metadata carried by some board formats (part values, measured readings, voltages).
 ///
 /// Entries are keyed by name rather than by part/pin index: names survive any re-ordering of
@@ -478,6 +496,7 @@ pub struct BoardMetadata {
     part_values: HashMap<String, String>,
     pin_readings: HashMap<(String, String), String>,
     net_readings: HashMap<String, String>,
+    net_resistances: HashMap<String, String>,
     net_voltages: HashMap<String, String>,
     net_signals: HashMap<String, String>,
 }
@@ -502,6 +521,7 @@ impl BoardMetadata {
         self.part_values.is_empty()
             && self.pin_readings.is_empty()
             && self.net_readings.is_empty()
+            && self.net_resistances.is_empty()
             && self.net_voltages.is_empty()
             && self.net_signals.is_empty()
     }
@@ -530,7 +550,19 @@ impl BoardMetadata {
         self.pin_readings.get(&(meta_key(part), meta_key(pin))).map(String::as_str)
     }
 
-    /// Measured diode/resistance reading of a net.
+    /// Measured resistance of a net to ground (kept apart from its diode reading).
+    pub fn set_net_resistance(&mut self, net: &str, value: &str) {
+        let key = meta_key(net);
+        if !key.is_empty() {
+            meta_insert(&mut self.net_resistances, key, value);
+        }
+    }
+
+    pub fn net_resistance(&self, net: &str) -> Option<&str> {
+        self.net_resistances.get(&meta_key(net)).map(String::as_str)
+    }
+
+    /// Measured diode-mode reading of a net.
     pub fn set_net_reading(&mut self, net: &str, value: &str) {
         let key = meta_key(net);
         if !key.is_empty() {
@@ -577,7 +609,27 @@ impl BoardMetadata {
 
 #[cfg(test)]
 mod metadata_tests {
-    use super::BoardMetadata;
+    use super::{is_ground_net, BoardMetadata};
+
+    #[test]
+    fn ground_net_names_are_recognised() {
+        for name in ["GND", "gnd", "AGND", "PGND", "DGND", "GND1", "GNDA", "GND_AUDIO", "CHASSIS_GND", "GROUND", "VSS", " GND "] {
+            assert!(is_ground_net(name), "{name} should be ground");
+        }
+        for name in ["", "VCC", "PP3V3", "UNCONNECTED", "NET123", "SIGNDATA", "GNDDET_L", "PP5V_GNDSENSE"] {
+            assert!(!is_ground_net(name), "{name} should not be ground");
+        }
+    }
+
+    #[test]
+    fn net_resistance_is_kept_apart_from_diode_reading() {
+        let mut meta = BoardMetadata::default();
+        meta.set_net_reading("PP3V3", "0.433");
+        meta.set_net_resistance("PP3V3", "10k");
+        assert_eq!(meta.net_reading("pp3v3"), Some("0.433"));
+        assert_eq!(meta.net_resistance("pp3v3"), Some("10k"));
+        assert!(!meta.is_empty());
+    }
 
     #[test]
     fn lookups_are_case_insensitive_and_skip_empty_values() {

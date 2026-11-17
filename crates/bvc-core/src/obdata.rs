@@ -201,7 +201,7 @@ impl OpenBoardData {
                     count += 1;
                 }
                 'r' => {
-                    board.metadata.set_net_reading(&entry.net_name, &entry.value);
+                    board.metadata.set_net_resistance(&entry.net_name, &entry.value);
                     let m = net_measurements.entry(net_upper.clone()).or_default();
                     m.resistance = Some(entry.value.clone());
                     count += 1;
@@ -338,6 +338,17 @@ NETS_DATA_END
 
         let note4 = notes_store.find_for_pin("U7", "4").expect("note for U7.4");
         assert_eq!(note4.measurements.diode_drop.as_deref(), Some("OL"));
+    }
+
+    #[test]
+    fn diode_and_resistance_on_the_same_net_are_both_kept() {
+        let sample = "NETS_DATA_START\nPP1V8 d 0.512\nPP1V8 r 120\nPP1V8 v 1.8\nNETS_DATA_END\n";
+        let obdata = OpenBoardData::parse(sample).expect("parse obdata");
+        let mut board = Board::new();
+        obdata.apply_to_board(&mut board, None);
+        assert_eq!(board.metadata.net_reading("PP1V8"), Some("0.512"));
+        assert_eq!(board.metadata.net_resistance("PP1V8"), Some("120"));
+        assert_eq!(board.metadata.net_voltage("PP1V8"), Some("1.8"));
     }
 
     #[test]

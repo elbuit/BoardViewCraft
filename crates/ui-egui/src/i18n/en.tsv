@@ -90,6 +90,8 @@
 	side_panel.value	Value
 	side_panel.reading	Reading
 	side_panel.voltage	Voltage
+	side_panel.diode	Diode drop
+	side_panel.resistance	Resistance
 	side_panel.signal	Signal
 	overlay.title	Overlay Photo
 	overlay.done	Done
@@ -155,6 +157,7 @@
 	prefs.color_part_ic	IC / Transistor:
 	prefs.color_part_text	Component Labels:
 	prefs.color_pin_default	Pin Default:
+	prefs.color_pin_ground	Ground pin (GND)
 	prefs.color_pin_unconnected	Pin Unconnected:
 	prefs.color_pin_cur_side	Pin Highlight (Current Side):
 	prefs.color_pin_opp_side	Pin Highlight (Opposite Side):
@@ -260,6 +263,7 @@
 	about.build_profile	Build profile
 	about.ui_toolkit	UI toolkit
 	about.pdf_engine	PDF engine
+	about.source_code	Source code
 	about.close	Close
 	toolbar.nav_back	Back to the previous selection
 	toolbar.nav_forward	Forward to the next selection
@@ -298,5 +302,6 @@
 	prefs.hatching_horizontal	Horizontal lines
 	prefs.hatching_diagonal	Oblique lines (45°)
 	prefs.hatching_crosshatch	Diamonds / Crosshatch
+	prefs.hatching_grid	Square grid
 	prefs.highlight_obdata_pins	Highlight OpenBoardData pins
 	menu.import_obdata	Import OpenBoardData...

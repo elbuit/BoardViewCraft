@@ -90,6 +90,8 @@
 	side_panel.value	Wert
 	side_panel.reading	Messwert
 	side_panel.voltage	Spannung
+	side_panel.diode	Diodenspannung
+	side_panel.resistance	Widerstand
 	side_panel.signal	Signal
 	overlay.title	Overlay-Foto
 	overlay.done	Fertig
@@ -155,6 +157,7 @@
 	prefs.color_part_ic	IC / Transistor:
 	prefs.color_part_text	Bauteilbeschriftungen:
 	prefs.color_pin_default	Standard-Pin:
+	prefs.color_pin_ground	Massepin (GND)
 	prefs.color_pin_unconnected	Unverbundener Pin:
 	prefs.color_pin_cur_side	Pin-Hervorhebung (Aktuelle Seite):
 	prefs.color_pin_opp_side	Pin-Hervorhebung (Gegenüberliegende Seite):
@@ -260,6 +263,7 @@
 	about.build_profile	Build-Profil
 	about.ui_toolkit	UI-Toolkit
 	about.pdf_engine	PDF-Engine
+	about.source_code	Quellcode
 	about.close	Schließen
 	toolbar.nav_back	Zurück zur vorherigen Auswahl
 	toolbar.nav_forward	Vor zur nächsten Auswahl
@@ -298,5 +302,6 @@
 	prefs.hatching_horizontal	Horizontale Linien
 	prefs.hatching_diagonal	Diagonale Linien (45°)
 	prefs.hatching_crosshatch	Rauten / Kreuzschraffur
+	prefs.hatching_grid	Quadratisches Raster
 	prefs.highlight_obdata_pins	Pins mit OpenBoardData hervorheben
 	menu.import_obdata	OpenBoardData importieren...

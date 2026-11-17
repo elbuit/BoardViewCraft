@@ -339,8 +339,9 @@ pub fn show_side_panel(
                         .color(tokens.text_dim()),
                     );
                     for (key, value) in [
+                        ("side_panel.diode", b.metadata.net_reading(net_name)),
+                        ("side_panel.resistance", b.metadata.net_resistance(net_name)),
                         ("side_panel.voltage", b.metadata.net_voltage(net_name)),
-                        ("side_panel.reading", b.metadata.net_reading(net_name)),
                         ("side_panel.signal", b.metadata.net_signal(net_name)),
                     ] {
                         if let Some(value) = value {
@@ -382,7 +383,7 @@ pub fn show_side_panel(
                                         // Net-level voltage/reading are shown once above; rows only add pin readings.
                                         b.metadata
                                             .pin_reading(part_name, &pin.name)
-                                            .map(|r| format!(" · {}: {r}", i18n::tr(lang, "side_panel.reading")))
+                                            .map(|r| format!(" · {}: {r}", i18n::tr(lang, "side_panel.diode")))
                                             .unwrap_or_default()
                                     );
 
@@ -1302,27 +1303,56 @@ pub fn export_net_details_tsv(b: &Board, net_name: &str) -> String {
     out
 }
 
-/// Repair metadata for a pin: its own reading (falling back to its net's reading) and its net voltage.
-pub(crate) fn pin_metadata<'a>(b: &'a Board, part_name: &str, pin: &bvc_core::Pin) -> (Option<&'a str>, Option<&'a str>) {
-    let reading = b
-        .metadata
-        .pin_reading(part_name, &pin.name)
-        .or_else(|| (!pin.net_name.is_empty()).then(|| b.metadata.net_reading(&pin.net_name)).flatten());
-    let voltage = (!pin.net_name.is_empty()).then(|| b.metadata.net_voltage(&pin.net_name)).flatten();
-    (reading, voltage)
+/// Reference (OpenBoardData / board file) measurements of a pin. Several can coexist, e.g. a
+/// diode drop and a resistance on the same net.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PinMetadata<'a> {
+    /// Diode-mode reading: the pin's own, falling back to its net's.
+    pub diode: Option<&'a str>,
+    /// Resistance of the pin's net.
+    pub resistance: Option<&'a str>,
+    /// Expected voltage of the pin's net.
+    pub voltage: Option<&'a str>,
 }
 
-/// Pin-row suffix such as ` · Reading: 318 · Voltage: 3.3V`; empty when the pin has no metadata.
+impl<'a> PinMetadata<'a> {
+    pub fn is_empty(&self) -> bool {
+        self.diode.is_none() && self.resistance.is_none() && self.voltage.is_none()
+    }
+
+    /// `(i18n label key, value)` for every present measurement, in display order.
+    pub fn entries(&self) -> impl Iterator<Item = (&'static str, &'a str)> {
+        [("side_panel.diode", self.diode), ("side_panel.resistance", self.resistance), ("side_panel.voltage", self.voltage)]
+            .into_iter()
+            .filter_map(|(key, value)| value.map(|v| (key, v)))
+    }
+
+    /// Short on-canvas form such as `D 0.433 · R 120 · V 1.8`; `None` when empty.
+    pub fn compact(&self) -> Option<String> {
+        let parts: Vec<String> = [("D", self.diode), ("R", self.resistance), ("V", self.voltage)]
+            .into_iter()
+            .filter_map(|(tag, value)| value.map(|v| format!("{tag} {v}")))
+            .collect();
+        (!parts.is_empty()).then(|| parts.join(" · "))
+    }
+}
+
+/// Repair metadata for a pin (see [`PinMetadata`]).
+pub(crate) fn pin_metadata<'a>(b: &'a Board, part_name: &str, pin: &bvc_core::Pin) -> PinMetadata<'a> {
+    let net = (!pin.net_name.is_empty()).then_some(pin.net_name.as_str());
+    PinMetadata {
+        diode: b.metadata.pin_reading(part_name, &pin.name).or_else(|| net.and_then(|n| b.metadata.net_reading(n))),
+        resistance: net.and_then(|n| b.metadata.net_resistance(n)),
+        voltage: net.and_then(|n| b.metadata.net_voltage(n)),
+    }
+}
+
+/// Pin-row suffix such as ` · Diode drop: 318 · Voltage: 3.3V`; empty when the pin has no metadata.
 fn pin_metadata_suffix(b: &Board, lang: Language, part_name: &str, pin: &bvc_core::Pin) -> String {
-    let (reading, voltage) = pin_metadata(b, part_name, pin);
-    let mut out = String::new();
-    if let Some(reading) = reading {
-        out.push_str(&format!(" · {}: {reading}", i18n::tr(lang, "side_panel.reading")));
-    }
-    if let Some(voltage) = voltage {
-        out.push_str(&format!(" · {}: {voltage}", i18n::tr(lang, "side_panel.voltage")));
-    }
-    out
+    pin_metadata(b, part_name, pin)
+        .entries()
+        .map(|(key, value)| format!(" · {}: {value}", i18n::tr(lang, key)))
+        .collect()
 }
 
 /// Suffix for technician measurements on a pin (e.g. ` · C: 100nF · D: 0.450V · R: 10k · V: 3.3V 📝`). Empty if none.
@@ -1368,7 +1398,7 @@ pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
     }
     out.push_str(&format!("Pins:\t{}\n\n", part.pin_indices.len()));
     out.push_str("Pins:\n");
-    out.push_str("Pin\tNet\tSide\tX (mil)\tY (mil)\tReading\tVoltage\n");
+    out.push_str("Pin\tNet\tSide\tX (mil)\tY (mil)\tDiode\tResistance\tVoltage\n");
     for &pin_idx in &part.pin_indices {
         if let Some(pin) = b.pins.get(pin_idx) {
             let net = if pin.net_name.is_empty() { "UNCONNECTED" } else { &pin.net_name };
@@ -1377,16 +1407,17 @@ pub fn export_part_details_tsv(b: &Board, part: &bvc_core::Part) -> String {
                 Side::Bottom => "Bottom",
                 Side::Both => "Both",
             };
-            let (reading, voltage) = pin_metadata(b, &part.name, pin);
+            let meta = pin_metadata(b, &part.name, pin);
             out.push_str(&format!(
-                "{}\t{}\t{}\t{:.2}\t{:.2}\t{}\t{}\n",
+                "{}\t{}\t{}\t{:.2}\t{:.2}\t{}\t{}\t{}\n",
                 pin.name,
                 net,
                 pin_side,
                 pin.pos.x,
                 pin.pos.y,
-                reading.unwrap_or(""),
-                voltage.unwrap_or("")
+                meta.diode.unwrap_or(""),
+                meta.resistance.unwrap_or(""),
+                meta.voltage.unwrap_or("")
             ));
         }
     }
@@ -1557,19 +1588,36 @@ mod tests {
 
         let tsv = export_part_details_tsv(&board, &part);
         assert!(tsv.contains("Value:\t10k\n"));
-        assert!(tsv.contains("Pin\tNet\tSide\tX (mil)\tY (mil)\tReading\tVoltage\n"));
-        assert!(tsv.contains("1\tVCC\tTop\t3.00\t4.00\t0.512\t3.3V\n"));
+        assert!(tsv.contains("Pin\tNet\tSide\tX (mil)\tY (mil)\tDiode\tResistance\tVoltage\n"));
+        assert!(tsv.contains("1\tVCC\tTop\t3.00\t4.00\t0.512\t\t3.3V\n"));
     }
 
     #[test]
     fn test_pin_reading_falls_back_to_net_reading() {
         let mut board = board_with_part(Side::Top, None);
         board.metadata.set_net_reading("VCC", "OL");
-        let (reading, voltage) = pin_metadata(&board, "U7", &board.pins[0]);
-        assert_eq!(reading, Some("OL"));
-        assert_eq!(voltage, None);
+        let meta = pin_metadata(&board, "U7", &board.pins[0]);
+        assert_eq!(meta.diode, Some("OL"));
+        assert_eq!(meta.voltage, None);
         let suffix = pin_metadata_suffix(&board, Language::default(), "U7", &board.pins[0]);
         assert!(suffix.contains("OL"));
+    }
+
+    #[test]
+    fn pin_metadata_shows_every_measurement_of_the_pin() {
+        let mut board = board_with_part(Side::Top, None);
+        board.metadata.set_net_reading("VCC", "0.433");
+        board.metadata.set_net_resistance("VCC", "120");
+        board.metadata.set_net_voltage("VCC", "1.8");
+        let meta = pin_metadata(&board, "U7", &board.pins[0]);
+        assert_eq!(meta.compact().as_deref(), Some("D 0.433 · R 120 · V 1.8"));
+        let suffix = pin_metadata_suffix(&board, Language::English, "U7", &board.pins[0]);
+        assert_eq!(suffix, " · Diode drop: 0.433 · Resistance: 120 · Voltage: 1.8");
+        // Resistance alone is still shown.
+        let mut only_r = board_with_part(Side::Top, None);
+        only_r.metadata.set_net_resistance("VCC", "1.2M");
+        assert_eq!(pin_metadata(&only_r, "U7", &only_r.pins[0]).compact().as_deref(), Some("R 1.2M"));
+        assert!(PinMetadata::default().compact().is_none());
     }
 
     #[test]

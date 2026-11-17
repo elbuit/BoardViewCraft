@@ -171,20 +171,24 @@ impl AppTokens {
 }
 
 /// Geometric pattern rendered on the board substrate.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum BoardHatchingPattern {
-    #[default]
     Horizontal,
+    // `Dots` and `Weave` briefly existed during development and were dropped; they map to no pattern.
+    #[serde(alias = "Dots", alias = "Weave")]
+    #[default]
     None,
     Diagonal,
     CrossHatch,
+    Grid,
 }
 
 impl BoardHatchingPattern {
-    pub const ALL: [BoardHatchingPattern; 4] = [
+    pub const ALL: [BoardHatchingPattern; 5] = [
         BoardHatchingPattern::Horizontal,
         BoardHatchingPattern::Diagonal,
         BoardHatchingPattern::CrossHatch,
+        BoardHatchingPattern::Grid,
         BoardHatchingPattern::None,
     ];
 
@@ -194,6 +198,7 @@ impl BoardHatchingPattern {
             BoardHatchingPattern::Horizontal => crate::i18n::tr(lang, "prefs.hatching_horizontal"),
             BoardHatchingPattern::Diagonal => crate::i18n::tr(lang, "prefs.hatching_diagonal"),
             BoardHatchingPattern::CrossHatch => crate::i18n::tr(lang, "prefs.hatching_crosshatch"),
+            BoardHatchingPattern::Grid => crate::i18n::tr(lang, "prefs.hatching_grid"),
         }
     }
 }
@@ -229,6 +234,9 @@ pub struct PcbTokens {
     /// Fill of pads with OpenBoardData measurements.
     #[serde(default = "PcbTokens::default_pin_obdata")]
     pub pin_obdata: Color32,
+    /// Fill of pads on ground nets; `None` derives a slightly darker shade of `pin_default`.
+    #[serde(default)]
+    pub pin_ground: Option<Color32>,
     pub pin_unconnected: Color32,
     pub pin_highlight_cur_side: Color32,
     pub pin_highlight_opp_side: Color32,
@@ -262,6 +270,21 @@ impl PcbTokens {
         Color32::from_rgb(0x38, 0xd8, 0xd0)
     }
 
+    /// Pad color of ground-net pins: the theme's own, or `pin_default` dimmed to ~72 %.
+    pub const fn pin_ground_color(&self) -> Color32 {
+        match self.pin_ground {
+            Some(c) => c,
+            None => {
+                let c = self.pin_default;
+                Color32::from_rgb(
+                    (c.r() as u16 * 184 / 255) as u8,
+                    (c.g() as u16 * 184 / 255) as u8,
+                    (c.b() as u16 * 184 / 255) as u8,
+                )
+            }
+        }
+    }
+
     /// Body stroke for custom themes saved before the token existed (trace dark `chipLine`).
     pub fn default_part_body_line() -> Color32 {
         Color32::from_rgb(0x96, 0xb3, 0xc7)
@@ -280,12 +303,13 @@ impl PcbTokens {
         board_outline: Color32::from_rgb(0xb0, 0xb8, 0xc4),
         board_fill: Color32::from_rgba_premultiplied(0x1e, 0x26, 0x30, 0x80),
         board_hatching: Color32::from_rgba_premultiplied(0x2e, 0x38, 0x44, 0x60),
-        board_hatching_pattern: BoardHatchingPattern::Horizontal,
+        board_hatching_pattern: BoardHatchingPattern::None,
         part_body: Color32::from_rgb(0x35, 0x4b, 0x5d), // trace dark chip
         part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xc0, 0xc6, 0xd0),
         pin_default: Color32::from_rgb(0xd6, 0xdd, 0xc8), // trace dark pad
         pin_obdata: Color32::from_rgb(0x38, 0xd8, 0xd0),
+        pin_ground: None,
         pin_unconnected: Color32::from_rgb(0x70, 0x78, 0x84), // Gray for unconnected pins
         pin_highlight_cur_side: Color32::from_rgb(0x32, 0xdd, 0x66), // Bright vivid emerald green
         pin_highlight_opp_side: Color32::from_rgb(0x1b, 0x7d, 0xa8), // Deep cyan/blue
@@ -311,12 +335,13 @@ impl PcbTokens {
         board_outline: Color32::from_rgb(0xc0, 0xc8, 0xd4),
         board_fill: Color32::from_rgba_premultiplied(0x18, 0x20, 0x28, 0x90),
         board_hatching: Color32::from_rgba_premultiplied(0x28, 0x34, 0x42, 0x60),
-        board_hatching_pattern: BoardHatchingPattern::Horizontal,
+        board_hatching_pattern: BoardHatchingPattern::None,
         part_body: Color32::from_rgb(0x35, 0x4b, 0x5d), // trace dark chip
         part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xd5, 0xdc, 0xe5),
         pin_default: Color32::from_rgb(0xd6, 0xdd, 0xc8), // trace dark pad
         pin_obdata: Color32::from_rgb(0x38, 0xd8, 0xd0),
+        pin_ground: None,
         pin_unconnected: Color32::from_rgb(0x65, 0x70, 0x80),
         pin_highlight_cur_side: Color32::from_rgb(0x2e, 0xe0, 0x60),
         pin_highlight_opp_side: Color32::from_rgb(0x20, 0x90, 0xc8),
@@ -342,12 +367,13 @@ impl PcbTokens {
         board_outline: Color32::from_rgb(0x35, 0x40, 0x50),
         board_fill: Color32::from_rgba_premultiplied(0xdf, 0xe7, 0xf0, 0x80),
         board_hatching: Color32::from_rgba_premultiplied(0x5a, 0x64, 0x72, 0xa0),
-        board_hatching_pattern: BoardHatchingPattern::Horizontal,
+        board_hatching_pattern: BoardHatchingPattern::None,
         part_body: Color32::from_rgb(0xa5, 0xb7, 0xc2), // trace light chip
         part_body_line: Color32::from_rgb(0x4d, 0x6a, 0x80), // trace light chipLine
         part_text: Color32::from_rgb(0x24, 0x29, 0x2f),
         pin_default: Color32::from_rgb(0x36, 0x5b, 0x4a), // trace light pad
         pin_obdata: Color32::from_rgb(0x00, 0x85, 0x8a),
+        pin_ground: None,
         pin_unconnected: Color32::from_rgb(0x8c, 0x95, 0x9f),
         pin_highlight_cur_side: Color32::from_rgb(0x1a, 0x9e, 0x3d),
         pin_highlight_opp_side: Color32::from_rgb(0x09, 0x69, 0xda),
@@ -373,12 +399,13 @@ impl PcbTokens {
         board_outline: Color32::from_rgb(0xff, 0xff, 0xff), // crisp white
         board_fill: Color32::from_rgba_premultiplied(0x18, 0x18, 0x18, 0x40),
         board_hatching: Color32::from_rgba_premultiplied(0x30, 0x30, 0x30, 0x60),
-        board_hatching_pattern: BoardHatchingPattern::Horizontal,
+        board_hatching_pattern: BoardHatchingPattern::None,
         part_body: Color32::from_rgb(0x3a, 0x3a, 0x3a),
         part_body_line: Color32::from_rgb(0x8a, 0x8a, 0x8a),
         part_text: Color32::from_rgb(0xdd, 0xdd, 0xdd),
         pin_default: Color32::from_rgb(0xcc, 0x44, 0x33), // orange-red
         pin_obdata: Color32::from_rgb(0x30, 0xd5, 0xc8),
+        pin_ground: None,
         pin_unconnected: Color32::from_rgb(0x60, 0x60, 0x60),
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0xd0, 0x00), // bright yellow/gold
         pin_highlight_opp_side: Color32::from_rgb(0x00, 0x88, 0xff), // royal blue
@@ -404,12 +431,13 @@ impl PcbTokens {
         board_outline: Color32::from_rgb(0x79, 0xa8, 0xd8), // soft steel blue border
         board_fill: Color32::from_rgba_premultiplied(0x15, 0x20, 0x30, 0x90),
         board_hatching: Color32::from_rgba_premultiplied(0x24, 0x34, 0x48, 0x60),
-        board_hatching_pattern: BoardHatchingPattern::Horizontal,
+        board_hatching_pattern: BoardHatchingPattern::None,
         part_body: Color32::from_rgb(0x2c, 0x3c, 0x54),
         part_body_line: Color32::from_rgb(0x79, 0xa8, 0xd8),
         part_text: Color32::from_rgb(0xd0, 0xdf, 0xf0),
         pin_default: Color32::from_rgb(0x4d, 0x90, 0xcd), // pastel soft slate blue
         pin_obdata: Color32::from_rgb(0x26, 0xd6, 0xc8),
+        pin_ground: None,
         pin_unconnected: Color32::from_rgb(0x55, 0x64, 0x78),
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0x9e, 0x3b), // agy warm pastel orange
         pin_highlight_opp_side: Color32::from_rgb(0x79, 0xc0, 0xff), // agy pastel cyan-blue
@@ -435,12 +463,13 @@ impl PcbTokens {
         board_outline: Color32::from_rgb(0x00, 0xf0, 0xff),
         board_fill: Color32::from_rgba_premultiplied(0x14, 0x10, 0x28, 0x99),
         board_hatching: Color32::from_rgba_premultiplied(0x28, 0x20, 0x44, 0x70),
-        board_hatching_pattern: BoardHatchingPattern::CrossHatch,
+        board_hatching_pattern: BoardHatchingPattern::None,
         part_body: Color32::from_rgb(0x28, 0x1c, 0x42),
         part_body_line: Color32::from_rgb(0x8a, 0x42, 0xb4),
         part_text: Color32::from_rgb(0xee, 0xd0, 0xff),
         pin_default: Color32::from_rgb(0x38, 0xd8, 0xd0),
         pin_obdata: Color32::from_rgb(0x00, 0xf0, 0xff),
+        pin_ground: None,
         pin_unconnected: Color32::from_rgb(0x60, 0x55, 0x78),
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0x00, 0x7f),
         pin_highlight_opp_side: Color32::from_rgb(0x00, 0xf0, 0xff),
@@ -467,12 +496,13 @@ impl PcbTokens {
         board_outline: Color32::from_rgb(0xe0, 0xe8, 0xec), // White silkscreen / routed edge
         board_fill: Color32::from_rgba_premultiplied(0x13, 0x47, 0x23, 0xc0), // Rich classic solder mask green (#134723)
         board_hatching: Color32::from_rgba_premultiplied(0x18, 0x55, 0x2b, 0x70),
-        board_hatching_pattern: BoardHatchingPattern::Horizontal,
+        board_hatching_pattern: BoardHatchingPattern::None,
         part_body: Color32::from_rgb(0x26, 0x2a, 0x30), // Dark charcoal for generic parts
         part_body_line: Color32::from_rgb(0xe0, 0xe8, 0xf0), // Crisp white silkscreen component outline
         part_text: Color32::from_rgb(0xf2, 0xf6, 0xfa), // White silkscreen refdes text
         pin_default: Color32::from_rgb(0xd2, 0xd8, 0xe2), // Solder tinned silver / lead-free finish
         pin_obdata: Color32::from_rgb(0x30, 0xd0, 0xc0),
+        pin_ground: None,
         pin_unconnected: Color32::from_rgb(0x72, 0x7c, 0x88), // Unconnected / unpopulated matte solder
         pin_highlight_cur_side: Color32::from_rgb(0xff, 0xc8, 0x20), // Vivid amber-gold highlight
         pin_highlight_opp_side: Color32::from_rgb(0x1e, 0x90, 0xff), // Electric dodger blue
@@ -528,6 +558,7 @@ pub struct Tokens {
     pub part_body_line: Color32,
     pub pin_default: Color32,
     pub pin_obdata: Color32,
+    pub pin_ground: Color32,
     pub pin_unconnected: Color32,
     pub pin_highlight_cur_side: Color32,
     pub pin_highlight_opp_side: Color32,
@@ -606,6 +637,7 @@ impl Tokens {
             part_body_line: pcb.part_body_line,
             pin_default: pcb.pin_default,
             pin_obdata: pcb.pin_obdata,
+            pin_ground: pcb.pin_ground_color(),
             pin_unconnected: pcb.pin_unconnected,
             pin_highlight_cur_side: pcb.pin_highlight_cur_side,
             pin_highlight_opp_side: pcb.pin_highlight_opp_side,
@@ -757,6 +789,7 @@ impl Tokens {
         part_body_line: PcbTokens::DARK.part_body_line,
         pin_default: PcbTokens::DARK.pin_default,
         pin_obdata: PcbTokens::DARK.pin_obdata,
+        pin_ground: PcbTokens::DARK.pin_ground_color(),
         pin_unconnected: PcbTokens::DARK.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::DARK.pin_highlight_cur_side,
         pin_highlight_opp_side: PcbTokens::DARK.pin_highlight_opp_side,
@@ -803,6 +836,7 @@ impl Tokens {
         part_body_line: PcbTokens::LIGHT.part_body_line,
         pin_default: PcbTokens::LIGHT.pin_default,
         pin_obdata: PcbTokens::LIGHT.pin_obdata,
+        pin_ground: PcbTokens::LIGHT.pin_ground_color(),
         pin_unconnected: PcbTokens::LIGHT.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::LIGHT.pin_highlight_cur_side,
         pin_highlight_opp_side: PcbTokens::LIGHT.pin_highlight_opp_side,
@@ -849,6 +883,7 @@ impl Tokens {
         part_body_line: PcbTokens::OLIVE.part_body_line,
         pin_default: PcbTokens::OLIVE.pin_default,
         pin_obdata: PcbTokens::OLIVE.pin_obdata,
+        pin_ground: PcbTokens::OLIVE.pin_ground_color(),
         pin_unconnected: PcbTokens::OLIVE.pin_unconnected,
         pin_highlight_cur_side: PcbTokens::OLIVE.pin_highlight_cur_side,
         pin_highlight_opp_side: PcbTokens::OLIVE.pin_highlight_opp_side,
@@ -891,6 +926,27 @@ pub fn contrast_ratio(c1: Color32, c2: Color32) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn substrate_defaults_to_solid() {
+        assert_eq!(BoardHatchingPattern::default(), BoardHatchingPattern::None);
+        for pcb_theme in PcbTheme::ALL {
+            assert_eq!(pcb_theme.tokens().board_hatching_pattern, BoardHatchingPattern::None, "{pcb_theme:?}");
+        }
+    }
+
+    #[test]
+    fn themes_saved_without_ground_color_derive_it_from_the_pad_color() {
+        let mut json = serde_json::to_value(PcbTokens::DARK).expect("serialize");
+        json.as_object_mut().expect("object").remove("pin_ground");
+        let loaded: PcbTokens = serde_json::from_value(json).expect("old theme loads");
+        assert_eq!(loaded.pin_ground, None);
+        assert_eq!(loaded.pin_ground_color(), PcbTokens::DARK.pin_ground_color());
+        assert_ne!(loaded.pin_ground_color(), loaded.pin_default);
+
+        let custom = PcbTokens { pin_ground: Some(Color32::RED), ..PcbTokens::DARK };
+        assert_eq!(custom.pin_ground_color(), Color32::RED);
+    }
+
     use super::*;
 
     #[test]

@@ -43,9 +43,10 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   - Sheet switching, symbol graphics, net label inspection, and cross-probing.
 - **Technician Notes & Reference Measurements**:
   - Attach structured inspection notes and physical test readings to individual component pins with dedicated inputs for **Diode Drop (D)**, **Resistance (R)**, **Voltage (V)**, and technician comments / diagnostic solutions.
+  - **OpenBoardData (`.obdata`) Support**: Native import and parsing of OpenBoardData files. Automatically detects and loads matching companion `.obdata` files in the board directory, and highlights pins with recorded measurements on the PCB canvas.
   - Quick right-click context menu (**Add / Edit Measurement**) on any pin or component directly from the board canvas or side panel.
   - Component pin measurements overview: selecting any component automatically displays all recorded measurements across its pins in the side panel, cleanly omitting unmeasured entries.
-  - Automatic extraction and display of repair metadata from XZZ and TVW formats: component values (e.g. 560Ω, 100nF), diode readings, net voltages, and signal descriptions directly in the side panel and exported TSV reports.
+  - Automatic extraction and display of repair metadata from OpenBoardData, XZZ, and TVW formats: component values (e.g. 560Ω, 100nF), diode readings, net voltages, and signal descriptions directly in the side panel and exported TSV reports.
   - Visual `📝` badges and inline measurement values in virtualized pin lists for instant test point identification.
   - Dedicated side panel tabs for Parts, Nets, and Notes.
   - Export full service inspection reports and complete Bill of Materials (BOM) in TSV.
@@ -56,13 +57,14 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   - Interactive multi-point pin alignment with opacity blending.
 - **Independent Theming & Deep Customization**:
   - Application UI (Light/Dark) and rich PCB color presets: **Blue Carrot** (default), Cadcraft, Dark, Light, Warm, Sweet Cold, Cyberpunk, and **Olive** (realistic green board with silver solder pads and natural component tones).
+  - **Substrate Patterns & Hatching**: selectable PCB substrate styling (Solid fill, Horizontal lines, Diagonal 45°, Crosshatch diamonds, or Square grid) rendered using a multi-scale supersampled mipmap texture tile chain for smooth, flicker-free antialiasing at every zoom level.
   - **Color Components by Type**: optional toggle in Preferences to color component bodies by their electrical function (resistors in black, ceramic capacitors in brown, ICs/transistors in matte black) across Olive, Cyberpunk, Dark, or custom themes.
-  - In-depth theme editor: modify all color tokens, toggle dashed flight lines, and clone existing presets into custom named themes.
+  - In-depth theme editor: modify all color tokens, dedicated ground pin (GND) highlighting, toggle dashed flight lines, and clone existing presets into custom named themes.
   - Revert overrides at any time with one click.
 - **Display & UI Scaling**:
   - Configurable interface scaling in Preferences (Auto-detecting desktop text scale, or manual presets from 80% to 175%) for sharp rendering on HiDPI and 4K displays.
 - **Extensive Format Support**:
-  - GenCAD (`.cad`), TVW, KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2), `.pcb` / `.xzz` multi-layer boardview, ODB++, IPC-2581, and IPC-D-356.
+  - GenCAD (`.cad`), TVW, KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2), `.pcb` / `.xzz` multi-layer boardview, OpenBoardData (`.obdata`), ODB++, IPC-2581, and IPC-D-356.
   - Transparent `.zip` archive extraction and file sniffing.
 - **Multilingual Support**: English, Spanish, Catalan, French, German, and Italian.
 
@@ -72,7 +74,7 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
 
 | Menu | Entries |
 | :--- | :--- |
-| **File** | Open Board, Open Recent, Preferences, Close Board |
+| **File** | Open Board, Open PDF Schematic, Import OpenBoardData, Open Recent, Preferences, Close Board |
 | **Actions** | Board actions and Adjust Overlay Photo |
 | **View** | Zoom, show/hide Pins and Vias |
 | **Help** | About (version and build information) |

@@ -11,6 +11,8 @@ pub struct Board {
     pub pins: Vec<Pin>,
     pub vias: Vec<Via>,
     pub outline_polygon: Vec<Point>,
+    /// Further closed outlines drawn like `outline_polygon` (the second face of a both-faces scene).
+    pub extra_outlines: Vec<Vec<Point>>,
     pub bounding_box: Option<Rect>,
 
     // Lookup caches
@@ -285,7 +287,7 @@ impl Board {
 
     pub fn recompute_bounds(&mut self) {
         let mut pts = Vec::with_capacity(self.pins.len() + self.vias.len() + self.outline_polygon.len());
-        for p in &self.outline_polygon {
+        for p in self.outline_polygon.iter().chain(self.extra_outlines.iter().flatten()) {
             pts.push(p);
         }
         for pin in &self.pins {

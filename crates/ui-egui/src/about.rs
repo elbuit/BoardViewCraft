@@ -7,6 +7,9 @@ use egui::{Align2, Context, RichText, Vec2, Window};
 /// Application display name.
 pub const APP_NAME: &str = "BoardViewCraft";
 
+/// Public source repository, shown as a link in the About window.
+pub const REPOSITORY_URL: &str = "https://github.com/elbuit/BoardViewCraft";
+
 /// Build profile the binary was compiled with.
 fn build_profile() -> &'static str {
     if cfg!(debug_assertions) { "debug" } else { "release" }
@@ -60,6 +63,9 @@ pub fn show_about_window(ctx: &Context, open: &mut bool, tokens: &Tokens, lang: 
                         ui.label(RichText::new(value).color(tokens.text()));
                         ui.end_row();
                     }
+                    ui.label(RichText::new(i18n::tr(lang, "about.source_code")).strong().color(tokens.text()));
+                    ui.hyperlink_to(REPOSITORY_URL, REPOSITORY_URL);
+                    ui.end_row();
                 });
 
             ui.add_space(12.0);
@@ -103,5 +109,13 @@ mod tests {
     fn test_about_rows_are_translated() {
         let rows = about_rows(Language::Spanish);
         assert_eq!(value_of(&rows, "Versión"), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn repository_url_points_to_github() {
+        assert_eq!(REPOSITORY_URL, "https://github.com/elbuit/BoardViewCraft");
+        for lang in Language::ALL {
+            assert!(!i18n::tr(lang, "about.source_code").is_empty());
+        }
     }
 }

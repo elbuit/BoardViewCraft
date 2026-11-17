@@ -140,6 +140,41 @@ impl BothLayout {
     }
 }
 
+/// Space between the two faces of the both-faces scene, as a fraction of the board's longer side.
+pub const SCENE_FACE_GAP: f64 = 0.05;
+
+fn rotated_size(bbox: bvc_core::Rect, rotation: Rotation) -> (f64, f64) {
+    match rotation {
+        Rotation::Deg0 | Rotation::Deg180 => (bbox.width(), bbox.height()),
+        Rotation::Deg90 | Rotation::Deg270 => (bbox.height(), bbox.width()),
+    }
+}
+
+/// Whether the both-faces scene fits `area` larger with the faces side by side than stacked.
+pub fn scene_side_by_side(bbox: bvc_core::Rect, rotation: Rotation, area: egui::Vec2) -> bool {
+    let (w, h) = rotated_size(bbox, rotation);
+    if w <= 0.0 || h <= 0.0 {
+        return false;
+    }
+    let gap = SCENE_FACE_GAP * w.max(h);
+    let (aw, ah) = (area.x as f64, area.y as f64);
+    let beside = (aw / (2.0 * w + gap)).min(ah / h);
+    let stacked = (aw / w).min(ah / (2.0 * h + gap));
+    beside > stacked
+}
+
+/// World offset of the mirrored bottom face in the both-faces scene so that it lands beside
+/// (`side_by_side`) or below the top face on screen, one gap apart.
+pub fn scene_face_offset(bbox: bvc_core::Rect, rotation: Rotation, side_by_side: bool) -> bvc_core::Point {
+    let gap = SCENE_FACE_GAP * bbox.width().max(bbox.height());
+    let screen_x_is_world_x = matches!(rotation, Rotation::Deg0 | Rotation::Deg180);
+    if side_by_side == screen_x_is_world_x {
+        bvc_core::Point::new(bbox.width() + gap, 0.0)
+    } else {
+        bvc_core::Point::new(0.0, -(bbox.height() + gap))
+    }
+}
+
 /// Space between the two canvases of the Both tab, where a separator line is drawn.
 pub const BOTH_GAP: f32 = 6.0;
 
@@ -246,6 +281,28 @@ pub fn canvas_rects(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn scene_arrangement_follows_the_available_space() {
+        let wide = bvc_core::Rect { min_x: 0.0, min_y: 0.0, max_x: 200.0, max_y: 100.0 };
+        // A wide board in a tall pane stacks; in a very wide pane it goes side by side.
+        assert!(!scene_side_by_side(wide, Rotation::Deg0, egui::vec2(800.0, 800.0)));
+        assert!(scene_side_by_side(wide, Rotation::Deg0, egui::vec2(2000.0, 300.0)));
+        // Rotating 90 degrees makes it tall, so a square pane puts the faces side by side.
+        assert!(scene_side_by_side(wide, Rotation::Deg90, egui::vec2(800.0, 800.0)));
+    }
+
+    #[test]
+    fn scene_face_offset_moves_along_the_screen_axis() {
+        let bbox = bvc_core::Rect { min_x: 0.0, min_y: 0.0, max_x: 200.0, max_y: 100.0 };
+        // gap = 5 % of 200 = 10.
+        assert_eq!(scene_face_offset(bbox, Rotation::Deg0, true), bvc_core::Point::new(210.0, 0.0));
+        assert_eq!(scene_face_offset(bbox, Rotation::Deg0, false), bvc_core::Point::new(0.0, -110.0));
+        // At 90 degrees screen X runs along world Y.
+        assert_eq!(scene_face_offset(bbox, Rotation::Deg90, true), bvc_core::Point::new(0.0, -110.0));
+        assert_eq!(scene_face_offset(bbox, Rotation::Deg90, false), bvc_core::Point::new(210.0, 0.0));
+    }
+
     use super::*;
     use egui::{pos2, vec2};
 

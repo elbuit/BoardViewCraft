@@ -1026,6 +1026,14 @@ pub fn show_preferences_window(
                             }
                             ui.end_row();
 
+                            ui.label(i18n::tr(lang, "prefs.color_pin_ground"));
+                            let mut c = active_tokens.pin_ground_color().to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.pin_ground = Some(Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]));
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+
                             ui.label(i18n::tr(lang, "prefs.color_pin_unconnected"));
                             let mut c = active_tokens.pin_unconnected.to_array();
                             if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {

@@ -90,6 +90,8 @@
 	side_panel.value	Valeur
 	side_panel.reading	Mesure
 	side_panel.voltage	Tension
+	side_panel.diode	Chute de diode
+	side_panel.resistance	Résistance
 	side_panel.signal	Signal
 	overlay.title	Photo superposée
 	overlay.done	Terminé
@@ -155,6 +157,7 @@
 	prefs.color_part_ic	CI / Transistor :
 	prefs.color_part_text	Étiquettes des composants :
 	prefs.color_pin_default	Broche par défaut :
+	prefs.color_pin_ground	Broche de masse (GND)
 	prefs.color_pin_unconnected	Broche non connectée :
 	prefs.color_pin_cur_side	Surbrillance broche (côté actuel) :
 	prefs.color_pin_opp_side	Surbrillance broche (côté opposé) :
@@ -260,6 +263,7 @@
 	about.build_profile	Profil de compilation
 	about.ui_toolkit	Toolkit d'interface
 	about.pdf_engine	Moteur PDF
+	about.source_code	Code source
 	about.close	Fermer
 	toolbar.nav_back	Revenir à la sélection précédente
 	toolbar.nav_forward	Aller à la sélection suivante
@@ -298,5 +302,6 @@
 	prefs.hatching_horizontal	Lignes horizontales
 	prefs.hatching_diagonal	Lignes obliques (45°)
 	prefs.hatching_crosshatch	Losanges / Quadrillage
+	prefs.hatching_grid	Grille carrée
 	prefs.highlight_obdata_pins	Mettre en surbrillance les broches OpenBoardData
 	menu.import_obdata	Importer OpenBoardData...

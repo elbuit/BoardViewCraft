@@ -90,6 +90,8 @@
 	side_panel.value	Valor
 	side_panel.reading	Lectura
 	side_panel.voltage	Tensió
+	side_panel.diode	Caiguda de díode
+	side_panel.resistance	Resistència
 	side_panel.signal	Senyal
 	overlay.title	Foto de Fons
 	overlay.done	Fet
@@ -155,6 +157,7 @@
 	prefs.color_part_ic	CI / Transistor:
 	prefs.color_part_text	Etiquetes de components:
 	prefs.color_pin_default	Pin estàndard:
+	prefs.color_pin_ground	Pin de massa (GND)
 	prefs.color_pin_unconnected	Pin no connectat:
 	prefs.color_pin_cur_side	Ressaltat pin (Cara actual):
 	prefs.color_pin_opp_side	Ressaltat pin (Cara oposada):
@@ -260,6 +263,7 @@
 	about.build_profile	Perfil de compilació
 	about.ui_toolkit	Toolkit d'interfície
 	about.pdf_engine	Motor PDF
+	about.source_code	Codi font
 	about.close	Tanca
 	toolbar.nav_back	Tornar a la selecció anterior
 	toolbar.nav_forward	Avançar a la selecció següent
@@ -298,5 +302,6 @@
 	prefs.hatching_horizontal	Línies horitzontals
 	prefs.hatching_diagonal	Línies obliqües (45°)
 	prefs.hatching_crosshatch	Rombes / Malla creuada
+	prefs.hatching_grid	Quadrícula
 	prefs.highlight_obdata_pins	Ressaltar pins amb OpenBoardData
 	menu.import_obdata	Importar OpenBoardData...

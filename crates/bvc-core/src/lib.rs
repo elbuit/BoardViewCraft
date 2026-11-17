@@ -4,6 +4,7 @@
 
 pub mod board;
 pub mod model;
+pub mod scene;
 pub mod notes;
 pub mod obdata;
 pub mod parser;
@@ -11,9 +12,10 @@ pub mod schematic;
 pub mod spatial;
 
 pub use board::{compute_part_bounds, compute_pin_pitch, synthesize_part_outline, Board};
-pub use model::{BoardMetadata, ComponentKind, Net, NetMembership, Part, PartType, Pin, Point, Rect, Side, Via, MILS_PER_MM};
+pub use model::{is_ground_net, BoardMetadata, ComponentKind, Net, NetMembership, Part, PartType, Pin, Point, Rect, Side, Via, MILS_PER_MM};
 pub use notes::{BoardNote, BoardNotesStore, NoteTarget, TechnicalMeasurements};
 pub use obdata::OpenBoardData;
+pub use scene::BothFacesScene;
 pub use parser::{cad::CadParser, gencad::GenCadParser, registry::ParserRegistry, FormatParser, ParseError};
 pub use spatial::{GridCell, SpatialGrid};
 

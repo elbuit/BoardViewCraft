@@ -5,6 +5,7 @@ use crate::overlay::OverlayManager;
 use crate::overlay_align::{AlignmentSession, AlignmentState};
 use crate::preferences::{Preferences, ViaDisplayMode};
 use crate::render::Renderer;
+use crate::substrate::{board_substrate_mesh, world_period};
 use crate::theme::{BoardHatchingPattern, Tokens};
 use bvc_core::{Board, Point, Rect, Side};
 use egui::epaint::Mesh;
@@ -253,6 +254,8 @@ pub struct ViewCacheKey {
     pub board_hatching_pattern: BoardHatchingPattern,
     pub highlight_obdata_pins: bool,
     pub color_components: bool,
+    /// Substrate tile texture the meshes were mapped with (changes with pattern and DPI scale).
+    pub substrate_texture: Option<egui::TextureId>,
 }
 
 impl ViewCacheKey {
@@ -292,6 +295,7 @@ impl ViewCacheKey {
             board_hatching_pattern: prefs.active_pcb_tokens().board_hatching_pattern,
             highlight_obdata_pins: prefs.highlight_obdata_pins,
             color_components: prefs.active_pcb_color_components(),
+            substrate_texture: None,
         }
     }
 }
@@ -526,14 +530,24 @@ impl CanvasState {
 pub struct BoardCanvases {
     pub top: CanvasState,
     pub bottom: CanvasState,
+    /// The Both view: one canvas holding both faces as a single scene (`Side::Both` viewport).
+    pub scene: CanvasState,
     /// Side of the canvas last hovered or clicked: it receives keyboard pan/zoom, the overlay
     /// wheel and the pin context menu.
     pub active: Side,
+    /// The both-faces scene canvas was the last one clicked (it then takes keyboard input).
+    pub scene_active: bool,
 }
 
 impl Default for BoardCanvases {
     fn default() -> Self {
-        Self { top: CanvasState::for_side(Side::Top), bottom: CanvasState::for_side(Side::Bottom), active: Side::Top }
+        Self {
+            top: CanvasState::for_side(Side::Top),
+            bottom: CanvasState::for_side(Side::Bottom),
+            scene: CanvasState::for_side(Side::Both),
+            active: Side::Top,
+            scene_active: false,
+        }
     }
 }
 
@@ -561,8 +575,8 @@ impl BoardCanvases {
         self.side_mut(self.active)
     }
 
-    fn each_mut(&mut self) -> [&mut CanvasState; 2] {
-        [&mut self.top, &mut self.bottom]
+    fn each_mut(&mut self) -> [&mut CanvasState; 3] {
+        [&mut self.top, &mut self.bottom, &mut self.scene]
     }
 
     pub fn rotation(&self) -> Rotation {
@@ -736,9 +750,11 @@ pub fn show_canvas(
     // and calibration session is NOT actively capturing clicks.
     let is_alt_down = ui.input(|i| i.modifiers.alt);
     let active_slot = overlay_manager.slot_for_side(vp.side);
+    // Photo overlays and pin alignment belong to a single face; the both-faces scene has neither.
+    let is_scene = vp.side == Side::Both;
     // Alignment clicks belong to the canvas of the side being aligned only.
-    let is_calibrating = alignment_session.is_active() && alignment_session.side.is_none_or(|s| s == vp.side);
-    let is_overlay_interacting = !is_calibrating && (is_alt_down || overlay_mode_active) && active_slot.is_loaded() && !active_slot.locked;
+    let is_calibrating = !is_scene && alignment_session.is_active() && alignment_session.side.is_none_or(|s| s == vp.side);
+    let is_overlay_interacting = !is_scene && !is_calibrating && (is_alt_down || overlay_mode_active) && active_slot.is_loaded() && !active_slot.locked;
 
     if is_overlay_interacting {
         if response.dragged_by(egui::PointerButton::Primary) || response.dragged_by(egui::PointerButton::Secondary) {
@@ -769,7 +785,7 @@ pub fn show_canvas(
     }
 
     // Render Overlay Photo Quad (behind board elements)
-    if active_slot.visible {
+    if active_slot.visible && !is_scene {
         if let Some(ref texture) = active_slot.texture {
             let half_w = (active_slot.size.x * 0.5) as f64;
             let half_h = (active_slot.size.y * 0.5) as f64;
@@ -1147,7 +1163,12 @@ pub fn show_canvas(
 
     // Render Board elements
     if let Some(b) = board {
-        let current_key = ViewCacheKey::new(
+        renderer.substrate_tiles = if prefs.show_board_hatching {
+            renderer.substrate_textures.tile_set(ui.ctx(), tokens.board_hatching_pattern)
+        } else {
+            None
+        };
+        let mut current_key = ViewCacheKey::new(
             b,
             vp,
             *selected_pin_idx,
@@ -1156,6 +1177,7 @@ pub fn show_canvas(
             selected_net.as_deref(),
             prefs,
         );
+        current_key.substrate_texture = renderer.substrate_tiles.as_ref().and_then(|t| t.id());
 
         // Rebuilt meshes have no hover: the hovered pin or via is drawn by the overlay below.
         let view = vp.clone();
@@ -1191,7 +1213,7 @@ pub fn show_canvas(
             ui.ctx().request_repaint();
         }
         // The board over a shown photo is faded by the overlay opacity (the photo stays opaque).
-        let photo_shown = active_slot.visible && active_slot.texture.is_some();
+        let photo_shown = !is_scene && active_slot.visible && active_slot.texture.is_some();
         let (_, board_opacity) = overlay_layer_alphas(photo_shown, active_slot.opacity);
         let mut board_painter = painter.clone();
         board_painter.set_opacity(board_opacity);
@@ -1362,15 +1384,8 @@ pub fn show_canvas(
                     let has_pin_note = notes_store.is_some_and(|store| {
                         store.notes.iter().any(|n| n.target.component_name == part_name && n.target.pin_name.as_deref() == Some(&pin.name))
                     });
-                    let obdata_reading = (!pin.net_name.is_empty())
-                        .then(|| b.metadata.net_reading(&pin.net_name))
-                        .flatten()
-                        .or_else(|| b.metadata.pin_reading(part_name, &pin.name));
-                    let obdata_voltage = (!pin.net_name.is_empty())
-                        .then(|| b.metadata.net_voltage(&pin.net_name))
-                        .flatten();
-
-                    let has_obdata = obdata_reading.is_some() || obdata_voltage.is_some();
+                    let obdata = crate::side_panel::pin_metadata(b, part_name, pin);
+                    let has_obdata = !obdata.is_empty();
 
                     if prefs.highlight_obdata_pins && is_on_cur_side && has_obdata {
                         painter.circle_stroke(
@@ -1380,16 +1395,9 @@ pub fn show_canvas(
                         );
                     }
 
-                    let pin_text = if prefs.highlight_obdata_pins && has_obdata {
-                        if let Some(r) = obdata_reading {
-                            format!("{} [{r}]", pin.name)
-                        } else if let Some(v) = obdata_voltage {
-                            format!("{} [{v}]", pin.name)
-                        } else if has_pin_note {
-                            format!("{} 📝", pin.name)
-                        } else {
-                            pin.name.clone()
-                        }
+                    let obdata_text = if prefs.highlight_obdata_pins { obdata.compact() } else { None };
+                    let pin_text = if let Some(values) = obdata_text {
+                        format!("{} [{values}]", pin.name)
                     } else if has_pin_note {
                         format!("{} 📝", pin.name)
                     } else {
@@ -1432,7 +1440,7 @@ pub fn show_canvas(
                 let lang = prefs.ui_language();
                 let has_net = !pin.net_name.is_empty();
                 let part_value = b.metadata.part_value(part_name).filter(|v| !v.is_empty());
-                let (reading, voltage) = crate::side_panel::pin_metadata(b, part_name, pin);
+                let obdata = crate::side_panel::pin_metadata(b, part_name, pin);
                 let signal = if has_net { b.metadata.net_signal(&pin.net_name) } else { None };
 
                 let mut close_menu = false;
@@ -1467,8 +1475,9 @@ pub fn show_canvas(
                                 let rows = [
                                     (menu_label(lang, "context_menu.net"), Some(net_text), true),
                                     (menu_label(lang, "context_menu.side"), Some(side_text), false),
-                                    (menu_label(lang, "side_panel.reading"), non_empty(reading), false),
-                                    (menu_label(lang, "side_panel.voltage"), non_empty(voltage), false),
+                                    (menu_label(lang, "side_panel.diode"), non_empty(obdata.diode), false),
+                                    (menu_label(lang, "side_panel.resistance"), non_empty(obdata.resistance), false),
+                                    (menu_label(lang, "side_panel.voltage"), non_empty(obdata.voltage), false),
                                 ];
                                 menu_info_grid(ui, egui::IdSalt::new(("pin_context_menu_grid", vp.side)), &rows, tokens);
                                 if let Some(signal) = non_empty(signal) {
@@ -2245,237 +2254,6 @@ pub fn generate_board_meshes(
     )
 }
 
-/// Clips a 2D line segment `p1 -> p2` against the bounding rectangle `rect` using Liang-Barsky.
-fn clip_segment_to_rect(p1: Pos2, p2: Pos2, rect: EguiRect) -> Option<(Pos2, Pos2)> {
-    let mut t0 = 0.0f32;
-    let mut t1 = 1.0f32;
-    let dx = p2.x - p1.x;
-    let dy = p2.y - p1.y;
-
-    let p = [-dx, dx, -dy, dy];
-    let q = [p1.x - rect.min.x, rect.max.x - p1.x, p1.y - rect.min.y, rect.max.y - p1.y];
-
-    for i in 0..4 {
-        if p[i].abs() < 1e-6 {
-            if q[i] < 0.0 {
-                return None;
-            }
-        } else {
-            let t = q[i] / p[i];
-            if p[i] < 0.0 {
-                if t > t1 {
-                    return None;
-                }
-                if t > t0 {
-                    t0 = t;
-                }
-            } else {
-                if t < t0 {
-                    return None;
-                }
-                if t < t1 {
-                    t1 = t;
-                }
-            }
-        }
-    }
-
-    if t0 <= t1 {
-        Some((
-            Pos2::new(p1.x + t0 * dx, p1.y + t0 * dy),
-            Pos2::new(p1.x + t1 * dx, p1.y + t1 * dy),
-        ))
-    } else {
-        None
-    }
-}
-
-/// Appends substrate hatching lines (horizontal, diagonal, or crosshatch/diamonds)
-/// across the board polygon in screen space.
-pub fn append_board_hatching_to_mesh(
-    mesh: &mut Mesh,
-    screen_pts: &[Pos2],
-    rect: EguiRect,
-    color: Color32,
-    pattern: BoardHatchingPattern,
-) {
-    if screen_pts.len() < 3 || color.a() == 0 || pattern == BoardHatchingPattern::None {
-        return;
-    }
-
-    let mut min_x = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut min_y = f32::INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
-    for pt in screen_pts {
-        min_x = min_x.min(pt.x);
-        max_x = max_x.max(pt.x);
-        min_y = min_y.min(pt.y);
-        max_y = max_y.max(pt.y);
-    }
-
-    let board_w = (max_x - min_x).max(0.0);
-    let board_h = (max_y - min_y).max(0.0);
-    let min_dim = board_w.min(board_h);
-
-    // Keep hatching visible across zoom levels down to tiny board representations.
-    // When board is minuscule (< 15px), hatching is omitted so it doesn't clutter tiny icons/dots.
-    // Between 15px and 45px, it gently and linearly blends into the diffuse substrate tone.
-    if min_dim < 15.0 {
-        return;
-    }
-    let final_color = if min_dim < 45.0 {
-        let t = (min_dim - 15.0) / 30.0;
-        Color32::from_rgba_premultiplied(
-            ((color.r() as f32) * t).round() as u8,
-            ((color.g() as f32) * t).round() as u8,
-            ((color.b() as f32) * t).round() as u8,
-            ((color.a() as f32) * t).round() as u8,
-        )
-    } else {
-        color
-    };
-    if final_color.a() == 0 {
-        return;
-    }
-
-    // Fixed uniform step so lines have identical separation across zoom levels and across the board.
-    let step = 8.0f32;
-    let n = screen_pts.len();
-
-    // 1. Horizontal lines (y = const)
-    if pattern == BoardHatchingPattern::Horizontal {
-        let half_w = 0.50f32; // 1.0px hairline stroke covering integer pixel centers reliably
-        let anchor_y = screen_pts[0].y;
-        let start_y = min_y.max(rect.min.y);
-        let end_y = max_y.min(rect.max.y);
-        if start_y < end_y {
-            let offset = ((start_y - anchor_y) % step + step) % step;
-            let first_y = if offset < 1e-4 { start_y } else { start_y + (step - offset) };
-            let mut intersections = Vec::with_capacity(8);
-            let mut y = first_y;
-            while y <= end_y {
-                intersections.clear();
-                for i in 0..n {
-                    let p1 = screen_pts[i];
-                    let p2 = screen_pts[(i + 1) % n];
-                    if (p2.y - p1.y).abs() < 1e-5 {
-                        continue;
-                    }
-                    if (p1.y <= y && y < p2.y) || (p2.y <= y && y < p1.y) {
-                        let dy = p2.y - p1.y;
-                        let t = (y - p1.y) / dy;
-                        let x = p1.x + t * (p2.x - p1.x);
-                        intersections.push(x);
-                    }
-                }
-                intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                let snap_y = y.floor() + 0.5;
-                for chunk in intersections.chunks_exact(2) {
-                    let x0 = chunk[0].max(rect.min.x);
-                    let x1 = chunk[1].min(rect.max.x);
-                    if x0 < x1 {
-                        Renderer::append_line_segment_to_mesh(
-                            mesh,
-                            Pos2::new(x0, snap_y),
-                            Pos2::new(x1, snap_y),
-                            half_w,
-                            final_color,
-                        );
-                    }
-                }
-                y += step;
-            }
-        }
-    }
-
-    // 2. Diagonal lines (+45°, x - y = const) for Diagonal and CrossHatch
-    if pattern == BoardHatchingPattern::Diagonal || pattern == BoardHatchingPattern::CrossHatch {
-        let half_w = 0.55f32;
-        let dc = step * std::f32::consts::SQRT_2;
-        let anchor_u = screen_pts[0].x - screen_pts[0].y;
-        let mut min_u = f32::INFINITY;
-        let mut max_u = f32::NEG_INFINITY;
-        for pt in screen_pts {
-            let u = pt.x - pt.y;
-            min_u = min_u.min(u);
-            max_u = max_u.max(u);
-        }
-        let offset = ((min_u - anchor_u) % dc + dc) % dc;
-        let first_c = if offset < 1e-4 { min_u } else { min_u + (dc - offset) };
-        let mut intersections = Vec::with_capacity(8);
-        let mut c = first_c;
-        while c <= max_u {
-            intersections.clear();
-            for i in 0..n {
-                let p1 = screen_pts[i];
-                let p2 = screen_pts[(i + 1) % n];
-                let u1 = p1.x - p1.y;
-                let u2 = p2.x - p2.y;
-                if (u2 - u1).abs() < 1e-5 {
-                    continue;
-                }
-                if (u1 <= c && c < u2) || (u2 <= c && c < u1) {
-                    let du = u2 - u1;
-                    let t = (c - u1) / du;
-                    let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
-                    intersections.push(p);
-                }
-            }
-            intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
-            for chunk in intersections.chunks_exact(2) {
-                if let Some((p_a, p_b)) = clip_segment_to_rect(chunk[0], chunk[1], rect) {
-                    Renderer::append_line_segment_to_mesh(mesh, p_a, p_b, half_w, final_color);
-                }
-            }
-            c += dc;
-        }
-    }
-
-    // 3. Opposite Diagonal lines (-45°, x + y = const) for CrossHatch (forming diamonds / rombos)
-    if pattern == BoardHatchingPattern::CrossHatch {
-        let half_w = 0.55f32;
-        let dc = step * std::f32::consts::SQRT_2;
-        let anchor_v = screen_pts[0].x + screen_pts[0].y;
-        let mut min_v = f32::INFINITY;
-        let mut max_v = f32::NEG_INFINITY;
-        for pt in screen_pts {
-            let v = pt.x + pt.y;
-            min_v = min_v.min(v);
-            max_v = max_v.max(v);
-        }
-        let offset = ((min_v - anchor_v) % dc + dc) % dc;
-        let first_c = if offset < 1e-4 { min_v } else { min_v + (dc - offset) };
-        let mut intersections = Vec::with_capacity(8);
-        let mut c = first_c;
-        while c <= max_v {
-            intersections.clear();
-            for i in 0..n {
-                let p1 = screen_pts[i];
-                let p2 = screen_pts[(i + 1) % n];
-                let v1 = p1.x + p1.y;
-                let v2 = p2.x + p2.y;
-                if (v2 - v1).abs() < 1e-5 {
-                    continue;
-                }
-                if (v1 <= c && c < v2) || (v2 <= c && c < v1) {
-                    let dv = v2 - v1;
-                    let t = (c - v1) / dv;
-                    let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
-                    intersections.push(p);
-                }
-            }
-            intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
-            for chunk in intersections.chunks_exact(2) {
-                if let Some((p_a, p_b)) = clip_segment_to_rect(chunk[0], chunk[1], rect) {
-                    Renderer::append_line_segment_to_mesh(mesh, p_a, p_b, half_w, final_color);
-                }
-            }
-            c += dc;
-        }
-    }
-}
-
 /// Screen-space board meshes for `vp`, holding only parts, pads and vias inside the world
 /// region `cull_world` (offscreen geometry is never tessellated).
 #[allow(clippy::too_many_arguments)]
@@ -2507,24 +2285,44 @@ pub fn generate_board_meshes_in(
     let mut new_meshes = Vec::new();
     let visible_world = cull_world;
 
-    // 1. Board outline polygon and substrate hatching
-    if b.outline_polygon.len() >= 3 {
-        let screen_pts: Vec<Pos2> = b
-            .outline_polygon
-            .iter()
-            .map(|p| vp.world_to_screen(*p, rect))
-            .collect();
+    // 1. Board outlines (the board, plus the mirrored face of a both-faces scene) with substrate
+    for outline in std::iter::once(&b.outline_polygon).chain(b.extra_outlines.iter()) {
+        if outline.len() < 3 {
+            continue;
+        }
+        let screen_pts: Vec<Pos2> = outline.iter().map(|p| vp.world_to_screen(*p, rect)).collect();
 
         let fill_mesh = renderer.fill_polygon(&screen_pts, tokens.board_fill);
+        let substrate = renderer
+            .substrate_tiles
+            .as_ref()
+            .filter(|tiles| show_board_hatching && tiles.pattern == tokens.board_hatching_pattern)
+            .and_then(|tiles| {
+                let (mut lo, mut hi) = (outline[0], outline[0]);
+                for p in outline {
+                    lo = Point::new(lo.x.min(p.x), lo.y.min(p.y));
+                    hi = Point::new(hi.x.max(p.x), hi.y.max(p.y));
+                }
+                let board_min_world = (hi.x - lo.x).min(hi.y - lo.y) as f32;
+                let anchor = Pos2::new(outline[0].x as f32, outline[0].y as f32);
+                board_substrate_mesh(
+                    &fill_mesh,
+                    tiles,
+                    tokens.board_hatching,
+                    anchor,
+                    world_period(tiles.pattern, board_min_world),
+                    vp.scale,
+                    |p| {
+                        let w = vp.screen_to_world(p, rect);
+                        Pos2::new(w.x as f32, w.y as f32)
+                    },
+                )
+            });
         if !fill_mesh.is_empty() {
             new_meshes.push(fill_mesh);
         }
-
-        let pattern = tokens.board_hatching_pattern;
-        if show_board_hatching && pattern != BoardHatchingPattern::None && tokens.board_hatching.a() > 0 {
-            let mut hatch_mesh = Mesh::default();
-            append_board_hatching_to_mesh(&mut hatch_mesh, &screen_pts, rect, tokens.board_hatching, pattern);
-            new_meshes.push(hatch_mesh);
+        if let Some(mesh) = substrate {
+            new_meshes.push(mesh);
         }
 
         let stroke_mesh = renderer.stroke_polygon(&screen_pts, 2.0, tokens.board_outline, true);
@@ -2784,10 +2582,9 @@ pub fn generate_board_meshes_in(
                         }
                     }
                 } else {
-                    let has_obdata = highlight_obdata_pins && is_on_cur_side && (
-                        (!pin.net_name.is_empty() && (b.metadata.net_reading(&pin.net_name).is_some() || b.metadata.net_voltage(&pin.net_name).is_some()))
-                            || (b.parts.get(pin.part_id).map_or(false, |p| b.metadata.pin_reading(&p.name, &pin.name).is_some()))
-                    );
+                    let has_obdata = highlight_obdata_pins
+                        && is_on_cur_side
+                        && b.parts.get(pin.part_id).is_some_and(|p| !crate::side_panel::pin_metadata(b, &p.name, pin).is_empty());
 
                     let color = if !is_on_cur_side {
                         Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x40)
@@ -2795,6 +2592,8 @@ pub fn generate_board_meshes_in(
                         tokens.pin_obdata
                     } else if pin.net_name.is_empty() || pin.net_name == "UNCONNECTED" {
                         tokens.pin_unconnected
+                    } else if bvc_core::is_ground_net(&pin.net_name) {
+                        tokens.pin_ground
                     } else {
                         tokens.pin_default
                     };
@@ -3582,87 +3381,6 @@ mod tests {
     }
 
     #[test]
-    fn test_board_hatching_mesh_generation() {
-        let screen_pts = vec![
-            Pos2::new(100.0, 100.0),
-            Pos2::new(300.0, 100.0),
-            Pos2::new(300.0, 300.0),
-            Pos2::new(100.0, 300.0),
-        ];
-        let rect = EguiRect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(500.0, 500.0));
-        let color = Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x50);
-
-        // Horizontal pattern
-        let mut mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut mesh, &screen_pts, rect, color, BoardHatchingPattern::Horizontal);
-        assert!(!mesh.is_empty(), "Horizontal hatching lines should be added to mesh");
-        assert!(mesh.vertices.len() >= 4, "Should have at least one line segment (4 vertices)");
-        assert_eq!(mesh.vertices[0].color, color);
-
-        // Diagonal pattern
-        let mut diag_mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut diag_mesh, &screen_pts, rect, color, BoardHatchingPattern::Diagonal);
-        assert!(!diag_mesh.is_empty(), "Diagonal hatching lines should be added to mesh");
-
-        // CrossHatch (diamonds) pattern
-        let mut diamond_mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut diamond_mesh, &screen_pts, rect, color, BoardHatchingPattern::CrossHatch);
-        assert!(!diamond_mesh.is_empty(), "CrossHatch hatching lines should be added to mesh");
-        assert!(diamond_mesh.vertices.len() > diag_mesh.vertices.len(), "CrossHatch has two sets of diagonals");
-
-        // Verify line stroke is hairline 1.0px (half_w = 0.50) and line spacing is exactly 8.0 pixels across horizontal lines
-        let mut line_centers: Vec<f32> = mesh.vertices.chunks_exact(4).map(|chunk| {
-            let y_mean = chunk.iter().map(|v| v.pos.y).sum::<f32>() / 4.0;
-            let stroke = (chunk[0].pos.y - chunk[1].pos.y).abs();
-            assert!((stroke - 1.0).abs() < 1e-2, "Expected 1.0px hairline stroke, got {stroke}");
-            (y_mean * 10.0).round() / 10.0
-        }).collect();
-        line_centers.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        line_centers.dedup();
-        for window in line_centers.windows(2) {
-            let diff = window[1] - window[0];
-            assert!((diff - 8.0).abs() < 1e-2, "Expected exact 8.0px spacing, got {diff}");
-        }
-
-        // Tiny / far-away board (min_dim < 15.0) should produce empty mesh (diffuse substrate)
-        let small_pts = vec![
-            Pos2::new(10.0, 10.0),
-            Pos2::new(20.0, 10.0),
-            Pos2::new(20.0, 20.0),
-            Pos2::new(10.0, 20.0),
-        ];
-        let mut small_mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut small_mesh, &small_pts, rect, color, BoardHatchingPattern::Horizontal);
-        assert!(small_mesh.is_empty(), "Tiny far-away board (<15px) should fade out to diffuse substrate");
-
-        // Chamfered polygon (45-degree chamfered PCB corners) must not drop lines or cause parity mismatch
-        let chamfered_pts = vec![
-            Pos2::new(120.0, 100.0),
-            Pos2::new(280.0, 100.0),
-            Pos2::new(300.0, 120.0), // 45° chamfer
-            Pos2::new(300.0, 280.0),
-            Pos2::new(280.0, 300.0), // 45° chamfer
-            Pos2::new(120.0, 300.0),
-            Pos2::new(100.0, 280.0), // 45° chamfer
-            Pos2::new(100.0, 120.0), // 45° chamfer
-        ];
-        let mut chamfer_mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut chamfer_mesh, &chamfered_pts, rect, color, BoardHatchingPattern::CrossHatch);
-        assert!(!chamfer_mesh.is_empty(), "Chamfered polygon should generate hatching without dropouts");
-        assert_eq!(chamfer_mesh.vertices.len() % 4, 0, "All line segments must form complete 4-vertex quads");
-
-        // None pattern should produce empty mesh
-        let mut none_mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut none_mesh, &screen_pts, rect, color, BoardHatchingPattern::None);
-        assert!(none_mesh.is_empty(), "None pattern should not generate hatching");
-
-        // Alpha 0 should produce empty mesh
-        let mut empty_mesh = Mesh::default();
-        append_board_hatching_to_mesh(&mut empty_mesh, &screen_pts, rect, Color32::TRANSPARENT, BoardHatchingPattern::Horizontal);
-        assert!(empty_mesh.is_empty(), "Transparent color should not generate hatching");
-    }
-
-    #[test]
     fn view_cache_key_is_stable_across_idle_and_hover_frames() {
         let board = two_pin_board();
         let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
@@ -4263,6 +3981,27 @@ mod tests {
     }
 
     #[test]
+    fn every_board_outline_gets_its_own_fill() {
+        let mut board = Board::new();
+        let square = |x: f64| vec![Point::new(x, 0.0), Point::new(x + 100.0, 0.0), Point::new(x + 100.0, 100.0), Point::new(x, 100.0)];
+        board.outline_polygon = square(0.0);
+        board.rebuild_indices();
+        let vp = Viewport { center: Point::new(150.0, 50.0), scale: 2.0, side: Side::Both, ..Viewport::default() };
+        let rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let tokens = Tokens::DARK;
+        let count_fills = |b: &Board| {
+            let mut renderer = Renderer::new();
+            generate_board_meshes(b, &vp, rect, &tokens, None, None, None, None, None, None, &mut renderer, false, ViaDisplayMode::Web, false, 0.6, false, true, true, true, false)
+                .iter()
+                .filter(|m| m.vertices.first().is_some_and(|v| v.color == tokens.board_fill))
+                .count()
+        };
+        assert_eq!(count_fills(&board), 1);
+        board.extra_outlines.push(square(200.0));
+        assert_eq!(count_fills(&board), 2);
+    }
+
+    #[test]
     fn test_olive_and_cyberpunk_theme_component_colors() {
         let mut board = Board::new();
         // R1: Resistor (black body)
@@ -4299,7 +4038,7 @@ mod tests {
             ..Default::default()
         });
         board.pins.push(Pin { id: 2, part_id: 1, pos: Point::new(42.0, 15.0), radius: 3.0, side: Side::Top, net_name: "N3".into(), ..Default::default() });
-        board.pins.push(Pin { id: 3, part_id: 1, pos: Point::new(58.0, 15.0), radius: 3.0, side: Side::Top, net_name: "N4".into(), ..Default::default() });
+        board.pins.push(Pin { id: 3, part_id: 1, pos: Point::new(58.0, 15.0), radius: 3.0, side: Side::Top, net_name: "GND".into(), ..Default::default() });
 
         // U1: IC (matte black body)
         board.parts.push(bvc_core::Part {
@@ -4379,6 +4118,13 @@ mod tests {
         assert!(
             meshes_olive.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens_olive.pin_default)),
             "Expected pads to render in silver solder color"
+        );
+
+        // Ground-net pads use the theme's ground shade, distinct from ordinary pads.
+        assert_ne!(tokens_olive.pin_ground, tokens_olive.pin_default);
+        assert!(
+            meshes_olive.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens_olive.pin_ground)),
+            "Expected the GND pad to render with the ground pin color"
         );
 
         // 2. Cyberpunk theme with color_components: true (falls back to realistic component colors)
