@@ -9,8 +9,8 @@ pub mod parser;
 pub mod schematic;
 pub mod spatial;
 
-pub use board::{compute_part_bounds, synthesize_part_outline, Board};
-pub use model::{BoardMetadata, ComponentKind, Net, NetMembership, Part, PartType, Pin, Point, Rect, Side, Via};
+pub use board::{compute_part_bounds, compute_pin_pitch, synthesize_part_outline, Board};
+pub use model::{BoardMetadata, ComponentKind, Net, NetMembership, Part, PartType, Pin, Point, Rect, Side, Via, MILS_PER_MM};
 pub use notes::{BoardNote, BoardNotesStore, NoteTarget, TechnicalMeasurements};
 pub use parser::{cad::CadParser, gencad::GenCadParser, registry::ParserRegistry, FormatParser, ParseError};
 pub use spatial::{GridCell, SpatialGrid};

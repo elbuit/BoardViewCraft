@@ -25,6 +25,65 @@ pub struct Board {
 /// Margin (mils) around a pin centre whose pad has no known physical size.
 const SIZELESS_PAD_MARGIN: f64 = 6.0;
 
+/// Target minimum extent of an outline axis, as a fraction of the shape's pin pitch.
+const OUTLINE_MIN_EXTENT_PITCH_FRACTION: f64 = 0.6;
+
+/// Lower bound (in mils) on the extent a thin axis is grown to (0.3 mm).
+const OUTLINE_MIN_EXTENT_MILS: f64 = 0.3 * crate::model::MILS_PER_MM;
+
+/// Upper bound (in mils) on the extent a thin axis is grown to (5.0 mm).
+const OUTLINE_MAX_GROWN_EXTENT_MILS: f64 = 5.0 * crate::model::MILS_PER_MM;
+
+/// Typical pin pitch of a component (in mils): the median distance over pins to the
+/// nearest distinct neighbor pad.
+///
+/// Pads closer than 1% of the pin cloud's maximum extent (duplicate names/split fingers on one pad)
+/// are treated as coincident and ignored. Returns None when fewer than two distinct pad positions exist.
+pub fn compute_pin_pitch(pins: &[&Pin]) -> Option<f64> {
+    let pts: Vec<Point> = pins.iter().map(|p| p.pos).collect();
+    let n = pts.len();
+    if n < 2 {
+        return None;
+    }
+    let min_x = pts.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+    let max_x = pts.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+    let min_y = pts.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+    let max_y = pts.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+    let extent = (max_x - min_x).max(max_y - min_y);
+    let eps2 = (extent * 0.01).powi(2);
+
+    let step = if n > 64 { (n / 32).max(1) } else { 1 };
+    let mut nearest = Vec::with_capacity(n);
+
+    for (i, p1) in pts.iter().enumerate().step_by(step) {
+        let mut best_d2: Option<f64> = None;
+        for (j, p2) in pts.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            let dx = p1.x - p2.x;
+            let dy = p1.y - p2.y;
+            let d2 = dx * dx + dy * dy;
+            if d2 <= eps2 {
+                continue;
+            }
+            if best_d2.map_or(true, |best| d2 < best) {
+                best_d2 = Some(d2);
+            }
+        }
+        if let Some(d2) = best_d2 {
+            nearest.push(d2.sqrt());
+        }
+    }
+
+    if nearest.is_empty() {
+        None
+    } else {
+        nearest.sort_by(|a, b| a.total_cmp(b));
+        Some(nearest[nearest.len() / 2])
+    }
+}
+
 /// Synthesizes a component body outline (as 4 rotated corner points in board coordinates)
 /// from the part's pins and placement rotation when the file format does not provide an explicit outline.
 pub fn synthesize_part_outline(part: &Part, pins: &[Pin]) -> Vec<Point> {
@@ -46,6 +105,10 @@ pub fn synthesize_part_outline(part: &Part, pins: &[Pin]) -> Vec<Point> {
         } else {
             0.0
         }
+    } else if pin_list.len() == 2 && pin_list[0].pos.dist(pin_list[1].pos) > 1e-3 {
+        let dx = pin_list[1].pos.x - pin_list[0].pos.x;
+        let dy = pin_list[1].pos.y - pin_list[0].pos.y;
+        dy.atan2(dx).to_degrees()
     } else {
         0.0
     };
@@ -57,7 +120,7 @@ pub fn synthesize_part_outline(part: &Part, pins: &[Pin]) -> Vec<Point> {
     let mut min_ly = f64::INFINITY;
     let mut max_ly = f64::NEG_INFINITY;
 
-    for pin in pin_list {
+    for pin in &pin_list {
         let (w, h) = pin.pad_size().unwrap_or((SIZELESS_PAD_MARGIN * 2.0, SIZELESS_PAD_MARGIN * 2.0));
         let half_w = w * 0.5;
         let half_h = h * 0.5;
@@ -88,6 +151,26 @@ pub fn synthesize_part_outline(part: &Part, pins: &[Pin]) -> Vec<Point> {
 
     if !min_lx.is_finite() || !max_lx.is_finite() || !min_ly.is_finite() || !max_ly.is_finite() {
         return Vec::new();
+    }
+
+    // Expand thin/degenerate axes for collinear or 2-pin passives based on pin pitch
+    if let Some(pitch) = compute_pin_pitch(&pin_list) {
+        let target_extent = (OUTLINE_MIN_EXTENT_PITCH_FRACTION * pitch)
+            .clamp(OUTLINE_MIN_EXTENT_MILS, OUTLINE_MAX_GROWN_EXTENT_MILS);
+
+        let extent_x = max_lx - min_lx;
+        if extent_x < target_extent {
+            let pad = (target_extent - extent_x) * 0.5;
+            min_lx -= pad;
+            max_lx += pad;
+        }
+
+        let extent_y = max_ly - min_ly;
+        if extent_y < target_extent {
+            let pad = (target_extent - extent_y) * 0.5;
+            min_ly -= pad;
+            max_ly += pad;
+        }
     }
 
     let local_corners = [
@@ -558,5 +641,77 @@ mod tests {
         // Outline is rotated diagonally, so outline[0].x != outline[1].x and outline[0].y != outline[1].y
         assert!((outline[0].x - outline[1].x).abs() > 10.0);
         assert!((outline[0].y - outline[1].y).abs() > 10.0);
+    }
+
+    #[test]
+    fn test_compute_pin_pitch_median_and_duplicate_filtering() {
+        let p1 = pin(0, 0.0, 0.0);
+        let p1_dup = pin(1, 0.05, 0.0); // Within 1% of 100 mil extent
+        let p2 = pin(2, 50.0, 0.0);
+        let p3 = pin(3, 100.0, 0.0);
+        let pins = vec![p1, p1_dup, p2, p3];
+        let pin_refs: Vec<&Pin> = pins.iter().collect();
+
+        let pitch = compute_pin_pitch(&pin_refs).expect("valid pitch");
+        // Distance from 0 to 50 is 50. Distance from 50 to 100 is 50. Median is 50.
+        assert!((pitch - 50.0).abs() < 1e-3, "Expected pitch ~50, got {pitch}");
+    }
+
+    #[test]
+    fn test_synthesize_part_outline_collinear_two_pin_passive_grows_thin_axis() {
+        // Collinear 0805-style resistor with 80 mil pitch (2.03 mm) and sizeless pads (6 mil margin)
+        let a = pin(0, -40.0, 0.0);
+        let b = pin(1, 40.0, 0.0);
+        let part = Part {
+            name: "R101".into(),
+            rotation_deg: 0.0,
+            pin_indices: vec![0, 1],
+            ..Default::default()
+        };
+        let pins = vec![a, b];
+        let outline = synthesize_part_outline(&part, &pins);
+        assert_eq!(outline.len(), 4);
+
+        // Longitudinal length: 80 mil pitch + 2 * 6 mil margin = 92.0 mils
+        let bbox = Rect::from_points(&outline).unwrap();
+        let length = bbox.width();
+        let width = bbox.height();
+
+        assert!((length - 92.0).abs() < 1e-2, "Expected length ~92.0, got {length}");
+        // Transverse width: previously only 12.0 mils (0.30 mm).
+        // With 0.6 * pitch heuristic: 0.6 * 80.0 = 48.0 mils (~1.22 mm, matching 0805 body)
+        assert!((width - 48.0).abs() < 1e-2, "Expected width ~48.0, got {width}");
+    }
+
+    #[test]
+    fn test_synthesize_part_outline_infers_diagonal_rotation_for_two_pin_passive() {
+        // Two pins at (0, 0) and (60, 60), no explicit rotation on part or pins
+        let a = pin(0, 0.0, 0.0);
+        let b = pin(1, 60.0, 60.0);
+        let part = Part {
+            name: "C102".into(),
+            rotation_deg: 0.0,
+            pin_indices: vec![0, 1],
+            ..Default::default()
+        };
+        let pins = vec![a, b];
+        let outline = synthesize_part_outline(&part, &pins);
+        assert_eq!(outline.len(), 4);
+
+        // Outline must be a rotated rectangle (corners are not axis-aligned)
+        let edge1 = outline[0].dist(outline[1]);
+        let edge2 = outline[1].dist(outline[2]);
+        let (len, wid) = if edge1 > edge2 { (edge1, edge2) } else { (edge2, edge1) };
+
+        // Pitch is sqrt(60^2 + 60^2) = ~84.85 mils
+        // Axis-aligned square pad (12x12) rotated 45 degrees has diagonal half-extent 6*sqrt(2) on each side (~16.97 mils)
+        // Length along 45° axis is pitch + 12*sqrt(2) = ~101.82 mils
+        assert!((len - 101.82).abs() < 0.1, "Expected length ~101.82, got {len}");
+        // Width is 0.6 * pitch = ~50.91 mils
+        assert!((wid - 50.91).abs() < 0.1, "Expected width ~50.91, got {wid}");
+
+        // Verify diagonal orientation: corners differ in both X and Y
+        assert!((outline[0].x - outline[1].x).abs() > 5.0);
+        assert!((outline[0].y - outline[1].y).abs() > 5.0);
     }
 }

@@ -2,6 +2,9 @@
 
 use std::collections::HashMap;
 
+/// 1 millimeter in mils (1 / 0.0254 = ~39.37007874).
+pub const MILS_PER_MM: f64 = 1.0 / 0.0254;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Side {
