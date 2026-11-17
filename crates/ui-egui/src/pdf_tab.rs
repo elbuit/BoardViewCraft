@@ -215,9 +215,9 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
         // Keyboard navigation inside PDF panel when hovered, unless a text field
         // (e.g. the search box) has the keyboard
         let typing = ui.memory(|m| m.focused().is_some());
-        let (page_up, page_down, arrow_left, arrow_right, plus_key, minus_key) = ui.input(|i| {
+        let (page_up, page_down, arrow_left, arrow_right, plus_key, minus_key, f3_key, shift_held, esc_key) = ui.input(|i| {
             if typing {
-                return Default::default();
+                return (false, false, false, false, false, false, false, false, i.key_pressed(egui::Key::Escape));
             }
             (
                 i.key_pressed(egui::Key::PageUp),
@@ -226,14 +226,17 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
                 i.key_pressed(egui::Key::ArrowRight),
                 i.key_pressed(egui::Key::Plus) || i.key_pressed(egui::Key::Equals),
                 i.key_pressed(egui::Key::Minus),
+                i.key_pressed(egui::Key::F3),
+                i.modifiers.shift,
+                i.key_pressed(egui::Key::Escape),
             )
         });
 
         if (page_up || arrow_left) && viewer.current_page > 1 {
-            viewer.current_page -= 1;
+            viewer.go_to_page(viewer.current_page - 1);
             ui.ctx().request_repaint();
         } else if (page_down || arrow_right) && viewer.current_page < viewer.total_pages {
-            viewer.current_page += 1;
+            viewer.go_to_page(viewer.current_page + 1);
             ui.ctx().request_repaint();
         }
 
@@ -243,6 +246,27 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
         } else if minus_key {
             viewer.zoom = (viewer.zoom / 1.15).clamp(0.2, 30.0);
             ui.ctx().request_repaint();
+        }
+
+        if f3_key && !viewer.search_results.is_empty() {
+            if shift_held {
+                viewer.prev_match();
+            } else {
+                viewer.next_match();
+            }
+            ui.ctx().request_repaint();
+        }
+
+        if esc_key {
+            if viewer.selection_rect.is_some() {
+                viewer.selection_rect = None;
+                viewer.selected_text = None;
+                ui.ctx().request_repaint();
+            } else if !viewer.active_search.is_empty() || !viewer.search_results.is_empty() {
+                viewer.search("");
+                viewer.search_input.clear();
+                ui.ctx().request_repaint();
+            }
         }
     }
 
@@ -580,6 +604,43 @@ mod tests {
         let (text, boxes) = viewer.extract_text_in_rect(1, Rect::from_min_max(Pos2::ZERO, Pos2::new(100.0, 100.0)));
         assert!(text.is_empty());
         assert!(boxes.is_empty());
+    }
+
+    #[test]
+    fn test_pdf_search_match_navigation_and_clear() {
+        let mut viewer = PdfSchematicViewer::default();
+        viewer.search_results = vec![
+            SchematicOccurrence {
+                page_number: 1,
+                bbox: Rect::from_min_max(Pos2::ZERO, Pos2::new(10.0, 10.0)),
+                text: "C35".to_string(),
+                glyph_range: 0..3,
+            },
+            SchematicOccurrence {
+                page_number: 2,
+                bbox: Rect::from_min_max(Pos2::new(20.0, 20.0), Pos2::new(30.0, 30.0)),
+                text: "C35".to_string(),
+                glyph_range: 0..3,
+            },
+        ];
+        viewer.selected_result_idx = 0;
+        viewer.active_search = "C35".to_string();
+
+        viewer.next_match();
+        assert_eq!(viewer.selected_result_idx, 1);
+        assert_eq!(viewer.current_page, 2);
+
+        viewer.next_match();
+        assert_eq!(viewer.selected_result_idx, 0);
+        assert_eq!(viewer.current_page, 1);
+
+        viewer.prev_match();
+        assert_eq!(viewer.selected_result_idx, 1);
+        assert_eq!(viewer.current_page, 2);
+
+        viewer.search("");
+        assert!(viewer.search_results.is_empty());
+        assert!(viewer.active_search.is_empty());
     }
 }
 

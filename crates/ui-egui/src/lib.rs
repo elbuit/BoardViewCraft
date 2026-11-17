@@ -1730,9 +1730,18 @@ impl eframe::App for BoardViewApp {
                 self.pdf_viewer.probed_part = None;
             }
         }
-        // The PDF tab paints (and drives) the viewer; when completely hidden (not in Pdf or Split),
+        // The PDF tab paints (and drives) the viewer; when completely hidden (not in visible Pdf pane),
         // its text indexing keeps going in the background.
-        if self.pdf_viewer.is_loaded() && self.tab != BoardTab::Pdf && self.tab != BoardTab::Split {
+        let pdf_visible = match self.tab {
+            BoardTab::Pdf => true,
+            BoardTab::Split => {
+                self.preferences.view_divisions == 2
+                    && (self.preferences.pane_first == board_tabs::PaneContent::Pdf
+                        || self.preferences.pane_second == board_tabs::PaneContent::Pdf)
+            }
+            _ => false,
+        };
+        if self.pdf_viewer.is_loaded() && !pdf_visible {
             self.pdf_viewer.pump_background(ui.ctx());
         }
 

@@ -1308,6 +1308,8 @@ pub fn show_canvas(
 
                 let screen_pos = vp.world_to_screen(pin.pos, rect);
 
+                let bg_color = Color32::from_rgba_unmultiplied(tokens.canvas.r(), tokens.canvas.g(), tokens.canvas.b(), 220);
+
                 if is_selected {
                     // For selected pin: show net name (or fallback to pin name), drawn inside circle outline or negative text
                     let display_text = if !pin.net_name.is_empty() {
@@ -1321,12 +1323,13 @@ pub fn show_canvas(
                     if !display_text.is_empty() {
                         let font_size = label_font_size(r_screen * 0.9, 8.0, 16.0);
                         if font_size >= MIN_ON_SCREEN_FONT_SIZE {
-                            painter.text(
+                            draw_text_with_contrast_pill(
+                                &painter,
                                 screen_pos,
-                                egui::Align2::CENTER_CENTER,
                                 display_text,
                                 FontId::monospace(font_size),
                                 tokens.selection,
+                                bg_color,
                             );
                         }
                     }
@@ -1357,12 +1360,13 @@ pub fn show_canvas(
                         pin.name.clone()
                     };
 
-                    painter.text(
+                    draw_text_with_contrast_pill(
+                        &painter,
                         screen_pos,
-                        egui::Align2::CENTER_CENTER,
-                        pin_text,
+                        &pin_text,
                         FontId::monospace(font_size),
                         text_color,
+                        bg_color,
                     );
                 }
             }
@@ -1971,6 +1975,26 @@ pub const MIN_ON_SCREEN_FONT_SIZE: f32 = 1.0;
 /// alone. A few fixed sizes keep labels and glyphs cached between zoom steps.
 pub fn label_font_size(raw: f32, min: f32, max: f32) -> f32 {
     ((raw.clamp(min, max) / LABEL_FONT_STEP).round() * LABEL_FONT_STEP).clamp(min, max)
+}
+
+/// Draws text with a rounded background contrast box (pill), matching OpenBoardView's pin text
+/// background rect dimensions (`padding = font_size / 10.0`, `rounding = font_size / 5.0`).
+pub fn draw_text_with_contrast_pill(
+    painter: &egui::Painter,
+    pos: Pos2,
+    text: &str,
+    font_id: FontId,
+    text_color: Color32,
+    bg_color: Color32,
+) {
+    let galley = painter.layout_no_wrap(text.to_string(), font_id.clone(), text_color);
+    let text_rect = egui::Rect::from_center_size(pos, galley.size());
+    let font_size = font_id.size;
+    let padding = font_size / 10.0;
+    let rounding = font_size / 5.0;
+    let bg_rect = text_rect.expand(padding);
+    painter.rect_filled(bg_rect, rounding, bg_color);
+    painter.text(pos, egui::Align2::CENTER_CENTER, text, font_id, text_color);
 }
 
 /// Below this on-screen half-size (pixels) a pad is drawn as an equal-area square point.
@@ -4141,6 +4165,23 @@ mod tests {
         xs.sort();
         xs.dedup();
         assert!(xs.len() >= 3, "Rotated component must have distinct X coordinates across corners, got {:?}", xs);
+    }
+
+    #[test]
+    fn test_draw_text_with_contrast_pill_shapes() {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let painter = ui.painter();
+            draw_text_with_contrast_pill(
+                painter,
+                Pos2::new(100.0, 100.0),
+                "VCC_MAIN",
+                FontId::monospace(10.0),
+                Color32::WHITE,
+                Color32::BLACK,
+            );
+        });
+        output.textures_delta.clear();
     }
 }
 
