@@ -184,6 +184,9 @@ pub struct PcbTokens {
     // Board elements
     pub board_outline: Color32,
     pub board_fill: Color32,
+    /// Subtle horizontal hatching lines across the substrate (FlexBV style).
+    #[serde(default = "PcbTokens::default_board_hatching")]
+    pub board_hatching: Color32,
     /// Fill of part bodies.
     pub part_body: Color32,
     /// Stroke of part bodies (missing in older saved custom themes, hence the default).
@@ -215,6 +218,11 @@ pub struct PcbTokens {
 /// Portions adapted from TRACE Boardviewer (MIT), Copyright (c) 2026 TRACE Boardviewer contributors
 /// (`src/components/board-palette.ts`).
 impl PcbTokens {
+    /// Subtle horizontal hatching lines across the substrate (FlexBV style).
+    pub fn default_board_hatching() -> Color32 {
+        Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x50)
+    }
+
     /// Body stroke for custom themes saved before the token existed (trace dark `chipLine`).
     pub fn default_part_body_line() -> Color32 {
         Color32::from_rgb(0x96, 0xb3, 0xc7)
@@ -232,6 +240,7 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0xb0, 0xb8, 0xc4),
         board_fill: Color32::from_rgba_premultiplied(0x1e, 0x26, 0x30, 0x80),
+        board_hatching: Color32::from_rgba_premultiplied(0x2e, 0x38, 0x44, 0x60),
         part_body: Color32::from_rgb(0x35, 0x4b, 0x5d), // trace dark chip
         part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xc0, 0xc6, 0xd0),
@@ -260,6 +269,7 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0xc0, 0xc8, 0xd4),
         board_fill: Color32::from_rgba_premultiplied(0x18, 0x20, 0x28, 0x90),
+        board_hatching: Color32::from_rgba_premultiplied(0x28, 0x34, 0x42, 0x60),
         part_body: Color32::from_rgb(0x35, 0x4b, 0x5d), // trace dark chip
         part_body_line: Color32::from_rgb(0x96, 0xb3, 0xc7), // trace dark chipLine
         part_text: Color32::from_rgb(0xd5, 0xdc, 0xe5),
@@ -288,6 +298,7 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0x35, 0x40, 0x50),
         board_fill: Color32::from_rgba_premultiplied(0xdf, 0xe7, 0xf0, 0x80),
+        board_hatching: Color32::from_rgba_premultiplied(0x70, 0x85, 0x98, 0x80),
         part_body: Color32::from_rgb(0xa5, 0xb7, 0xc2), // trace light chip
         part_body_line: Color32::from_rgb(0x4d, 0x6a, 0x80), // trace light chipLine
         part_text: Color32::from_rgb(0x24, 0x29, 0x2f),
@@ -316,6 +327,7 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0xff, 0xff, 0xff), // crisp white
         board_fill: Color32::from_rgba_premultiplied(0x18, 0x18, 0x18, 0x40),
+        board_hatching: Color32::from_rgba_premultiplied(0x30, 0x30, 0x30, 0x60),
         part_body: Color32::from_rgb(0x3a, 0x3a, 0x3a),
         part_body_line: Color32::from_rgb(0x8a, 0x8a, 0x8a),
         part_text: Color32::from_rgb(0xdd, 0xdd, 0xdd),
@@ -344,6 +356,7 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0x79, 0xa8, 0xd8), // soft steel blue border
         board_fill: Color32::from_rgba_premultiplied(0x15, 0x20, 0x30, 0x90),
+        board_hatching: Color32::from_rgba_premultiplied(0x24, 0x34, 0x48, 0x60),
         part_body: Color32::from_rgb(0x2c, 0x3c, 0x54),
         part_body_line: Color32::from_rgb(0x79, 0xa8, 0xd8),
         part_text: Color32::from_rgb(0xd0, 0xdf, 0xf0),
@@ -372,6 +385,7 @@ impl PcbTokens {
 
         board_outline: Color32::from_rgb(0x00, 0xf0, 0xff),
         board_fill: Color32::from_rgba_premultiplied(0x14, 0x10, 0x28, 0x99),
+        board_hatching: Color32::from_rgba_premultiplied(0x28, 0x20, 0x44, 0x70),
         part_body: Color32::from_rgb(0x28, 0x1c, 0x42),
         part_body_line: Color32::from_rgb(0x8a, 0x42, 0xb4),
         part_text: Color32::from_rgb(0xee, 0xd0, 0xff),
@@ -401,6 +415,7 @@ impl PcbTokens {
         // Real green PCB elements
         board_outline: Color32::from_rgb(0xe0, 0xe8, 0xec), // White silkscreen / routed edge
         board_fill: Color32::from_rgba_premultiplied(0x13, 0x47, 0x23, 0xc0), // Rich classic solder mask green (#134723)
+        board_hatching: Color32::from_rgba_premultiplied(0x18, 0x55, 0x2b, 0x70),
         part_body: Color32::from_rgb(0x26, 0x2a, 0x30), // Dark charcoal for generic parts
         part_body_line: Color32::from_rgb(0xe0, 0xe8, 0xf0), // Crisp white silkscreen component outline
         part_text: Color32::from_rgb(0xf2, 0xf6, 0xfa), // White silkscreen refdes text
@@ -454,6 +469,7 @@ pub struct Tokens {
     pub part_text: Color32,
     pub board_outline: Color32,
     pub board_fill: Color32,
+    pub board_hatching: Color32,
     pub part_body: Color32,
     pub part_body_line: Color32,
     pub pin_default: Color32,
@@ -529,6 +545,7 @@ impl Tokens {
             part_text: pcb.part_text,
             board_outline: pcb.board_outline,
             board_fill: pcb.board_fill,
+            board_hatching: pcb.board_hatching,
             part_body: pcb.part_body,
             part_body_line: pcb.part_body_line,
             pin_default: pcb.pin_default,
@@ -623,6 +640,8 @@ impl Tokens {
     #[allow(dead_code)]
     pub fn board_fill(&self) -> Color32 { self.pcb.board_fill }
     #[allow(dead_code)]
+    pub fn board_hatching(&self) -> Color32 { self.pcb.board_hatching }
+    #[allow(dead_code)]
     pub fn part_body(&self) -> Color32 { self.pcb.part_body }
     #[allow(dead_code)]
     pub fn part_text(&self) -> Color32 { self.pcb.part_text }
@@ -671,6 +690,7 @@ impl Tokens {
         part_text: PcbTokens::DARK.part_text,
         board_outline: PcbTokens::DARK.board_outline,
         board_fill: PcbTokens::DARK.board_fill,
+        board_hatching: PcbTokens::DARK.board_hatching,
         part_body: PcbTokens::DARK.part_body,
         part_body_line: PcbTokens::DARK.part_body_line,
         pin_default: PcbTokens::DARK.pin_default,
@@ -714,6 +734,7 @@ impl Tokens {
         part_text: PcbTokens::LIGHT.part_text,
         board_outline: PcbTokens::LIGHT.board_outline,
         board_fill: PcbTokens::LIGHT.board_fill,
+        board_hatching: PcbTokens::LIGHT.board_hatching,
         part_body: PcbTokens::LIGHT.part_body,
         part_body_line: PcbTokens::LIGHT.part_body_line,
         pin_default: PcbTokens::LIGHT.pin_default,
@@ -757,6 +778,7 @@ impl Tokens {
         part_text: PcbTokens::OLIVE.part_text,
         board_outline: PcbTokens::OLIVE.board_outline,
         board_fill: PcbTokens::OLIVE.board_fill,
+        board_hatching: PcbTokens::OLIVE.board_hatching,
         part_body: PcbTokens::OLIVE.part_body,
         part_body_line: PcbTokens::OLIVE.part_body_line,
         pin_default: PcbTokens::OLIVE.pin_default,

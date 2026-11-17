@@ -249,6 +249,7 @@ pub struct ViewCacheKey {
     pub show_vias: bool,
     pub show_unnamed_vias: bool,
     pub show_pins: bool,
+    pub show_board_hatching: bool,
     pub color_components: bool,
 }
 
@@ -285,6 +286,7 @@ impl ViewCacheKey {
             show_vias: prefs.show_vias,
             show_unnamed_vias: prefs.show_unnamed_vias,
             show_pins: prefs.show_pins,
+            show_board_hatching: prefs.show_board_hatching,
             color_components: prefs.active_pcb_color_components(),
         }
     }
@@ -1175,6 +1177,7 @@ pub fn show_canvas(
                 prefs.show_vias,
                 prefs.show_unnamed_vias,
                 prefs.show_pins,
+                prefs.show_board_hatching,
                 prefs.active_pcb_color_components(),
             )
         });
@@ -2203,8 +2206,75 @@ pub fn generate_board_meshes(
         show_vias,
         show_unnamed_vias,
         show_pins,
+        false,
         color_components,
     )
+}
+
+/// Appends horizontal substrate hatching lines across the board polygon in screen space (FlexBV style).
+pub fn append_board_hatching_to_mesh(
+    mesh: &mut Mesh,
+    screen_pts: &[Pos2],
+    rect: EguiRect,
+    color: Color32,
+) {
+    if screen_pts.len() < 3 || color.a() == 0 {
+        return;
+    }
+
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for pt in screen_pts {
+        min_y = min_y.min(pt.y);
+        max_y = max_y.max(pt.y);
+    }
+
+    let start_y = min_y.max(rect.min.y);
+    let end_y = max_y.min(rect.max.y);
+    if start_y >= end_y {
+        return;
+    }
+
+    // Step between horizontal lines in screen points (subtle 8.0 pt spacing)
+    let step = 8.0f32;
+    let first_line_y = (start_y / step).ceil() * step;
+    let mut intersections = Vec::with_capacity(8);
+
+    let n = screen_pts.len();
+    let mut y = first_line_y;
+    while y <= end_y {
+        intersections.clear();
+        for i in 0..n {
+            let p1 = screen_pts[i];
+            let p2 = screen_pts[(i + 1) % n];
+            if (p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y) {
+                let dy = p2.y - p1.y;
+                if dy.abs() > 1e-4 {
+                    let t = (y - p1.y) / dy;
+                    let x = p1.x + t * (p2.x - p1.x);
+                    intersections.push(x);
+                }
+            }
+        }
+
+        intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        for chunk in intersections.chunks_exact(2) {
+            let x0 = chunk[0].max(rect.min.x);
+            let x1 = chunk[1].min(rect.max.x);
+            if x0 < x1 {
+                Renderer::append_line_segment_to_mesh(
+                    mesh,
+                    Pos2::new(x0, y),
+                    Pos2::new(x1, y),
+                    0.5,
+                    color,
+                );
+            }
+        }
+
+        y += step;
+    }
 }
 
 /// Screen-space board meshes for `vp`, holding only parts, pads and vias inside the world
@@ -2231,12 +2301,13 @@ pub fn generate_board_meshes_in(
     show_vias: bool,
     show_unnamed_vias: bool,
     show_pins: bool,
+    show_board_hatching: bool,
     color_components: bool,
 ) -> Vec<Mesh> {
     let mut new_meshes = Vec::new();
     let visible_world = cull_world;
 
-    // 1. Board outline polygon
+    // 1. Board outline polygon and substrate hatching
     if b.outline_polygon.len() >= 3 {
         let screen_pts: Vec<Pos2> = b
             .outline_polygon
@@ -2247,6 +2318,14 @@ pub fn generate_board_meshes_in(
         let fill_mesh = renderer.fill_polygon(&screen_pts, tokens.board_fill);
         if !fill_mesh.is_empty() {
             new_meshes.push(fill_mesh);
+        }
+
+        if show_board_hatching && tokens.board_hatching.a() > 0 {
+            let mut hatch_mesh = Mesh::default();
+            append_board_hatching_to_mesh(&mut hatch_mesh, &screen_pts, rect, tokens.board_hatching);
+            if !hatch_mesh.is_empty() {
+                new_meshes.push(hatch_mesh);
+            }
         }
 
         let stroke_mesh = renderer.stroke_polygon(&screen_pts, 2.0, tokens.board_outline, true);
@@ -3138,7 +3217,7 @@ mod tests {
         sync_board_meshes(state, key, vp, rect, |coverage| {
             generate_board_meshes_in(
                 board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, None, None, &mut renderer,
-                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
+                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false,
             )
         })
     }
@@ -3213,7 +3292,7 @@ mod tests {
         assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
         let fresh = generate_board_meshes_in(
             &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, None, None, &mut Renderer::new(),
-            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
+            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false,
         );
         // Pads have true size, so the re-mapped pad mesh (the last one) equals a fresh one.
         let (remapped, fresh) = (state.cached_meshes.last().unwrap(), fresh.last().unwrap());
@@ -3233,7 +3312,7 @@ mod tests {
         let pin_vertices = |vp: &Viewport| -> Vec<Pos2> {
             let meshes = generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, false,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, true, false,
             );
             meshes.last().unwrap().vertices.iter().map(|v| v.pos).collect()
         };
@@ -3258,7 +3337,7 @@ mod tests {
         let vertices = |vp: &Viewport| -> usize {
             generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false,
             )
             .iter()
             .map(|m| m.vertices.len())
@@ -3294,6 +3373,28 @@ mod tests {
         sizes.dedup();
         assert_eq!(sizes, [8.0, 10.0, 12.0, 14.0]);
         assert_eq!(label_font_size(500.0, 10.0, 28.0), 28.0);
+    }
+
+    #[test]
+    fn test_board_hatching_mesh_generation() {
+        let screen_pts = vec![
+            Pos2::new(100.0, 100.0),
+            Pos2::new(300.0, 100.0),
+            Pos2::new(300.0, 300.0),
+            Pos2::new(100.0, 300.0),
+        ];
+        let rect = EguiRect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(500.0, 500.0));
+        let mut mesh = Mesh::default();
+        let color = Color32::from_rgba_premultiplied(0x35, 0x40, 0x50, 0x50);
+        append_board_hatching_to_mesh(&mut mesh, &screen_pts, rect, color);
+        assert!(!mesh.is_empty(), "Hatching lines should be added to mesh");
+        assert!(mesh.vertices.len() >= 4, "Should have at least one line segment (4 vertices)");
+        assert_eq!(mesh.vertices[0].color, color);
+
+        // Alpha 0 should produce empty mesh
+        let mut empty_mesh = Mesh::default();
+        append_board_hatching_to_mesh(&mut empty_mesh, &screen_pts, rect, Color32::TRANSPARENT);
+        assert!(empty_mesh.is_empty(), "Transparent color should not generate hatching");
     }
 
     #[test]

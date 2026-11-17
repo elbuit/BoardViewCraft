@@ -148,6 +148,7 @@
 	prefs.color_canvas	Arrière-plan du canevas :
 	prefs.color_board_outline	Contour du circuit :
 	prefs.color_board_fill	Remplissage du circuit :
+	prefs.color_board_hatching	Hachures du circuit :
 	prefs.color_part_body	Corps du composant :
 	prefs.color_part_resistor	Résistance (CMS) :
 	prefs.color_part_capacitor	Condensateur (CMS) :
@@ -182,6 +183,7 @@
 	prefs.adaptive_lod	Décimation adaptative LOD
 	prefs.show_opposite	Afficher les éléments du côté opposé (Rayons X)
 	prefs.show_pins	Afficher les broches et pastilles
+	prefs.show_board_hatching	Lignes de hachures horizontales du circuit
 	prefs.show_vias	Afficher les vias et points de test
 	prefs.show_unnamed_vias	Afficher les vias et pastilles sans nom
 	prefs.close	Fermer

@@ -123,6 +123,8 @@ pub struct Preferences {
     pub show_unnamed_vias: bool,
     #[serde(default = "default_true")]
     pub show_pins: bool,
+    #[serde(default = "default_true")]
+    pub show_board_hatching: bool,
     #[serde(default)]
     pub recent_files: Vec<PathBuf>,
     /// Each board's schematic PDF, most recently used first (at most `MAX_BOARD_SCHEMATICS`).
@@ -190,6 +192,7 @@ impl Default for Preferences {
             show_vias: false,
             show_unnamed_vias: false,
             show_pins: true,
+            show_board_hatching: true,
             recent_files: Vec::new(),
             board_schematics: Vec::new(),
             board_tab: BoardTab::Top,
@@ -940,6 +943,14 @@ pub fn show_preferences_window(
                             }
                             ui.end_row();
 
+                            ui.label(i18n::tr(lang, "prefs.color_board_hatching"));
+                            let mut c = active_tokens.board_hatching.to_array();
+                            if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
+                                active_tokens.board_hatching = Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3]);
+                                tokens_modified = true;
+                            }
+                            ui.end_row();
+
                             ui.label(i18n::tr(lang, "prefs.color_part_body"));
                             let mut c = active_tokens.part_body.to_array();
                             if ui.color_edit_button_srgba_unmultiplied(&mut c).changed() {
@@ -1175,6 +1186,17 @@ pub fn show_preferences_window(
 
                     if ui
                         .checkbox(
+                            &mut prefs.show_board_hatching,
+                            RichText::new(i18n::tr(lang, "prefs.show_board_hatching")).color(tokens.text()),
+                        )
+                        .on_hover_text("Render subtle horizontal substrate hatching lines across the board.")
+                        .changed()
+                    {
+                        changed = true;
+                    }
+
+                    if ui
+                        .checkbox(
                             &mut prefs.show_vias,
                             RichText::new(i18n::tr(lang, "prefs.show_vias")).color(tokens.text()),
                         )
@@ -1297,6 +1319,7 @@ mod tests {
             show_vias: true,
             show_unnamed_vias: false,
             show_pins: true,
+            show_board_hatching: true,
             recent_files: vec![PathBuf::from("/path/to/board.cad")],
             board_schematics: vec![BoardSchematic {
                 board: PathBuf::from("/path/to/board.cad"),

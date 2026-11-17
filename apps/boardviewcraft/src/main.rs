@@ -24,6 +24,7 @@ fn main() -> eframe::Result<()> {
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size(Vec2::new(1280.0, 800.0))
         .with_title("BoardViewCraft - Pure Rust CAD Board Viewer")
+        .with_drag_and_drop(true)
         // Wayland app id / X11 WM_CLASS: matches the hicolor icon and metainfo id.
         .with_app_id(APP_ID);
     match app_icon() {

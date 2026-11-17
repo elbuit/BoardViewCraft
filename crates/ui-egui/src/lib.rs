@@ -1232,8 +1232,8 @@ impl eframe::App for BoardViewApp {
         let dropped_files = ui.ctx().input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         if !dropped_files.is_empty() {
             for file in dropped_files {
-                let path = file.path();
-                if !path.as_os_str().is_empty() {
+                let resolved_path = resolve_dropped_file_path(file.path());
+                if let Some(path) = &resolved_path {
                     let ext = path
                         .extension()
                         .and_then(|s| s.to_str())
@@ -1263,7 +1263,40 @@ impl eframe::App for BoardViewApp {
                         }
                     }
                 } else if let Ok(bytes) = file.bytes() {
-                    self.load_file("dropped_board", &bytes);
+                    let file_name = file.path()
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("dropped_file");
+                    let ext = std::path::Path::new(file_name)
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_ascii_lowercase();
+                    match ext.as_str() {
+                        "png" | "jpg" | "jpeg" | "webp" | "bmp" => {
+                            let cur_side = self.photo_drop_side();
+                            let bbox = self.board.as_ref().and_then(|b| b.bounding_box);
+                            let slot = self.overlay_manager.slot_for_side(cur_side);
+                            let fake_path = std::path::PathBuf::from(file_name);
+                            if let Err(err) = slot.load_from_bytes(ui.ctx(), &fake_path, &bytes, bbox) {
+                                self.status_msg = format!("Failed to load dropped photo: {err}");
+                            } else {
+                                self.status_msg = format!("Loaded dropped overlay photo for {cur_side:?}: {file_name}");
+                                self.side_panel_state.overlay_editing = true;
+                            }
+                        }
+                        "pdf" => {
+                            if let Err(err) = self.pdf_viewer.open_from_bytes(file_name, &bytes) {
+                                self.status_msg = format!("Failed to open schematic PDF: {err}");
+                            } else {
+                                self.status_msg = format!("Opened schematic: {file_name}");
+                                self.set_tab(BoardTab::Pdf);
+                            }
+                        }
+                        _ => {
+                            self.load_file(file_name, &bytes);
+                        }
+                    }
                 }
             }
         }
@@ -1446,34 +1479,28 @@ impl eframe::App for BoardViewApp {
                         ui.close();
                     }
                     // Open a schematic, or show the open one in the PDF tab.
-                    let pdf_label = if self.pdf_viewer.is_loaded() {
-                        i18n::tr(lang, "pdf.show")
-                    } else {
-                        i18n::tr(lang, "pdf.open")
-                    };
-                    if ui.button(pdf_label).clicked() {
-                        if self.pdf_viewer.is_loaded() {
+                    if self.pdf_viewer.is_loaded() {
+                        if ui.button(i18n::tr(lang, "pdf.show")).clicked() {
                             self.set_tab(BoardTab::Pdf);
-                        } else {
-                            self.open_pdf_dialog();
+                            ui.close();
                         }
+                    }
+                    if ui.button(i18n::tr(lang, "pdf.open")).clicked() {
+                        self.open_pdf_dialog();
                         ui.close();
                     }
-                    let cad_sch_label = if self.cad_schematic_viewer.is_loaded() {
-                        i18n::tr(lang, "schematic.show_cad")
-                    } else {
-                        i18n::tr(lang, "schematic.open_cad")
-                    };
-                    if ui.button(cad_sch_label).clicked() {
-                        if self.cad_schematic_viewer.is_loaded() {
+                    if self.cad_schematic_viewer.is_loaded() {
+                        if ui.button(i18n::tr(lang, "schematic.show_cad")).clicked() {
                             if self.preferences.view_divisions == 1 {
                                 self.preferences.pane_first = PaneContent::CadSchematic;
                             } else {
                                 self.preferences.pane_second = PaneContent::CadSchematic;
                             }
-                        } else {
-                            self.open_cad_schematic_dialog();
+                            ui.close();
                         }
+                    }
+                    if ui.button(i18n::tr(lang, "schematic.open_cad")).clicked() {
+                        self.open_cad_schematic_dialog();
                         ui.close();
                     }
                     ui.separator();
@@ -1930,6 +1957,63 @@ impl eframe::App for BoardViewApp {
             Self::save_notes_for_board(filename, &self.notes_store);
         }
     }
+}
+
+/// Resolves a dropped file path to a local filesystem path, handling `file://` URIs, URL percent-encoding
+/// (e.g. `%20`), and relative paths common on Linux/KDE Dolphin.
+pub(crate) fn resolve_dropped_file_path(path: &std::path::Path) -> Option<std::path::PathBuf> {
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    let s = path.to_string_lossy();
+    if let Some(resolved) = clean_dropped_path_str(&s) {
+        return Some(resolved);
+    }
+    if path.exists() {
+        return Some(path.to_path_buf());
+    }
+    Some(path.to_path_buf())
+}
+
+fn clean_dropped_path_str(raw: &str) -> Option<std::path::PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let first_line = trimmed.lines().next().unwrap_or(trimmed).trim();
+    let without_scheme = first_line.strip_prefix("file://").unwrap_or(first_line);
+    let decoded = percent_decode(without_scheme);
+    let p = std::path::PathBuf::from(&decoded);
+    if p.exists() {
+        Some(p)
+    } else if !decoded.is_empty() && (decoded.starts_with('/') || p.extension().is_some()) {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+fn percent_decode(s: &str) -> String {
+    let mut bytes = Vec::with_capacity(s.len());
+    let mut iter = s.bytes();
+    while let Some(b) = iter.next() {
+        if b == b'%' {
+            let h1 = iter.next();
+            let h2 = iter.next();
+            if let (Some(c1), Some(c2)) = (h1, h2) {
+                let hex_str = [c1, c2];
+                if let Ok(hex) = std::str::from_utf8(&hex_str) {
+                    if let Ok(byte) = u8::from_str_radix(hex, 16) {
+                        bytes.push(byte);
+                        continue;
+                    }
+                }
+            }
+        }
+        bytes.push(b);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 
@@ -2417,5 +2501,33 @@ mod tab_tests {
         let top_rect_v = rects_v[0].1;
         let bottom_rect_v = rects_v[1].1;
         assert!(top_rect_v.max.x <= bottom_rect_v.min.x, "Plates arranged horizontally when split is vertical");
+    }
+
+    #[test]
+    fn test_resolve_dropped_file_path() {
+        // Standard path
+        let path = std::path::Path::new("/home/user/board.brd");
+        assert_eq!(
+            resolve_dropped_file_path(path),
+            Some(std::path::PathBuf::from("/home/user/board.brd"))
+        );
+
+        // KDE Dolphin style file:// URI with percent-encoding in path
+        let kde_uri = std::path::Path::new("file:///home/user/my%20test%20board.fz");
+        assert_eq!(
+            resolve_dropped_file_path(kde_uri),
+            Some(std::path::PathBuf::from("/home/user/my test board.fz"))
+        );
+
+        // KDE Dolphin URI with multiple lines or URI scheme
+        let kde_uri2 = std::path::Path::new("file:///tmp/schematic%20v2.pdf");
+        assert_eq!(
+            resolve_dropped_file_path(kde_uri2),
+            Some(std::path::PathBuf::from("/tmp/schematic v2.pdf"))
+        );
+
+        // Empty file
+        let empty = std::path::Path::new("");
+        assert_eq!(resolve_dropped_file_path(empty), None);
     }
 }

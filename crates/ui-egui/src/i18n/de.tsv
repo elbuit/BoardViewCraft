@@ -148,6 +148,7 @@
 	prefs.color_canvas	Leinwand-Hintergrund:
 	prefs.color_board_outline	Platinenumriss:
 	prefs.color_board_fill	Platinenfüllung:
+	prefs.color_board_hatching	Platinen-Schraffur:
 	prefs.color_part_body	Bauteilkörper:
 	prefs.color_part_resistor	Widerstand (SMD):
 	prefs.color_part_capacitor	Kondensator (SMD):
@@ -182,6 +183,7 @@
 	prefs.adaptive_lod	Adaptive LOD-Dezimierung
 	prefs.show_opposite	Elemente der gegenüberliegenden Seite anzeigen (Röntgen)
 	prefs.show_pins	Bauteil-Pins und Pads anzeigen
+	prefs.show_board_hatching	Horizontale Schraffurlinien auf der Platine
 	prefs.show_vias	Vias und Testpunkte anzeigen
 	prefs.show_unnamed_vias	Unbenannte Vias und Pads anzeigen
 	prefs.close	Schließen

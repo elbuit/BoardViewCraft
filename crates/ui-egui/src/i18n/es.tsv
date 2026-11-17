@@ -148,6 +148,7 @@
 	prefs.color_canvas	Fondo del lienzo:
 	prefs.color_board_outline	Contorno de la placa:
 	prefs.color_board_fill	Relleno de la placa:
+	prefs.color_board_hatching	Rayado de placa:
 	prefs.color_part_body	Cuerpo del componente:
 	prefs.color_part_resistor	Resistencia (SMD):
 	prefs.color_part_capacitor	Condensador (SMD):
@@ -182,6 +183,7 @@
 	prefs.adaptive_lod	Optimización LOD Adaptativa
 	prefs.show_opposite	Mostrar Elementos de la Cara Opuesta (Rayos X)
 	prefs.show_pins	Mostrar Pines y Pads de Componentes
+	prefs.show_board_hatching	Rayas horizontales en la placa (hatching)
 	prefs.show_vias	Mostrar Vías y Clavos de Prueba
 	prefs.show_unnamed_vias	Mostrar Vías y Pads sin nombre
 	prefs.close	Cerrar

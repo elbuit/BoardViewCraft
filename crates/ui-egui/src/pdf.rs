@@ -287,20 +287,26 @@ impl PdfSchematicViewer {
     /// here: the first paint queues the visible page, and the text layers are indexed behind it.
     pub fn open_file(&mut self, path: &Path) -> Result<(), String> {
         let bytes = std::fs::read(path).map_err(|e| format!("Failed to read PDF file: {e}"))?;
-        let bytes_arc = Arc::new(bytes);
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("schematic.pdf");
+        self.open_from_bytes(filename, &bytes)?;
+        self.path = Some(path.to_path_buf());
+        Ok(())
+    }
+
+    /// Opens a PDF from in-memory bytes (e.g. dropped files or embedded assets).
+    pub fn open_from_bytes(&mut self, filename: &str, bytes: &[u8]) -> Result<(), String> {
+        let bytes_arc = Arc::new(bytes.to_vec());
 
         // 1. Inspect document structure, page count, and page dimensions
         let info = pdfcraft_render::inspect(Arc::clone(&bytes_arc), None)
             .map_err(|e| format!("Failed to inspect PDF: {e}"))?;
         let total_pages = info.pages.len().max(1);
 
-        self.path = Some(path.to_path_buf());
-        self.filename = Some(
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("schematic.pdf")
-                .to_string(),
-        );
+        self.path = None;
+        self.filename = Some(filename.to_string());
         self.total_pages = total_pages;
         self.current_page = 1;
         self.doc_info = Some(info);

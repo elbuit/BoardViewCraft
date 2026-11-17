@@ -43,6 +43,9 @@ pub fn show_pdf_tab(ui: &mut Ui, tokens: &Tokens, lang: Language, viewer: &mut P
             if ui.button("✖").on_hover_text(i18n::tr(lang, "pdf.close")).clicked() {
                 out.close_requested = true;
             }
+            if ui.button("📂").on_hover_text(i18n::tr(lang, "pdf.open")).clicked() {
+                out.open_requested = true;
+            }
         });
     });
     ui.separator();

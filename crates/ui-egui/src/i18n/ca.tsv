@@ -148,6 +148,7 @@
 	prefs.color_canvas	Fons del llenç:
 	prefs.color_board_outline	Contorn de la placa:
 	prefs.color_board_fill	Farciment de la placa:
+	prefs.color_board_hatching	Ratllat de placa:
 	prefs.color_part_body	Cos del component:
 	prefs.color_part_resistor	Resistència (SMD):
 	prefs.color_part_capacitor	Condensador (SMD):
@@ -182,6 +183,7 @@
 	prefs.adaptive_lod	Optimització LOD Adaptativa
 	prefs.show_opposite	Mostrar Elements de la Cara Oposada (Raigs X)
 	prefs.show_pins	Mostrar Pins i Pads de Components
+	prefs.show_board_hatching	Ratlles horitzontals a la placa (hatching)
 	prefs.show_vias	Mostrar Vies i Claus de Prova
 	prefs.show_unnamed_vias	Mostrar Vies i Pads sense nom
 	prefs.close	Tancar

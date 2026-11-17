@@ -148,6 +148,7 @@
 	prefs.color_canvas	Sfondo della tela:
 	prefs.color_board_outline	Bordo della scheda:
 	prefs.color_board_fill	Riempimento della scheda:
+	prefs.color_board_hatching	Tratteggio scheda:
 	prefs.color_part_body	Corpo del componente:
 	prefs.color_part_resistor	Resistore (SMD):
 	prefs.color_part_capacitor	Condensatore (SMD):
@@ -182,6 +183,7 @@
 	prefs.adaptive_lod	Decimazione adattiva LOD
 	prefs.show_opposite	Mostra elementi del lato opposto (Raggi X)
 	prefs.show_pins	Mostra pin e pad dei componenti
+	prefs.show_board_hatching	Linee tratteggiate orizzontali sulla scheda
 	prefs.show_vias	Mostra via e punti di test
 	prefs.show_unnamed_vias	Mostra via e pad senza nome
 	prefs.close	Chiudi
