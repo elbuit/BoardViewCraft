@@ -1189,29 +1189,6 @@ pub fn show_canvas(
         let vp = &canvas_state.viewport;
         if sync == MeshSync::Remapped {
             ui.ctx().request_repaint();
-            // During wheel zoom, keep hatching lines at exact hairline width and constant step
-            // so active zooming never scales or distorts the substrate pattern.
-            if prefs.show_board_hatching
-                && tokens.board_hatching_pattern != BoardHatchingPattern::None
-                && tokens.board_hatching.a() > 0
-                && b.outline_polygon.len() >= 3
-                && canvas_state.cached_meshes.len() >= 2
-            {
-                let screen_pts: Vec<Pos2> = b
-                    .outline_polygon
-                    .iter()
-                    .map(|p| vp.world_to_screen(*p, rect))
-                    .collect();
-                let mut hatch_mesh = Mesh::default();
-                append_board_hatching_to_mesh(
-                    &mut hatch_mesh,
-                    &screen_pts,
-                    rect,
-                    tokens.board_hatching,
-                    tokens.board_hatching_pattern,
-                );
-                canvas_state.cached_meshes[1] = Arc::new(hatch_mesh);
-            }
         }
         // The board over a shown photo is faded by the overlay opacity (the photo stays opaque).
         let photo_shown = active_slot.visible && active_slot.texture.is_some();
@@ -2341,39 +2318,34 @@ pub fn append_board_hatching_to_mesh(
     let board_h = (max_y - min_y).max(0.0);
     let min_dim = board_w.min(board_h);
 
-    // Fade out hatching when PCB is far away / tiny on screen so lines become diffuse and fade away.
-    // Near view (min_dim >= 200px): crisp, distinct hairline pattern.
-    // Zoomed out (min_dim between 60px and 200px): lines smoothly attenuate, blending into the substrate tone.
-    // Far away (min_dim <= 60px): lines fade out completely, leaving pure solid diffuse substrate fill.
-    if min_dim < 60.0 {
+    // Keep hatching visible across zoom levels down to tiny board representations.
+    // When board is minuscule (< 15px), hatching is omitted so it doesn't clutter tiny icons/dots.
+    // Between 15px and 45px, it gently and linearly blends into the diffuse substrate tone.
+    if min_dim < 15.0 {
         return;
     }
-    let t = ((min_dim - 60.0) / 140.0).clamp(0.0, 1.0);
-    let alpha_scale = t * t;
-    if alpha_scale <= 0.0 {
+    let final_color = if min_dim < 45.0 {
+        let t = (min_dim - 15.0) / 30.0;
+        Color32::from_rgba_premultiplied(
+            ((color.r() as f32) * t).round() as u8,
+            ((color.g() as f32) * t).round() as u8,
+            ((color.b() as f32) * t).round() as u8,
+            ((color.a() as f32) * t).round() as u8,
+        )
+    } else {
+        color
+    };
+    if final_color.a() == 0 {
         return;
     }
-    let effective_alpha = ((color.a() as f32) * alpha_scale).round() as u8;
-    if effective_alpha == 0 {
-        return;
-    }
-    let final_color = Color32::from_rgba_premultiplied(
-        ((color.r() as f32) * alpha_scale).round() as u8,
-        ((color.g() as f32) * alpha_scale).round() as u8,
-        ((color.b() as f32) * alpha_scale).round() as u8,
-        effective_alpha,
-    );
-
-    // Hairline stroke (half_w = 0.35 gives ~0.7px line for a pleasant subtle trace)
-    let half_w = 0.35f32;
 
     // Fixed uniform step so lines have identical separation across zoom levels and across the board.
     let step = 8.0f32;
-
     let n = screen_pts.len();
 
     // 1. Horizontal lines (y = const)
     if pattern == BoardHatchingPattern::Horizontal {
+        let half_w = 0.50f32; // 1.0px hairline stroke covering integer pixel centers reliably
         let anchor_y = screen_pts[0].y;
         let start_y = min_y.max(rect.min.y);
         let end_y = max_y.min(rect.max.y);
@@ -2387,24 +2359,26 @@ pub fn append_board_hatching_to_mesh(
                 for i in 0..n {
                     let p1 = screen_pts[i];
                     let p2 = screen_pts[(i + 1) % n];
-                    if (p1.y <= y && p2.y > y) || (p2.y <= y && p1.y > y) {
+                    if (p2.y - p1.y).abs() < 1e-5 {
+                        continue;
+                    }
+                    if (p1.y <= y && y < p2.y) || (p2.y <= y && y < p1.y) {
                         let dy = p2.y - p1.y;
-                        if dy.abs() > 1e-4 {
-                            let t = (y - p1.y) / dy;
-                            let x = p1.x + t * (p2.x - p1.x);
-                            intersections.push(x);
-                        }
+                        let t = (y - p1.y) / dy;
+                        let x = p1.x + t * (p2.x - p1.x);
+                        intersections.push(x);
                     }
                 }
                 intersections.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                let snap_y = y.floor() + 0.5;
                 for chunk in intersections.chunks_exact(2) {
                     let x0 = chunk[0].max(rect.min.x);
                     let x1 = chunk[1].min(rect.max.x);
                     if x0 < x1 {
                         Renderer::append_line_segment_to_mesh(
                             mesh,
-                            Pos2::new(x0, y),
-                            Pos2::new(x1, y),
+                            Pos2::new(x0, snap_y),
+                            Pos2::new(x1, snap_y),
                             half_w,
                             final_color,
                         );
@@ -2417,6 +2391,7 @@ pub fn append_board_hatching_to_mesh(
 
     // 2. Diagonal lines (+45°, x - y = const) for Diagonal and CrossHatch
     if pattern == BoardHatchingPattern::Diagonal || pattern == BoardHatchingPattern::CrossHatch {
+        let half_w = 0.55f32;
         let dc = step * std::f32::consts::SQRT_2;
         let anchor_u = screen_pts[0].x - screen_pts[0].y;
         let mut min_u = f32::INFINITY;
@@ -2437,13 +2412,14 @@ pub fn append_board_hatching_to_mesh(
                 let p2 = screen_pts[(i + 1) % n];
                 let u1 = p1.x - p1.y;
                 let u2 = p2.x - p2.y;
-                if (u1 <= c && u2 > c) || (u2 <= c && u1 > c) {
+                if (u2 - u1).abs() < 1e-5 {
+                    continue;
+                }
+                if (u1 <= c && c < u2) || (u2 <= c && c < u1) {
                     let du = u2 - u1;
-                    if du.abs() > 1e-4 {
-                        let t = (c - u1) / du;
-                        let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
-                        intersections.push(p);
-                    }
+                    let t = (c - u1) / du;
+                    let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+                    intersections.push(p);
                 }
             }
             intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
@@ -2458,6 +2434,7 @@ pub fn append_board_hatching_to_mesh(
 
     // 3. Opposite Diagonal lines (-45°, x + y = const) for CrossHatch (forming diamonds / rombos)
     if pattern == BoardHatchingPattern::CrossHatch {
+        let half_w = 0.55f32;
         let dc = step * std::f32::consts::SQRT_2;
         let anchor_v = screen_pts[0].x + screen_pts[0].y;
         let mut min_v = f32::INFINITY;
@@ -2478,13 +2455,14 @@ pub fn append_board_hatching_to_mesh(
                 let p2 = screen_pts[(i + 1) % n];
                 let v1 = p1.x + p1.y;
                 let v2 = p2.x + p2.y;
-                if (v1 <= c && v2 > c) || (v2 <= c && v1 > c) {
+                if (v2 - v1).abs() < 1e-5 {
+                    continue;
+                }
+                if (v1 <= c && c < v2) || (v2 <= c && c < v1) {
                     let dv = v2 - v1;
-                    if dv.abs() > 1e-4 {
-                        let t = (c - v1) / dv;
-                        let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
-                        intersections.push(p);
-                    }
+                    let t = (c - v1) / dv;
+                    let p = Pos2::new(p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y));
+                    intersections.push(p);
                 }
             }
             intersections.sort_by(|a, b| a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal));
@@ -3632,11 +3610,11 @@ mod tests {
         assert!(!diamond_mesh.is_empty(), "CrossHatch hatching lines should be added to mesh");
         assert!(diamond_mesh.vertices.len() > diag_mesh.vertices.len(), "CrossHatch has two sets of diagonals");
 
-        // Verify line stroke is hairline 0.7px and line spacing is exactly 8.0 pixels across horizontal lines
+        // Verify line stroke is hairline 1.0px (half_w = 0.50) and line spacing is exactly 8.0 pixels across horizontal lines
         let mut line_centers: Vec<f32> = mesh.vertices.chunks_exact(4).map(|chunk| {
             let y_mean = chunk.iter().map(|v| v.pos.y).sum::<f32>() / 4.0;
             let stroke = (chunk[0].pos.y - chunk[1].pos.y).abs();
-            assert!((stroke - 0.70).abs() < 1e-2, "Expected 0.70px hairline stroke, got {stroke}");
+            assert!((stroke - 1.0).abs() < 1e-2, "Expected 1.0px hairline stroke, got {stroke}");
             (y_mean * 10.0).round() / 10.0
         }).collect();
         line_centers.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -3646,16 +3624,32 @@ mod tests {
             assert!((diff - 8.0).abs() < 1e-2, "Expected exact 8.0px spacing, got {diff}");
         }
 
-        // Small / far-away board (min_dim < 60.0) should produce empty mesh (diffuse substrate)
+        // Tiny / far-away board (min_dim < 15.0) should produce empty mesh (diffuse substrate)
         let small_pts = vec![
             Pos2::new(10.0, 10.0),
-            Pos2::new(50.0, 10.0),
-            Pos2::new(50.0, 50.0),
-            Pos2::new(10.0, 50.0),
+            Pos2::new(20.0, 10.0),
+            Pos2::new(20.0, 20.0),
+            Pos2::new(10.0, 20.0),
         ];
         let mut small_mesh = Mesh::default();
         append_board_hatching_to_mesh(&mut small_mesh, &small_pts, rect, color, BoardHatchingPattern::Horizontal);
-        assert!(small_mesh.is_empty(), "Far-away small board should fade out to diffuse substrate");
+        assert!(small_mesh.is_empty(), "Tiny far-away board (<15px) should fade out to diffuse substrate");
+
+        // Chamfered polygon (45-degree chamfered PCB corners) must not drop lines or cause parity mismatch
+        let chamfered_pts = vec![
+            Pos2::new(120.0, 100.0),
+            Pos2::new(280.0, 100.0),
+            Pos2::new(300.0, 120.0), // 45° chamfer
+            Pos2::new(300.0, 280.0),
+            Pos2::new(280.0, 300.0), // 45° chamfer
+            Pos2::new(120.0, 300.0),
+            Pos2::new(100.0, 280.0), // 45° chamfer
+            Pos2::new(100.0, 120.0), // 45° chamfer
+        ];
+        let mut chamfer_mesh = Mesh::default();
+        append_board_hatching_to_mesh(&mut chamfer_mesh, &chamfered_pts, rect, color, BoardHatchingPattern::CrossHatch);
+        assert!(!chamfer_mesh.is_empty(), "Chamfered polygon should generate hatching without dropouts");
+        assert_eq!(chamfer_mesh.vertices.len() % 4, 0, "All line segments must form complete 4-vertex quads");
 
         // None pattern should produce empty mesh
         let mut none_mesh = Mesh::default();
