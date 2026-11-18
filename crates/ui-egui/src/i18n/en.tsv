@@ -307,3 +307,7 @@
 	prefs.highlight_gnd_pins	Highlight GND pins
 	menu.import_obdata	Import OpenBoardData...
 	side_panel.related_nets	Related signals / nets:
+	side_panel.pin_net	Pin net
+	side_panel.unpin_net	Unpin net
+	side_panel.pinned_nets	Pinned nets
+	side_panel.unpin_all	Unpin all

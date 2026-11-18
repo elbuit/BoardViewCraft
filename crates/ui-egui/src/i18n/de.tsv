@@ -307,3 +307,7 @@
 	prefs.highlight_gnd_pins	GND-Pins hervorheben
 	menu.import_obdata	OpenBoardData importieren...
 	side_panel.related_nets	Zugehörige Signale / Netze:
+	side_panel.pin_net	Netz anheften
+	side_panel.unpin_net	Netz lösen
+	side_panel.pinned_nets	Angeheftete Netze
+	side_panel.unpin_all	Alle lösen

@@ -145,6 +145,7 @@ pub struct BoardViewApp {
     selected_via_idx: Option<usize>,
     selected_part_idx: Option<usize>,
     selected_net: Option<String>,
+    pub pinned_nets: std::collections::BTreeMap<String, egui::Color32>,
 
     // Status message
     status_msg: String,
@@ -203,6 +204,7 @@ impl Default for BoardViewApp {
             selected_via_idx: None,
             selected_part_idx: None,
             selected_net: None,
+            pinned_nets: std::collections::BTreeMap::new(),
             status_msg: "Ready. Open a .cad file to inspect.".to_string(),
             filename: None,
             board_path: None,
@@ -294,6 +296,7 @@ impl BoardViewApp {
         self.selected_via_idx = None;
         self.selected_part_idx = None;
         self.selected_net = None;
+        self.pinned_nets.clear();
         self.nav.clear();
         self.side_panel_state.search.invalidate();
         self.pdf_viewer.close();
@@ -402,6 +405,7 @@ impl BoardViewApp {
         self.selected_via_idx = None;
         self.selected_part_idx = None;
         self.selected_net = None;
+        self.pinned_nets.clear();
         self.nav.clear();
         self.pending_auto_fit = false;
         self.canvases.clear_board();
@@ -1327,6 +1331,7 @@ impl BoardViewApp {
             &mut self.selected_via_idx,
             &mut self.selected_part_idx,
             &mut self.selected_net,
+            &self.pinned_nets,
             &mut self.renderer,
             &self.preferences,
             Some(&self.notes_store),
@@ -1340,7 +1345,11 @@ impl BoardViewApp {
         if !is_active && canvas::activates_canvas(response.clicked(), response.secondary_clicked(), response.drag_started()) {
             self.canvases.scene_active = true;
         }
-        let requests = (self.canvases.scene.navigate_to_schematic.take(), self.canvases.scene.open_measurement_target.take());
+        let requests = (
+            self.canvases.scene.navigate_to_schematic.take(),
+            self.canvases.scene.open_measurement_target.take(),
+            self.canvases.scene.toggle_pinned_net.take(),
+        );
         self.handle_canvas_requests(ui, requests);
 
         self.scene_rect = Some(area);
@@ -1397,6 +1406,7 @@ impl BoardViewApp {
                 &mut self.selected_via_idx,
                 &mut self.selected_part_idx,
                 &mut self.selected_net,
+                &self.pinned_nets,
                 &mut self.renderer,
                 &self.preferences,
                 Some(&self.notes_store),
@@ -1408,40 +1418,58 @@ impl BoardViewApp {
             }
 
             let state = self.canvases.side_mut(side);
-            let requests = (state.navigate_to_schematic.take(), state.open_measurement_target.take());
+            let requests = (state.navigate_to_schematic.take(), state.open_measurement_target.take(), state.toggle_pinned_net.take());
             self.handle_canvas_requests(ui, requests);
         }
         self.finish_side_canvases(ui, rects, zoom_delta);
     }
 
-    /// Acts on what a canvas context menu asked for: open the schematic at a part, or open the
-    /// measurement dialog of a pin.
-    fn handle_canvas_requests(&mut self, ui: &Ui, (schematic, measurement): (Option<String>, Option<bvc_core::NoteTarget>)) {
-        {
-            // Check if user requested navigation to Schematic from PCB context menu
-            if let Some(target) = schematic {
-                if self.cad_schematic_viewer.is_loaded() {
-                    self.cad_schematic_viewer.search_input = target.clone();
-                    self.cad_schematic_viewer.cross_probe(&target);
-                    self.set_tab(BoardTab::Pdf);
-                    self.status_msg = format!("Navigated to CAD schematic for {}", target);
-                    ui.ctx().request_repaint();
-                } else if self.pdf_viewer.is_loaded() {
-                    self.pdf_viewer.search_input = target.clone();
-                    self.pdf_viewer.cross_probe(&target);
-                    self.set_tab(BoardTab::Pdf);
-                    self.status_msg = format!("Navigated to schematic for {}", target);
-                    ui.ctx().request_repaint();
-                } else {
-                    self.status_msg = "No schematic loaded.".to_string();
-                }
-            }
+    /// Acts on what a canvas context menu asked for: open the schematic at a part, open the
+    /// measurement dialog of a pin, or toggle pinned status of a net.
+    fn handle_canvas_requests(
+        &mut self,
+        ui: &Ui,
+        (schematic, measurement, toggle_pinned): (Option<String>, Option<bvc_core::NoteTarget>, Option<String>),
+    ) {
+        if let Some(net) = toggle_pinned {
+            self.toggle_pinned_net(&net);
+            ui.ctx().request_repaint();
+        }
 
-            // Check if user requested opening measurement dialog from PCB context menu
-            if let Some(target) = measurement {
-                self.pin_measurement_dialog.open(target, self.board.as_ref(), &self.notes_store);
+        // Check if user requested navigation to Schematic from PCB context menu
+        if let Some(target) = schematic {
+            if self.cad_schematic_viewer.is_loaded() {
+                self.cad_schematic_viewer.search_input = target.clone();
+                self.cad_schematic_viewer.cross_probe(&target);
+                self.set_tab(BoardTab::Pdf);
+                self.status_msg = format!("Navigated to CAD schematic for {}", target);
+                ui.ctx().request_repaint();
+            } else if self.pdf_viewer.is_loaded() {
+                self.pdf_viewer.search_input = target.clone();
+                self.pdf_viewer.cross_probe(&target);
+                self.set_tab(BoardTab::Pdf);
+                self.status_msg = format!("Navigated to schematic for {}", target);
+                ui.ctx().request_repaint();
+            } else {
+                self.status_msg = "No schematic loaded.".to_string();
             }
         }
+
+        // Check if user requested opening measurement dialog from PCB context menu
+        if let Some(target) = measurement {
+            self.pin_measurement_dialog.open(target, self.board.as_ref(), &self.notes_store);
+        }
+    }
+
+    /// Toggles whether `net_name` is pinned with a distinct color on the canvas.
+    pub fn toggle_pinned_net(&mut self, net_name: &str) {
+        if self.pinned_nets.contains_key(net_name) {
+            self.pinned_nets.remove(net_name);
+        } else {
+            let color = canvas::next_pinned_color(&self.pinned_nets);
+            self.pinned_nets.insert(net_name.to_string(), color);
+        }
+        self.canvases.invalidate_caches();
     }
 
     /// Zoom locking, rectangle bookkeeping and pending auto-fit after the side canvases drew.
@@ -1996,6 +2024,7 @@ impl eframe::App for BoardViewApp {
                     &mut self.selected_via_idx,
                     &mut self.selected_part_idx,
                     &mut self.selected_net,
+                    &mut self.pinned_nets,
                     overlay_side,
                     cur_rotation_rad,
                     cur_sx,
@@ -2436,6 +2465,7 @@ mod focus_tests {
             selected_via_idx: None,
             selected_part_idx: None,
             selected_net: Some("VCC".to_string()),
+            pinned_nets: std::collections::BTreeMap::new(),
             status_msg: "Selected".to_string(),
             filename: None,
             board_path: None,

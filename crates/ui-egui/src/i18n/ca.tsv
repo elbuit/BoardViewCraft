@@ -307,3 +307,7 @@
 	prefs.highlight_gnd_pins	Ressaltar pins GND
 	menu.import_obdata	Importar OpenBoardData...
 	side_panel.related_nets	Senyals / xarxes relacionades:
+	side_panel.pin_net	Fixar net
+	side_panel.unpin_net	Desfixar net
+	side_panel.pinned_nets	Nets fixades
+	side_panel.unpin_all	Desfixar totes

@@ -307,3 +307,7 @@
 	prefs.highlight_gnd_pins	Mettre en surbrillance les broches GND
 	menu.import_obdata	Importer OpenBoardData...
 	side_panel.related_nets	Signaux / équipotentielles associés :
+	side_panel.pin_net	Épingler le net
+	side_panel.unpin_net	Désépingler le net
+	side_panel.pinned_nets	Nets épinglés
+	side_panel.unpin_all	Tout désépingler

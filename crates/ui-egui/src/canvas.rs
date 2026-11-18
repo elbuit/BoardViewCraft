@@ -225,6 +225,26 @@ impl Viewport {
     }
 }
 
+/// Curated palette of vibrant, high-contrast colors for pinning multiple nets simultaneously.
+pub const PINNED_NET_PALETTE: [Color32; 6] = [
+    Color32::from_rgb(0x29, 0xB6, 0xF6), // Light Blue
+    Color32::from_rgb(0x66, 0xBB, 0x6A), // Light Green
+    Color32::from_rgb(0xFF, 0xA7, 0x26), // Orange
+    Color32::from_rgb(0xAB, 0x47, 0xBC), // Purple
+    Color32::from_rgb(0x26, 0xC6, 0xDA), // Cyan
+    Color32::from_rgb(0xEF, 0x53, 0x50), // Coral Red
+];
+
+/// Selects the next available color from `PINNED_NET_PALETTE` that is not already used.
+pub fn next_pinned_color(pinned_nets: &std::collections::BTreeMap<String, Color32>) -> Color32 {
+    for color in PINNED_NET_PALETTE {
+        if !pinned_nets.values().any(|&c| c == color) {
+            return color;
+        }
+    }
+    PINNED_NET_PALETTE[pinned_nets.len() % PINNED_NET_PALETTE.len()]
+}
+
 /// Everything the board meshes depend on except zoom, pan and the canvas rectangle.
 ///
 /// Zoom and pan steps, and showing the same side in a canvas of another size or position (a
@@ -255,6 +275,7 @@ pub struct ViewCacheKey {
     pub highlight_gnd_pins: bool,
     pub highlight_obdata_pins: bool,
     pub color_components: bool,
+    pub pinned_nets: std::collections::BTreeMap<String, Color32>,
     /// Substrate tile texture the meshes were mapped with (changes with pattern and DPI scale).
     pub substrate_texture: Option<egui::TextureId>,
 }
@@ -272,6 +293,7 @@ impl ViewCacheKey {
         selected_via: Option<usize>,
         selected_part: Option<usize>,
         selected_net: Option<&str>,
+        pinned_nets: &std::collections::BTreeMap<String, Color32>,
         prefs: &Preferences,
     ) -> Self {
         Self {
@@ -297,6 +319,7 @@ impl ViewCacheKey {
             highlight_gnd_pins: prefs.highlight_gnd_pins,
             highlight_obdata_pins: prefs.highlight_obdata_pins,
             color_components: prefs.active_pcb_color_components(),
+            pinned_nets: pinned_nets.clone(),
             substrate_texture: None,
         }
     }
@@ -445,6 +468,8 @@ pub struct CanvasState {
     pub navigate_to_schematic: Option<String>,
     /// Target to open the pin measurement dialog for.
     pub open_measurement_target: Option<bvc_core::NoteTarget>,
+    /// Request from canvas context menu to toggle pinned state of a net.
+    pub toggle_pinned_net: Option<String>,
     /// Whether a PDF or CAD schematic is loaded; gates the "show in schematic" menu entries.
     pub schematic_available: bool,
     pub measurement: MeasurementTool,
@@ -498,6 +523,7 @@ impl Default for CanvasState {
             context_menu_part: None,
             navigate_to_schematic: None,
             open_measurement_target: None,
+            toggle_pinned_net: None,
             schematic_available: false,
             measurement: MeasurementTool::default(),
         }
@@ -730,6 +756,7 @@ pub fn show_canvas(
     selected_via_idx: &mut Option<usize>,
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
+    pinned_nets: &std::collections::BTreeMap<String, Color32>,
     renderer: &mut Renderer,
     prefs: &Preferences,
     notes_store: Option<&bvc_core::BoardNotesStore>,
@@ -1177,6 +1204,7 @@ pub fn show_canvas(
             *selected_via_idx,
             *selected_part_idx,
             selected_net.as_deref(),
+            pinned_nets,
             prefs,
         );
         current_key.substrate_texture = renderer.substrate_tiles.as_ref().and_then(|t| t.id());
@@ -1194,6 +1222,7 @@ pub fn show_canvas(
                 *selected_via_idx,
                 *selected_part_idx,
                 selected_net.as_deref(),
+                pinned_nets,
                 None,
                 None,
                 renderer,
@@ -1541,6 +1570,21 @@ pub fn show_canvas(
                                         .clicked()
                                     {
                                         canvas_state.navigate_to_schematic = Some(pin.net_name.clone());
+                                        close_menu = true;
+                                    }
+                                }
+
+                                // Pinned net action
+                                if has_net {
+                                    ui.separator();
+                                    let is_pinned = pinned_nets.contains_key(&pin.net_name);
+                                    let pin_label = if is_pinned {
+                                        format!("📌 {}", crate::i18n::tr(lang, "side_panel.unpin_net"))
+                                    } else {
+                                        format!("📌 {}", crate::i18n::tr(lang, "side_panel.pin_net"))
+                                    };
+                                    if ui.button(RichText::new(pin_label).color(tokens.text)).clicked() {
+                                        canvas_state.toggle_pinned_net = Some(pin.net_name.clone());
                                         close_menu = true;
                                     }
                                 }
@@ -2230,6 +2274,8 @@ pub fn generate_board_meshes(
     show_pins: bool,
     color_components: bool,
 ) -> Vec<Mesh> {
+    static EMPTY_PINNED: std::sync::LazyLock<std::collections::BTreeMap<String, Color32>> =
+        std::sync::LazyLock::new(std::collections::BTreeMap::new);
     generate_board_meshes_in(
         b,
         vp,
@@ -2240,6 +2286,7 @@ pub fn generate_board_meshes(
         selected_via_idx,
         selected_part_idx,
         selected_net,
+        &EMPTY_PINNED,
         current_hover_pin,
         current_hover_via,
         renderer,
@@ -2271,6 +2318,7 @@ pub fn generate_board_meshes_in(
     selected_via_idx: Option<usize>,
     selected_part_idx: Option<usize>,
     selected_net: Option<&str>,
+    pinned_nets: &std::collections::BTreeMap<String, Color32>,
     current_hover_pin: Option<usize>,
     current_hover_via: Option<usize>,
     renderer: &mut Renderer,
@@ -2382,6 +2430,12 @@ pub fn generate_board_meshes_in(
         .unwrap_or_default();
     let is_high_density = active_membership.is_high_density();
 
+    let pinned_memberships: Vec<(&String, Color32, bvc_core::NetMembership)> = pinned_nets
+        .iter()
+        .filter(|(sn, _)| selected_net != Some(sn.as_str()))
+        .map(|(sn, &color)| (sn, color, b.net_membership(sn)))
+        .collect();
+
     // 3. Vias (Spatial frustum query + Batched parallel tessellation + LOD)
     let visible_via_indices = if !b.spatial_grid.is_empty() {
         b.spatial_grid.query_vias_in_rect(&visible_world)
@@ -2394,10 +2448,11 @@ pub fn generate_board_meshes_in(
         .map(|&idx| (idx, &b.vias[idx]))
         .filter(|(idx, via)| {
             let is_net_selected = active_membership.contains_via(*idx);
+            let is_pinned = pinned_memberships.iter().any(|(_, _, m)| m.contains_via(*idx));
             let is_hovered = current_hover_via == Some(*idx);
-            let is_active = is_net_selected || is_hovered;
+            let is_active = is_net_selected || is_hovered || is_pinned;
 
-            // Global via visibility check (unless selected/hovered)
+            // Global via visibility check (unless selected/hovered/pinned)
             if !show_vias && !is_active {
                 return false;
             }
@@ -2409,7 +2464,7 @@ pub fn generate_board_meshes_in(
             }
 
             let is_on_cur_side = via.side.visible_on(vp.side);
-            let allow_opposite = show_opposite_elements || is_net_selected;
+            let allow_opposite = show_opposite_elements || is_net_selected || is_pinned;
             if !allow_opposite && !is_on_cur_side {
                 return false;
             }
@@ -2424,6 +2479,7 @@ pub fn generate_board_meshes_in(
                 let is_on_cur_side = via.side.visible_on(vp.side);
                 let is_net_selected = active_membership.contains_via(idx);
                 let is_hovered = current_hover_via == Some(idx);
+                let pinned_color = pinned_memberships.iter().find(|(_, _, m)| m.contains_via(idx)).map(|(_, c, _)| *c);
 
                 let screen_pos = vp.world_to_screen(via.pos, rect);
                 let raw_screen_r = via.radius as f32 * vp.scale;
@@ -2448,6 +2504,33 @@ pub fn generate_board_meshes_in(
                             tokens.pin_highlight_opp_side.g(),
                             tokens.pin_highlight_opp_side.b(),
                             ((tokens.pin_highlight_opp_side.a() as f32) * (1.0 - cross_layer_transparency))
+                                .round()
+                                .clamp(0.0, 255.0) as u8,
+                        );
+                        Renderer::append_circle_outline_to_mesh(
+                            &mut hl_mesh,
+                            screen_pos,
+                            raw_screen_r.clamp(1.5, 30.0),
+                            stroke_w,
+                            opp_color,
+                        );
+                    }
+                } else if let Some(pinned_col) = pinned_color {
+                    if is_on_cur_side {
+                        Renderer::append_lod_circle_to_mesh(
+                            &mut hl_mesh,
+                            screen_pos,
+                            raw_screen_r,
+                            is_high_density,
+                            pinned_col,
+                        );
+                    } else {
+                        let stroke_w = if is_high_density { 1.2 } else { 1.6 };
+                        let opp_color = Color32::from_rgba_unmultiplied(
+                            pinned_col.r(),
+                            pinned_col.g(),
+                            pinned_col.b(),
+                            ((pinned_col.a() as f32) * (1.0 - cross_layer_transparency))
                                 .round()
                                 .clamp(0.0, 255.0) as u8,
                         );
@@ -2507,19 +2590,20 @@ pub fn generate_board_meshes_in(
         .filter(|(_idx, pin)| {
             let is_on_cur_side = pin.side.visible_on(vp.side);
             let is_net_selected = active_membership.contains_pin(*_idx);
+            let is_pinned = pinned_memberships.iter().any(|(_, _, m)| m.contains_pin(*_idx));
             let is_hovered = current_hover_pin == Some(*_idx);
             let is_selected_pin = selected_pin_idx == Some(*_idx);
-            let is_active = is_net_selected || is_hovered || is_selected_pin;
+            let is_active = is_net_selected || is_hovered || is_selected_pin || is_pinned;
 
-            // Global pin visibility check (unless selected/hovered/net-active)
+            // Global pin visibility check (unless selected/hovered/net-active/pinned)
             if !show_pins && !is_active {
                 return false;
             }
 
             // Allow opposite-side pins if either:
             // 1. show_opposite_elements preference is enabled, OR
-            // 2. a net is actively selected (or a pin of it is selected) and this pin belongs to it.
-            let allow_opposite = show_opposite_elements || is_net_selected;
+            // 2. a net is actively selected (or a pin of it is selected) or pinned and this pin belongs to it.
+            let allow_opposite = show_opposite_elements || is_net_selected || is_pinned;
             if !allow_opposite && !is_on_cur_side {
                 return false;
             }
@@ -2535,6 +2619,7 @@ pub fn generate_board_meshes_in(
                 let is_selected_pin = selected_pin_idx == Some(idx);
                 let is_net_selected = active_membership.contains_pin(idx);
                 let is_hovered = current_hover_pin == Some(idx);
+                let pinned_color = pinned_memberships.iter().find(|(_, _, m)| m.contains_pin(idx)).map(|(_, c, _)| *c);
 
                 let screen_pos = vp.world_to_screen(pin.pos, rect);
                 let raw_screen_r = pin.radius as f32 * vp.scale;
@@ -2572,6 +2657,44 @@ pub fn generate_board_meshes_in(
                             tokens.pin_highlight_opp_side.g(),
                             tokens.pin_highlight_opp_side.b(),
                             ((tokens.pin_highlight_opp_side.a() as f32) * (1.0 - cross_layer_transparency))
+                                .round()
+                                .clamp(0.0, 255.0) as u8,
+                        );
+                        if let Some(pad) = pad {
+                            pad.outline(&mut hl_mesh, screen_pos, stroke_w, opp_color);
+                        } else {
+                            Renderer::append_circle_outline_to_mesh(
+                                &mut hl_mesh,
+                                screen_pos,
+                                raw_screen_r.clamp(1.5, 40.0),
+                                stroke_w,
+                                opp_color,
+                            );
+                        }
+                    }
+                } else if let Some(pinned_col) = pinned_color {
+                    let pad = ScreenPad::of(pin, vp.scale, axis_x, axis_y, PAD_MARKER_NET_PX);
+                    if is_on_cur_side {
+                        // Current side: filled pad in pinned color
+                        if let Some(pad) = pad {
+                            pad.fill(&mut hl_mesh, screen_pos, pinned_col);
+                        } else {
+                            Renderer::append_lod_circle_to_mesh(
+                                &mut hl_mesh,
+                                screen_pos,
+                                raw_screen_r,
+                                is_high_density,
+                                pinned_col,
+                            );
+                        }
+                    } else {
+                        // Opposite side: hollow outline in pinned color with cross-layer transparency
+                        let stroke_w = if is_high_density { 1.2 } else { 1.8 };
+                        let opp_color = Color32::from_rgba_unmultiplied(
+                            pinned_col.r(),
+                            pinned_col.g(),
+                            pinned_col.b(),
+                            ((pinned_col.a() as f32) * (1.0 - cross_layer_transparency))
                                 .round()
                                 .clamp(0.0, 255.0) as u8,
                         );
@@ -2806,6 +2929,137 @@ pub fn generate_board_meshes_in(
                             );
                             new_meshes.push(cross_mesh);
                         }
+                    }
+                }
+            }
+        }
+
+        // Flight lines (MST) for pinned nets
+        for (pinned_name, &pinned_color) in pinned_nets {
+            if selected_net == Some(pinned_name.as_str()) {
+                continue;
+            }
+            if let Some(net) = b.nets.get(pinned_name) {
+                #[derive(Clone, Copy)]
+                struct NetNode {
+                    pos: Point,
+                    side: Side,
+                }
+                let mut nodes: Vec<NetNode> = Vec::with_capacity(net.pin_indices.len() + net.via_indices.len());
+                for &pidx in &net.pin_indices {
+                    if let Some(pin) = b.pins.get(pidx) {
+                        nodes.push(NetNode { pos: pin.pos, side: pin.side });
+                    }
+                }
+                for &vidx in &net.via_indices {
+                    if let Some(via) = b.vias.get(vidx) {
+                        nodes.push(NetNode { pos: via.pos, side: via.side });
+                    }
+                }
+                let total_nodes = nodes.len();
+                if total_nodes >= 2 && total_nodes <= 400 {
+                    let mut same_layer_segments = Vec::new();
+                    let mut cross_layer_segments = Vec::new();
+                    let is_cross = |s1: Side, s2: Side| -> bool {
+                        (s1 == Side::Top && s2 == Side::Bottom) || (s1 == Side::Bottom && s2 == Side::Top)
+                    };
+                    let n = nodes.len();
+                    let mut in_mst = vec![false; n];
+                    let mut min_dist = vec![f64::INFINITY; n];
+                    let mut parent = vec![0usize; n];
+
+                    in_mst[0] = true;
+                    for v in 1..n {
+                        min_dist[v] = nodes[0].pos.dist(nodes[v].pos);
+                        parent[v] = 0;
+                    }
+
+                    for _ in 1..n {
+                        let mut best_u = usize::MAX;
+                        let mut best_d = f64::INFINITY;
+                        for u in 1..n {
+                            if !in_mst[u] && min_dist[u] < best_d {
+                                best_d = min_dist[u];
+                                best_u = u;
+                            }
+                        }
+                        if best_u == usize::MAX {
+                            break;
+                        }
+                        in_mst[best_u] = true;
+                        let p_u = vp.world_to_screen(nodes[best_u].pos, rect);
+                        let p_parent = vp.world_to_screen(nodes[parent[best_u]].pos, rect);
+                        if is_cross(nodes[best_u].side, nodes[parent[best_u]].side) {
+                            cross_layer_segments.push((p_u, p_parent));
+                        } else {
+                            same_layer_segments.push((p_u, p_parent));
+                        }
+                        for v in 1..n {
+                            if !in_mst[v] {
+                                let d = nodes[best_u].pos.dist(nodes[v].pos);
+                                if d < min_dist[v] {
+                                    min_dist[v] = d;
+                                    parent[v] = best_u;
+                                }
+                            }
+                        }
+                    }
+
+                    let make_dashed = |segs: &[(Pos2, Pos2)]| -> Vec<(Pos2, Pos2)> {
+                        let mut dashed = Vec::with_capacity(segs.len() * 4);
+                        let dash_len = 6.0f32;
+                        let gap_len = 4.0f32;
+                        let cycle = dash_len + gap_len;
+                        for &(p1, p2) in segs {
+                            let dist = p1.distance(p2);
+                            if dist <= dash_len {
+                                dashed.push((p1, p2));
+                                continue;
+                            }
+                            let dir = (p2 - p1) / dist;
+                            let mut t = 0.0f32;
+                            while t < dist {
+                                let t_end = (t + dash_len).min(dist);
+                                dashed.push((p1 + dir * t, p1 + dir * t_end));
+                                t += cycle;
+                            }
+                        }
+                        dashed
+                    };
+
+                    let (same_segs, cross_segs) = if net_lines_dashed {
+                        (make_dashed(&same_layer_segments), make_dashed(&cross_layer_segments))
+                    } else {
+                        (same_layer_segments, cross_layer_segments)
+                    };
+
+                    if !same_segs.is_empty() {
+                        let mut web_mesh = Mesh::default();
+                        Renderer::append_lines_to_mesh(
+                            &mut web_mesh,
+                            &same_segs,
+                            0.75,
+                            pinned_color,
+                        );
+                        new_meshes.push(web_mesh);
+                    }
+                    if !cross_segs.is_empty() {
+                        let cross_color = Color32::from_rgba_unmultiplied(
+                            pinned_color.r(),
+                            pinned_color.g(),
+                            pinned_color.b(),
+                            ((pinned_color.a() as f32) * (1.0 - cross_layer_transparency))
+                                .round()
+                                .clamp(0.0, 255.0) as u8,
+                        );
+                        let mut cross_mesh = Mesh::default();
+                        Renderer::append_lines_to_mesh(
+                            &mut cross_mesh,
+                            &cross_segs,
+                            0.75,
+                            cross_color,
+                        );
+                        new_meshes.push(cross_mesh);
                     }
                 }
             }
@@ -3223,11 +3477,12 @@ mod tests {
     /// Runs `sync_board_meshes` for `vp` with a real tessellation and reports what it did.
     fn sync(state: &mut CanvasState, board: &Board, vp: &Viewport, rect: EguiRect, selected_pin: Option<usize>) -> MeshSync {
         let prefs = Preferences::default();
-        let key = ViewCacheKey::new(board, vp, selected_pin, None, None, None, &prefs);
+        let empty_pinned = std::collections::BTreeMap::new();
+        let key = ViewCacheKey::new(board, vp, selected_pin, None, None, None, &empty_pinned, &prefs);
         let mut renderer = Renderer::new();
         sync_board_meshes(state, key, vp, rect, |coverage| {
             generate_board_meshes_in(
-                board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, None, None, &mut renderer,
+                board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, &empty_pinned, None, None, &mut renderer,
                 true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, true, false, false,
             )
         })
@@ -3302,7 +3557,7 @@ mod tests {
         vp.center = Point::new(vp.center.x + 7.0, vp.center.y - 3.0);
         assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
         let fresh = generate_board_meshes_in(
-            &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, None, None, &mut Renderer::new(),
+            &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, &Default::default(), None, None, &mut Renderer::new(),
             true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, true, false, false,
         );
         // Pads have true size, so the re-mapped pad mesh (the last one) equals a fresh one.
@@ -3322,7 +3577,7 @@ mod tests {
         let mut vp = Viewport { center: board.pins[0].pos, scale: 40.0, ..Viewport::default() };
         let pin_vertices = |vp: &Viewport| -> Vec<Pos2> {
             let meshes = generate_board_meshes_in(
-                &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
+                &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, &Default::default(), None, None,
                 &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, true, true, false, false,
             );
             meshes.last().unwrap().vertices.iter().map(|v| v.pos).collect()
@@ -3347,7 +3602,7 @@ mod tests {
         let cn1 = board.parts.iter().find(|p| p.name == "CN1").and_then(|p| p.bounding_box).unwrap();
         let vertices = |vp: &Viewport| -> usize {
             generate_board_meshes_in(
-                &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
+                &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, &Default::default(), None, None,
                 &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, true, false, false,
             )
             .iter()
@@ -3394,7 +3649,7 @@ mod tests {
         vp.fit_to_rect(board.bounding_box.unwrap(), rect);
         let prefs = Preferences::default();
         let key = |vp: &Viewport, pin: Option<usize>, prefs: &Preferences| {
-            ViewCacheKey::new(&board, vp, pin, None, None, None, prefs)
+            ViewCacheKey::new(&board, vp, pin, None, None, None, &Default::default(), prefs)
         };
         let idle = key(&vp, None, &prefs);
         // Same view on the next frame (hover state is not an input of the key).
@@ -4136,7 +4391,7 @@ mod tests {
         // When highlight_gnd_pins is false, GND pad uses pin_default instead of pin_ground.
         let meshes_no_gnd_hl = generate_board_meshes_in(
             &board, &vp, canvas_rect, view_cull_rect(&vp, canvas_rect), &tokens_olive,
-            None, None, None, None, None, None, &mut renderer,
+            None, None, None, None, &Default::default(), None, None, &mut renderer,
             false, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false, false, false, true,
         );
         assert!(
@@ -4311,6 +4566,62 @@ mod tests {
             );
         });
         output.textures_delta.clear();
+    }
+
+    #[test]
+    fn test_pinned_nets_render_with_custom_colors_and_keep_active_selection() {
+        let mut board = Board::default();
+        board.outline_polygon = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 0.0),
+            Point::new(100.0, 100.0),
+            Point::new(0.0, 100.0),
+        ];
+        board.parts.push(bvc_core::Part { id: 0, name: "U1".into(), side: Side::Top, pin_indices: vec![0, 1], ..Default::default() });
+        board.parts.push(bvc_core::Part { id: 1, name: "U2".into(), side: Side::Top, pin_indices: vec![2, 3], ..Default::default() });
+        board.pins.push(bvc_core::Pin { id: 0, part_id: 0, name: "1".into(), net_name: "NET_SDA".into(), pos: Point::new(10.0, 10.0), side: Side::Top, radius: 2.0, ..Default::default() });
+        board.pins.push(bvc_core::Pin { id: 1, part_id: 0, name: "2".into(), net_name: "NET_SDA".into(), pos: Point::new(20.0, 10.0), side: Side::Top, radius: 2.0, ..Default::default() });
+        board.pins.push(bvc_core::Pin { id: 2, part_id: 1, name: "1".into(), net_name: "NET_SCL".into(), pos: Point::new(10.0, 30.0), side: Side::Top, radius: 2.0, ..Default::default() });
+        board.pins.push(bvc_core::Pin { id: 3, part_id: 1, name: "2".into(), net_name: "NET_SCL".into(), pos: Point::new(20.0, 30.0), side: Side::Top, radius: 2.0, ..Default::default() });
+        board.rebuild_indices();
+
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 400.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), canvas_rect);
+        let tokens = Tokens::DARK;
+
+        let mut pinned_nets = std::collections::BTreeMap::new();
+        let color_sda = PINNED_NET_PALETTE[0];
+        let color_scl = PINNED_NET_PALETTE[1];
+        pinned_nets.insert("NET_SDA".to_string(), color_sda);
+        pinned_nets.insert("NET_SCL".to_string(), color_scl);
+
+        // Next color should pick an unused one (PINNED_NET_PALETTE[2])
+        let color_next = next_pinned_color(&pinned_nets);
+        assert_eq!(color_next, PINNED_NET_PALETTE[2]);
+
+        let mut renderer = Renderer::new();
+        let meshes = generate_board_meshes_in(
+            &board, &vp, canvas_rect, view_cull_rect(&vp, canvas_rect), &tokens,
+            None, None, None, None, &pinned_nets, None, None, &mut renderer,
+            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false, false, false, false,
+        );
+
+        let has_sda_color = meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == color_sda));
+        let has_scl_color = meshes.iter().any(|m| m.vertices.iter().any(|v| v.color == color_scl));
+        assert!(has_sda_color, "Mesh must contain vertices in NET_SDA pinned color");
+        assert!(has_scl_color, "Mesh must contain vertices in NET_SCL pinned color");
+
+        // When NET_SDA is actively selected, it uses tokens.pin_highlight_cur_side, while NET_SCL remains color_scl
+        let meshes_sel = generate_board_meshes_in(
+            &board, &vp, canvas_rect, view_cull_rect(&vp, canvas_rect), &tokens,
+            None, None, None, Some("NET_SDA"), &pinned_nets, None, None, &mut renderer,
+            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false, false, false, false,
+        );
+        let has_active_hl = meshes_sel.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.pin_highlight_cur_side));
+        let has_scl_still = meshes_sel.iter().any(|m| m.vertices.iter().any(|v| v.color == color_scl));
+        assert!(has_active_hl, "Active net NET_SDA must use active selection highlight");
+        assert!(has_scl_still, "Pinned net NET_SCL must still render with its pinned color");
     }
 }
 

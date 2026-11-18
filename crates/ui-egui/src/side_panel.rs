@@ -240,6 +240,51 @@ pub fn part_focus_target(board: &Board, part_id: usize, view_side: Side) -> Opti
     Some((center, side))
 }
 
+fn show_pinned_nets_section(
+    ui: &mut Ui,
+    b: &Board,
+    tokens: &Tokens,
+    pinned_nets: &mut std::collections::BTreeMap<String, egui::Color32>,
+    selected_pin_idx: &mut Option<usize>,
+    selected_part_idx: &mut Option<usize>,
+    selected_net: &mut Option<String>,
+    lang: Language,
+) {
+    if pinned_nets.is_empty() {
+        return;
+    }
+    ui.add_space(8.0);
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("{} ({})", i18n::tr(lang, "side_panel.pinned_nets"), pinned_nets.len())).strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button(i18n::tr(lang, "side_panel.unpin_all")).clicked() {
+                pinned_nets.clear();
+            }
+        });
+    });
+    let mut to_remove = None;
+    for (name, color) in pinned_nets.iter() {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("●").color(*color).size(14.0));
+            if ui.link(RichText::new(name).strong()).on_hover_text("Select net").clicked() {
+                select_net(b, name, selected_pin_idx, selected_part_idx, selected_net);
+            }
+            if let Some(net) = b.get_net(name) {
+                ui.label(RichText::new(format!("({}p, {}v)", net.pin_indices.len(), net.via_indices.len())).color(tokens.text_dim()).size(11.0));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("✖").on_hover_text(i18n::tr(lang, "side_panel.unpin_net")).clicked() {
+                    to_remove = Some(name.clone());
+                }
+            });
+        });
+    }
+    if let Some(rem) = to_remove {
+        pinned_nets.remove(&rem);
+    }
+}
+
 pub fn show_side_panel(
     ui: &mut Ui,
     tokens: &Tokens,
@@ -252,6 +297,7 @@ pub fn show_side_panel(
     selected_via_idx: &mut Option<usize>,
     selected_part_idx: &mut Option<usize>,
     selected_net: &mut Option<String>,
+    pinned_nets: &mut std::collections::BTreeMap<String, egui::Color32>,
     current_side: Side,
     current_rotation_rad: f32,
     current_sx: f32,
@@ -328,7 +374,33 @@ pub fn show_side_panel(
                         let text = export_net_details_tsv(b, net_name);
                         ui.ctx().copy_text(text);
                     }
+                    let is_pinned = pinned_nets.contains_key(net_name);
+                    let pin_label = if is_pinned {
+                        format!("📌 {}", i18n::tr(lang, "side_panel.unpin_net"))
+                    } else {
+                        format!("📌 {}", i18n::tr(lang, "side_panel.pin_net"))
+                    };
+                    if ui.button(pin_label).clicked() {
+                        if is_pinned {
+                            pinned_nets.remove(net_name);
+                        } else {
+                            let color = crate::canvas::next_pinned_color(pinned_nets);
+                            pinned_nets.insert(net_name.clone(), color);
+                        }
+                    }
                 });
+                if let Some(color_mut) = pinned_nets.get_mut(net_name) {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Color:").color(tokens.text_dim()));
+                        for &pal_color in &crate::canvas::PINNED_NET_PALETTE {
+                            let is_active = *color_mut == pal_color;
+                            let marker = if is_active { "●" } else { "○" };
+                            if ui.selectable_label(is_active, RichText::new(marker).color(pal_color).size(15.0)).clicked() {
+                                *color_mut = pal_color;
+                            }
+                        }
+                    });
+                }
                 if let Some(net) = b.get_net(net_name) {
                     ui.label(
                         RichText::new(format!(
@@ -481,9 +553,11 @@ pub fn show_side_panel(
                                 }
                             });
                     }
+                    show_pinned_nets_section(ui, b, tokens, pinned_nets, selected_pin_idx, selected_part_idx, selected_net, lang);
                 }
             } else {
                 ui.label(RichText::new(i18n::tr(lang, "side_panel.click_pin_view_net")).color(tokens.text_dim()));
+                show_pinned_nets_section(ui, b, tokens, pinned_nets, selected_pin_idx, selected_part_idx, selected_net, lang);
             }
         }
         Tab::Part => {
@@ -849,26 +923,47 @@ pub fn show_side_panel(
                             for name in &net_matches[row_range] {
                                 let Some(net) = b.nets.get(name) else { continue };
                                 let is_selected = selected_net.as_deref() == Some(name.as_str());
-                                let response = ui.selectable_label(
-                                    is_selected,
-                                    format!("{} ({} pins)", name, net.pin_indices.len()),
-                                );
-                                if response.clicked() {
-                                    select_net(b, name, selected_pin_idx, selected_part_idx, selected_net);
-                                }
-                                response.context_menu(|ui| {
-                                    if ui.button(i18n::tr(lang, "context_menu.copy_net")).clicked() {
-                                        ui.ctx().copy_text(name.clone());
-                                        ui.close();
+                                let is_pinned = pinned_nets.get(name).copied();
+                                ui.horizontal(|ui| {
+                                    if let Some(pin_col) = is_pinned {
+                                        ui.label(RichText::new("●").color(pin_col).size(13.0));
                                     }
-                                    if ui.button(i18n::tr(lang, "context_menu.copy_net_details")).clicked() {
-                                        let tsv = export_net_details_tsv(b, name);
-                                        ui.ctx().copy_text(tsv);
-                                        ui.close();
+                                    let response = ui.selectable_label(
+                                        is_selected,
+                                        format!("{} ({} pins)", name, net.pin_indices.len()),
+                                    );
+                                    if response.clicked() {
+                                        select_net(b, name, selected_pin_idx, selected_part_idx, selected_net);
                                     }
+                                    response.context_menu(|ui| {
+                                        let pin_act = if is_pinned.is_some() {
+                                            format!("📌 {}", i18n::tr(lang, "side_panel.unpin_net"))
+                                        } else {
+                                            format!("📌 {}", i18n::tr(lang, "side_panel.pin_net"))
+                                        };
+                                        if ui.button(pin_act).clicked() {
+                                            if is_pinned.is_some() {
+                                                pinned_nets.remove(name);
+                                            } else {
+                                                let col = crate::canvas::next_pinned_color(pinned_nets);
+                                                pinned_nets.insert(name.clone(), col);
+                                            }
+                                            ui.close();
+                                        }
+                                        if ui.button(i18n::tr(lang, "context_menu.copy_net")).clicked() {
+                                            ui.ctx().copy_text(name.clone());
+                                            ui.close();
+                                        }
+                                        if ui.button(i18n::tr(lang, "context_menu.copy_net_details")).clicked() {
+                                            let tsv = export_net_details_tsv(b, name);
+                                            ui.ctx().copy_text(tsv);
+                                            ui.close();
+                                        }
+                                    });
                                 });
                             }
                         });
+                    show_pinned_nets_section(ui, b, tokens, pinned_nets, selected_pin_idx, selected_part_idx, selected_net, lang);
                 }
                 SearchSubTab::Notes => {
                     ui.label(RichText::new(i18n::tr(lang, "side_panel.notes_list")).strong());

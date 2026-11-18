@@ -307,3 +307,7 @@
 	prefs.highlight_gnd_pins	Evidenziare i pin GND
 	menu.import_obdata	Importa OpenBoardData...
 	side_panel.related_nets	Segnali / reti correlate:
+	side_panel.pin_net	Fissa net
+	side_panel.unpin_net	Rimuovi net
+	side_panel.pinned_nets	Net fissati
+	side_panel.unpin_all	Rimuovi tutti
