@@ -303,5 +303,7 @@
 	prefs.hatching_diagonal	Diagonale Linien (45°)
 	prefs.hatching_crosshatch	Rauten / Kreuzschraffur
 	prefs.hatching_grid	Quadratisches Raster
-	prefs.highlight_obdata_pins	Pins mit OpenBoardData hervorheben
+	prefs.highlight_obdata_pins	Pins mit Messwerten hervorheben
+	prefs.highlight_gnd_pins	GND-Pins hervorheben
 	menu.import_obdata	OpenBoardData importieren...
+	side_panel.related_nets	Zugehörige Signale / Netze:

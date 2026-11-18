@@ -303,5 +303,7 @@
 	prefs.hatching_diagonal	Líneas oblicuas (45°)
 	prefs.hatching_crosshatch	Rombos / Malla cruzada
 	prefs.hatching_grid	Cuadrícula
-	prefs.highlight_obdata_pins	Resaltar pines con OpenBoardData
+	prefs.highlight_obdata_pins	Resaltar pines con valores medidos
+	prefs.highlight_gnd_pins	Resaltar pines GND
 	menu.import_obdata	Importar OpenBoardData...
+	side_panel.related_nets	Señales / redes relacionadas:

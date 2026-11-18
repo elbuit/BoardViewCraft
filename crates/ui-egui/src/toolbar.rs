@@ -147,28 +147,12 @@ pub fn show_toolbar(
                     (&mut prefs.show_pin_annotations, "prefs.show_pin_annotations"),
                     (&mut prefs.show_part_labels, "prefs.show_part_labels"),
                     (&mut prefs.show_board_hatching, "prefs.show_board_hatching"),
+                    (&mut prefs.highlight_gnd_pins, "prefs.highlight_gnd_pins"),
                     (&mut prefs.highlight_obdata_pins, "prefs.highlight_obdata_pins"),
                     (&mut prefs.show_net_web, "prefs.show_net_web"),
                     (&mut prefs.net_lines_dashed, "prefs.net_lines_dashed"),
                 ] {
                     changed |= ui.checkbox(value, tr(key)).changed();
-                }
-                if prefs.show_board_hatching {
-                    ui.separator();
-                    ui.label(tr("prefs.board_hatching_pattern"));
-                    let mut active_tokens = prefs.active_pcb_tokens();
-                    let mut pattern = active_tokens.board_hatching_pattern;
-                    ComboBox::from_id_salt("toolbar_hatching_pattern")
-                        .selected_text(pattern.display_name(lang))
-                        .show_ui(ui, |ui| {
-                            for p in crate::theme::BoardHatchingPattern::ALL {
-                                if ui.selectable_value(&mut pattern, p, p.display_name(lang)).changed() {
-                                    active_tokens.board_hatching_pattern = pattern;
-                                    prefs.set_active_pcb_tokens(active_tokens);
-                                    changed = true;
-                                }
-                            }
-                        });
                 }
                 if changed {
                     actions.push(ToolbarAction::PrefsChanged);

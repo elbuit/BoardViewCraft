@@ -24,6 +24,23 @@ pub struct Board {
     pub metadata: BoardMetadata,
 }
 
+/// A net related to the current net through a 2-pin bridge component (e.g. 0-ohm resistor, ferrite bead/inductor, fuse).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RelatedNet {
+    /// Name of the target related net.
+    pub net_name: String,
+    /// Reference designator of the bridge component (e.g. "R12", "L3", "F1").
+    pub component_name: String,
+    /// Component category (Resistor, Inductor, Fuse, etc.).
+    pub component_kind: crate::model::ComponentKind,
+    /// Component value if available (e.g. "0", "0R", "10uH").
+    pub component_value: Option<String>,
+    /// Pin on the source net.
+    pub pin_from: String,
+    /// Pin on the target net.
+    pub pin_to: String,
+}
+
 /// Margin (mils) around a pin centre whose pad has no known physical size.
 const SIZELESS_PAD_MARGIN: f64 = 6.0;
 
@@ -507,6 +524,81 @@ impl Board {
     pub fn net_membership(&self, name: &str) -> NetMembership {
         NetMembership::from_net(self.pins.len(), self.vias.len(), self.get_net(name))
     }
+
+    /// Finds all related nets connected through 2-pin bridge passives (resistors, inductors, fuses).
+    ///
+    /// Ignores ground nets and unconnected nets. Returns a sorted and deduplicated list.
+    pub fn related_nets(&self, net_name: &str) -> Vec<RelatedNet> {
+        if net_name.is_empty() || crate::model::is_ground_net(net_name) || net_name.starts_with("UNCONNECTED") {
+            return Vec::new();
+        }
+
+        let Some(net) = self.nets.get(net_name) else {
+            return Vec::new();
+        };
+
+        let mut results = Vec::new();
+
+        for &pin_idx in &net.pin_indices {
+            let Some(pin) = self.pins.get(pin_idx) else {
+                continue;
+            };
+            let Some(part) = self.parts.get(pin.part_id) else {
+                continue;
+            };
+
+            // Only 2-pin bridge passives (resistors, inductors, fuses)
+            if part.pin_indices.len() != 2 {
+                continue;
+            }
+
+            let kind = part.component_kind();
+            if !matches!(kind, crate::model::ComponentKind::Resistor | crate::model::ComponentKind::Inductor | crate::model::ComponentKind::Fuse) {
+                continue;
+            }
+
+            // Find the other pin of this part
+            let other_pin_idx = if part.pin_indices[0] == pin_idx {
+                part.pin_indices[1]
+            } else {
+                part.pin_indices[0]
+            };
+
+            let Some(other_pin) = self.pins.get(other_pin_idx) else {
+                continue;
+            };
+
+            let other_net = &other_pin.net_name;
+            if other_net.is_empty()
+                || other_net == net_name
+                || crate::model::is_ground_net(other_net)
+                || other_net.starts_with("UNCONNECTED")
+            {
+                continue;
+            }
+
+            let val = self.metadata.part_value(&part.name).map(str::to_owned);
+
+            results.push(RelatedNet {
+                net_name: other_net.clone(),
+                component_name: part.name.clone(),
+                component_kind: kind,
+                component_value: val,
+                pin_from: pin.name.clone(),
+                pin_to: other_pin.name.clone(),
+            });
+        }
+
+        // Deduplicate and sort
+        results.sort_by(|a, b| {
+            a.net_name
+                .cmp(&b.net_name)
+                .then_with(|| a.component_name.cmp(&b.component_name))
+        });
+        results.dedup_by(|a, b| a.net_name == b.net_name && a.component_name == b.component_name);
+
+        results
+    }
 }
 
 #[cfg(test)]
@@ -757,5 +849,53 @@ mod tests {
         // Verify diagonal orientation: corners differ in both X and Y
         assert!((outline[0].x - outline[1].x).abs() > 5.0);
         assert!((outline[0].y - outline[1].y).abs() > 5.0);
+    }
+
+    #[test]
+    fn test_related_nets_finds_bridge_passives() {
+        let mut board = Board::new();
+
+        // R1: Resistor between PP3V3 and PP3V3_S5 (value 0)
+        board.parts.push(Part { id: 0, name: "R1".into(), ..Default::default() });
+        board.pins.push(Pin { id: 0, part_id: 0, name: "1".into(), net_name: "PP3V3".into(), ..Default::default() });
+        board.pins.push(Pin { id: 1, part_id: 0, name: "2".into(), net_name: "PP3V3_S5".into(), ..Default::default() });
+
+        // F1: Fuse between PP3V3 and PP3V3_FUSED
+        board.parts.push(Part { id: 1, name: "F1".into(), ..Default::default() });
+        board.pins.push(Pin { id: 2, part_id: 1, name: "1".into(), net_name: "PP3V3".into(), ..Default::default() });
+        board.pins.push(Pin { id: 3, part_id: 1, name: "2".into(), net_name: "PP3V3_FUSED".into(), ..Default::default() });
+
+        // C1: Capacitor between PP3V3 and GND (should NOT be a bridge)
+        board.parts.push(Part { id: 2, name: "C1".into(), ..Default::default() });
+        board.pins.push(Pin { id: 4, part_id: 2, name: "1".into(), net_name: "PP3V3".into(), ..Default::default() });
+        board.pins.push(Pin { id: 5, part_id: 2, name: "2".into(), net_name: "GND".into(), ..Default::default() });
+
+        // U1: IC with 3 pins (should NOT be a 2-pin bridge)
+        board.parts.push(Part { id: 3, name: "U1".into(), ..Default::default() });
+        board.pins.push(Pin { id: 6, part_id: 3, name: "1".into(), net_name: "PP3V3".into(), ..Default::default() });
+        board.pins.push(Pin { id: 7, part_id: 3, name: "2".into(), net_name: "SDA".into(), ..Default::default() });
+        board.pins.push(Pin { id: 8, part_id: 3, name: "3".into(), net_name: "GND".into(), ..Default::default() });
+
+        board.metadata.set_part_value("R1", "0");
+        board.rebuild_indices();
+
+        let related = board.related_nets("PP3V3");
+        assert_eq!(related.len(), 2);
+
+        // F1 -> PP3V3_FUSED
+        assert_eq!(related[0].net_name, "PP3V3_FUSED");
+        assert_eq!(related[0].component_name, "F1");
+        assert_eq!(related[0].component_kind, crate::model::ComponentKind::Fuse);
+        assert_eq!(related[0].pin_from, "1");
+        assert_eq!(related[0].pin_to, "2");
+
+        // R1 -> PP3V3_S5 with value "0"
+        assert_eq!(related[1].net_name, "PP3V3_S5");
+        assert_eq!(related[1].component_name, "R1");
+        assert_eq!(related[1].component_kind, crate::model::ComponentKind::Resistor);
+        assert_eq!(related[1].component_value.as_deref(), Some("0"));
+
+        // Ground queries return empty
+        assert!(board.related_nets("GND").is_empty());
     }
 }

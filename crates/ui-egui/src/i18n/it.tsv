@@ -303,5 +303,7 @@
 	prefs.hatching_diagonal	Linee oblique (45°)
 	prefs.hatching_crosshatch	Rombi / Tratteggio incrociato
 	prefs.hatching_grid	Griglia quadrata
-	prefs.highlight_obdata_pins	Evidenziare i pin con OpenBoardData
+	prefs.highlight_obdata_pins	Evidenziare i pin con valori misurati
+	prefs.highlight_gnd_pins	Evidenziare i pin GND
 	menu.import_obdata	Importa OpenBoardData...
+	side_panel.related_nets	Segnali / reti correlate:

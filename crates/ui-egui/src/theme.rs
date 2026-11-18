@@ -355,7 +355,7 @@ impl PcbTokens {
     };
 
     pub const LIGHT: PcbTokens = PcbTokens {
-        canvas: Color32::from_rgb(0xf6, 0xf8, 0xfa),
+        canvas: Color32::from_rgb(0xca, 0xc8, 0xc8),
         grid_minor: Color32::from_rgb(0xe8, 0xeb, 0xf0),
         grid_major: Color32::from_rgb(0xd4, 0xd8, 0xe0),
         axis_x: Color32::from_rgb(0xd0, 0x50, 0x50),
@@ -365,19 +365,19 @@ impl PcbTokens {
         hover: Color32::from_rgb(0x09, 0x69, 0xda),
 
         board_outline: Color32::from_rgb(0x35, 0x40, 0x50),
-        board_fill: Color32::from_rgba_premultiplied(0xdf, 0xe7, 0xf0, 0x80),
+        board_fill: Color32::from_rgb(0xbd, 0xbc, 0xbc),
         board_hatching: Color32::from_rgba_premultiplied(0x5a, 0x64, 0x72, 0xa0),
         board_hatching_pattern: BoardHatchingPattern::None,
-        part_body: Color32::from_rgb(0xa5, 0xb7, 0xc2), // trace light chip
-        part_body_line: Color32::from_rgb(0x4d, 0x6a, 0x80), // trace light chipLine
+        part_body: Color32::from_rgb(0xa5, 0xb7, 0xc2),
+        part_body_line: Color32::from_rgb(0x46, 0x4c, 0xa2),
         part_text: Color32::from_rgb(0x24, 0x29, 0x2f),
-        pin_default: Color32::from_rgb(0x36, 0x5b, 0x4a), // trace light pad
+        pin_default: Color32::from_rgb(0x66, 0x65, 0xd7),
         pin_obdata: Color32::from_rgb(0x00, 0x85, 0x8a),
-        pin_ground: None,
-        pin_unconnected: Color32::from_rgb(0x8c, 0x95, 0x9f),
-        pin_highlight_cur_side: Color32::from_rgb(0x1a, 0x9e, 0x3d),
-        pin_highlight_opp_side: Color32::from_rgb(0x09, 0x69, 0xda),
-        via_cur_side: Color32::from_rgb(0xc0, 0x7a, 0x10),
+        pin_ground: Some(Color32::from_rgba_premultiplied(0x4c, 0x4c, 0x7d, 0xc3)),
+        pin_unconnected: Color32::from_rgb(0x7a, 0x75, 0x75),
+        pin_highlight_cur_side: Color32::from_rgb(0x5b, 0xe9, 0x7a),
+        pin_highlight_opp_side: Color32::from_rgb(0x5e, 0xc7, 0x92),
+        via_cur_side: Color32::from_rgb(0x42, 0x35, 0x27),
         via_opp_side: Color32::from_rgba_premultiplied(0x40, 0x2d, 0x10, 128),
         via_highlight: Color32::from_rgb(0x1a, 0x9e, 0x3d),
         net_web: Color32::from_rgba_premultiplied(0xa7, 0x1d, 0x26, 0xcc), // red

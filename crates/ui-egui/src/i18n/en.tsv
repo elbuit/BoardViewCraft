@@ -303,5 +303,7 @@
 	prefs.hatching_diagonal	Oblique lines (45°)
 	prefs.hatching_crosshatch	Diamonds / Crosshatch
 	prefs.hatching_grid	Square grid
-	prefs.highlight_obdata_pins	Highlight OpenBoardData pins
+	prefs.highlight_obdata_pins	Highlight pins with measured values
+	prefs.highlight_gnd_pins	Highlight GND pins
 	menu.import_obdata	Import OpenBoardData...
+	side_panel.related_nets	Related signals / nets:

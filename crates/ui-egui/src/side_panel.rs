@@ -349,6 +349,32 @@ pub fn show_side_panel(
                         }
                     }
 
+                    let related = b.related_nets(net_name);
+                    if !related.is_empty() {
+                        ui.add_space(8.0);
+                        ui.label(RichText::new(i18n::tr(lang, "side_panel.related_nets")).strong());
+                        for rel in &related {
+                            ui.horizontal(|ui| {
+                                let comp_desc = if let Some(val) = &rel.component_value {
+                                    format!("{} ({val})", rel.component_name)
+                                } else {
+                                    rel.component_name.clone()
+                                };
+                                if let Some(&part_id) = b.part_by_name.get(&rel.component_name.to_ascii_uppercase()) {
+                                    if ui.link(RichText::new(&comp_desc).color(tokens.text())).on_hover_text("Select bridge component").clicked() {
+                                        select_part_only(part_id, selected_pin_idx, selected_via_idx, selected_part_idx, selected_net);
+                                    }
+                                } else {
+                                    ui.label(RichText::new(&comp_desc).color(tokens.text()));
+                                }
+                                ui.label(RichText::new("→").color(tokens.text_dim()));
+                                if ui.link(RichText::new(&rel.net_name).color(tokens.accent()).strong()).on_hover_text("Select related net").clicked() {
+                                    select_net(b, &rel.net_name, selected_pin_idx, selected_part_idx, selected_net);
+                                }
+                            });
+                        }
+                    }
+
                     ui.add_space(8.0);
                     ui.label(RichText::new(i18n::tr(lang, "side_panel.pins_on_net")).strong());
 
@@ -1685,6 +1711,22 @@ mod tests {
         assert_eq!(pin, None);
         assert_eq!(via, None);
         assert_eq!(net, None);
+    }
+
+    #[test]
+    fn test_related_nets_integrated_with_board() {
+        let mut board = Board::new();
+        board.parts.push(Part { id: 0, name: "R1".into(), ..Default::default() });
+        board.pins.push(Pin { id: 0, part_id: 0, name: "1".into(), net_name: "NET_A".into(), ..Default::default() });
+        board.pins.push(Pin { id: 1, part_id: 0, name: "2".into(), net_name: "NET_B".into(), ..Default::default() });
+        board.metadata.set_part_value("R1", "0R");
+        board.rebuild_indices();
+
+        let related = board.related_nets("NET_A");
+        assert_eq!(related.len(), 1);
+        assert_eq!(related[0].net_name, "NET_B");
+        assert_eq!(related[0].component_name, "R1");
+        assert_eq!(related[0].component_value.as_deref(), Some("0R"));
     }
 
     #[test]

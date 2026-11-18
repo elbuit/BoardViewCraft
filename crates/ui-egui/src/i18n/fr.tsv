@@ -303,5 +303,7 @@
 	prefs.hatching_diagonal	Lignes obliques (45°)
 	prefs.hatching_crosshatch	Losanges / Quadrillage
 	prefs.hatching_grid	Grille carrée
-	prefs.highlight_obdata_pins	Mettre en surbrillance les broches OpenBoardData
+	prefs.highlight_obdata_pins	Mettre en surbrillance les broches avec mesures
+	prefs.highlight_gnd_pins	Mettre en surbrillance les broches GND
 	menu.import_obdata	Importer OpenBoardData...
+	side_panel.related_nets	Signaux / équipotentielles associés :

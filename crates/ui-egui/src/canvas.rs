@@ -252,6 +252,7 @@ pub struct ViewCacheKey {
     pub show_pins: bool,
     pub show_board_hatching: bool,
     pub board_hatching_pattern: BoardHatchingPattern,
+    pub highlight_gnd_pins: bool,
     pub highlight_obdata_pins: bool,
     pub color_components: bool,
     /// Substrate tile texture the meshes were mapped with (changes with pattern and DPI scale).
@@ -293,6 +294,7 @@ impl ViewCacheKey {
             show_pins: prefs.show_pins,
             show_board_hatching: prefs.show_board_hatching,
             board_hatching_pattern: prefs.active_pcb_tokens().board_hatching_pattern,
+            highlight_gnd_pins: prefs.highlight_gnd_pins,
             highlight_obdata_pins: prefs.highlight_obdata_pins,
             color_components: prefs.active_pcb_color_components(),
             substrate_texture: None,
@@ -1204,6 +1206,7 @@ pub fn show_canvas(
                 prefs.show_unnamed_vias,
                 prefs.show_pins,
                 prefs.show_board_hatching,
+                prefs.highlight_gnd_pins,
                 prefs.highlight_obdata_pins,
                 prefs.active_pcb_color_components(),
             )
@@ -2249,6 +2252,7 @@ pub fn generate_board_meshes(
         show_unnamed_vias,
         show_pins,
         false,
+        true,
         false,
         color_components,
     )
@@ -2279,6 +2283,7 @@ pub fn generate_board_meshes_in(
     show_unnamed_vias: bool,
     show_pins: bool,
     show_board_hatching: bool,
+    highlight_gnd_pins: bool,
     highlight_obdata_pins: bool,
     color_components: bool,
 ) -> Vec<Mesh> {
@@ -2372,6 +2377,7 @@ pub fn generate_board_meshes_in(
 
     // Precompute O(1) net membership lookup
     let active_membership = selected_net
+        .filter(|sn| highlight_gnd_pins || !bvc_core::is_ground_net(sn))
         .map(|sn| b.net_membership(sn))
         .unwrap_or_default();
     let is_high_density = active_membership.is_high_density();
@@ -2592,7 +2598,7 @@ pub fn generate_board_meshes_in(
                         tokens.pin_obdata
                     } else if pin.net_name.is_empty() || pin.net_name == "UNCONNECTED" {
                         tokens.pin_unconnected
-                    } else if bvc_core::is_ground_net(&pin.net_name) {
+                    } else if highlight_gnd_pins && bvc_core::is_ground_net(&pin.net_name) {
                         tokens.pin_ground
                     } else {
                         tokens.pin_default
@@ -3222,7 +3228,7 @@ mod tests {
         sync_board_meshes(state, key, vp, rect, |coverage| {
             generate_board_meshes_in(
                 board, vp, rect, coverage, &Tokens::DARK, selected_pin, None, None, None, None, None, &mut renderer,
-                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false, false,
+                true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, true, false, false,
             )
         })
     }
@@ -3297,7 +3303,7 @@ mod tests {
         assert_eq!(sync(&mut state, &board, &vp, rect, None), MeshSync::Remapped);
         let fresh = generate_board_meshes_in(
             &board, &vp, rect, coverage, &Tokens::DARK, None, None, None, None, None, None, &mut Renderer::new(),
-            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false, false,
+            true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, true, false, false,
         );
         // Pads have true size, so the re-mapped pad mesh (the last one) equals a fresh one.
         let (remapped, fresh) = (state.cached_meshes.last().unwrap(), fresh.last().unwrap());
@@ -3317,7 +3323,7 @@ mod tests {
         let pin_vertices = |vp: &Viewport| -> Vec<Pos2> {
             let meshes = generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, true, false, false,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, false, false, true, true, true, false, false,
             );
             meshes.last().unwrap().vertices.iter().map(|v| v.pos).collect()
         };
@@ -3342,7 +3348,7 @@ mod tests {
         let vertices = |vp: &Viewport| -> usize {
             generate_board_meshes_in(
                 &board, vp, rect, mesh_coverage(vp, rect), &Tokens::DARK, None, None, None, None, None, None,
-                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, false, false,
+                &mut Renderer::new(), true, ViaDisplayMode::Web, false, 0.60, false, true, false, true, true, true, false, false,
             )
             .iter()
             .map(|m| m.vertices.len())
@@ -4125,6 +4131,17 @@ mod tests {
         assert!(
             meshes_olive.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens_olive.pin_ground)),
             "Expected the GND pad to render with the ground pin color"
+        );
+
+        // When highlight_gnd_pins is false, GND pad uses pin_default instead of pin_ground.
+        let meshes_no_gnd_hl = generate_board_meshes_in(
+            &board, &vp, canvas_rect, view_cull_rect(&vp, canvas_rect), &tokens_olive,
+            None, None, None, None, None, None, &mut renderer,
+            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false, false, false, true,
+        );
+        assert!(
+            !meshes_no_gnd_hl.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens_olive.pin_ground)),
+            "Expected GND pad NOT to have pin_ground color when highlight_gnd_pins is false"
         );
 
         // 2. Cyberpunk theme with color_components: true (falls back to realistic component colors)
