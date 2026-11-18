@@ -311,3 +311,4 @@
 	side_panel.unpin_net	Desfijar net
 	side_panel.pinned_nets	Nets fijadas
 	side_panel.unpin_all	Desfijar todas
+	prefs.measurement_tolerance	Tolerancia de mediciones

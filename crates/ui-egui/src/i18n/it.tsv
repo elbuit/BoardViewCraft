@@ -311,3 +311,4 @@
 	side_panel.unpin_net	Rimuovi net
 	side_panel.pinned_nets	Net fissati
 	side_panel.unpin_all	Rimuovi tutti
+	prefs.measurement_tolerance	Tolleranza delle misurazioni

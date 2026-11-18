@@ -2031,6 +2031,7 @@ impl eframe::App for BoardViewApp {
                     cur_sy,
                     self.preferences.ui_language(),
                     &mut on_load_photo,
+                    self.preferences.measurement_tolerance_pct,
                 );
             });
 
@@ -2242,7 +2243,7 @@ impl eframe::App for BoardViewApp {
         about::show_about_window(ui.ctx(), &mut self.about_open, &self.tokens, lang);
 
         // Pin Measurement modal dialog
-        if self.pin_measurement_dialog.show(ui.ctx(), self.board.as_ref(), &mut self.notes_store, &self.tokens, lang) {
+        if self.pin_measurement_dialog.show(ui.ctx(), self.board.as_ref(), &mut self.notes_store, &self.tokens, lang, self.preferences.measurement_tolerance_pct) {
             if let Some(ref filename) = self.filename {
                 Self::save_notes_for_board(filename, &self.notes_store);
             }

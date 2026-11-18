@@ -107,6 +107,7 @@ impl PinMeasurementDialog {
         notes_store: &mut BoardNotesStore,
         tokens: &Tokens,
         lang: Language,
+        tolerance_pct: f32,
     ) -> bool {
         if !self.is_open {
             return false;
@@ -162,21 +163,88 @@ impl PinMeasurementDialog {
                 ui.separator();
                 ui.add_space(6.0);
 
+                // Look up reference metadata for comparison
+                let pin_name = self.target.pin_name.as_deref().unwrap_or("");
+                let (ref_diode, ref_resistance, ref_voltage) = if let Some(b) = board {
+                    let net = (!self.net_name.is_empty()).then_some(self.net_name.as_str());
+                    let d = b.metadata.pin_reading(&self.target.component_name, pin_name)
+                        .or_else(|| net.and_then(|n| b.metadata.net_reading(n)));
+                    let r = net.and_then(|n| b.metadata.net_resistance(n));
+                    let v = net.and_then(|n| b.metadata.net_voltage(n));
+                    (d, r, v)
+                } else {
+                    (None, None, None)
+                };
+
                 // Measurement inputs: D, R, V (standard diode, resistance, voltage + comments)
                 egui::Grid::new("meas_input_grid")
                     .num_columns(2)
                     .spacing([8.0, 8.0])
                     .show(ui, |ui| {
+                        // Diode Drop
                         ui.label(RichText::new(i18n::tr(lang, "measurement.d_label")).strong());
-                        ui.add(TextEdit::singleline(&mut self.d_val).hint_text("e.g. 0.450V, 450mV").desired_width(180.0));
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(TextEdit::singleline(&mut self.d_val).hint_text("e.g. 0.450V, 450mV").desired_width(140.0));
+                                if let (Some(r), false) = (ref_diode, self.d_val.trim().is_empty()) {
+                                    if let Some(comp) = bvc_core::compare_measurement(&self.d_val, r, tolerance_pct) {
+                                        let badge_color = if comp.is_pass {
+                                            Color32::from_rgb(0x40, 0xc0, 0x57)
+                                        } else {
+                                            Color32::from_rgb(0xfa, 0x52, 0x52)
+                                        };
+                                        ui.label(RichText::new(comp.badge_text()).color(badge_color).strong().small());
+                                    }
+                                }
+                            });
+                            if let Some(r) = ref_diode {
+                                ui.label(RichText::new(format!("Ref: {r}")).color(tokens.text_dim()).small());
+                            }
+                        });
                         ui.end_row();
 
+                        // Resistance
                         ui.label(RichText::new(i18n::tr(lang, "measurement.r_label")).strong());
-                        ui.add(TextEdit::singleline(&mut self.r_val).hint_text("e.g. 10k, OL, 0Ω").desired_width(180.0));
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(TextEdit::singleline(&mut self.r_val).hint_text("e.g. 10k, OL, 0Ω").desired_width(140.0));
+                                if let (Some(r), false) = (ref_resistance, self.r_val.trim().is_empty()) {
+                                    if let Some(comp) = bvc_core::compare_measurement(&self.r_val, r, tolerance_pct) {
+                                        let badge_color = if comp.is_pass {
+                                            Color32::from_rgb(0x40, 0xc0, 0x57)
+                                        } else {
+                                            Color32::from_rgb(0xfa, 0x52, 0x52)
+                                        };
+                                        ui.label(RichText::new(comp.badge_text()).color(badge_color).strong().small());
+                                    }
+                                }
+                            });
+                            if let Some(r) = ref_resistance {
+                                ui.label(RichText::new(format!("Ref: {r}")).color(tokens.text_dim()).small());
+                            }
+                        });
                         ui.end_row();
 
+                        // Voltage
                         ui.label(RichText::new(i18n::tr(lang, "measurement.v_label")).strong());
-                        ui.add(TextEdit::singleline(&mut self.v_val).hint_text("e.g. 3.3V, 1.8V").desired_width(180.0));
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.add(TextEdit::singleline(&mut self.v_val).hint_text("e.g. 3.3V, 1.8V").desired_width(140.0));
+                                if let (Some(r), false) = (ref_voltage, self.v_val.trim().is_empty()) {
+                                    if let Some(comp) = bvc_core::compare_measurement(&self.v_val, r, tolerance_pct) {
+                                        let badge_color = if comp.is_pass {
+                                            Color32::from_rgb(0x40, 0xc0, 0x57)
+                                        } else {
+                                            Color32::from_rgb(0xfa, 0x52, 0x52)
+                                        };
+                                        ui.label(RichText::new(comp.badge_text()).color(badge_color).strong().small());
+                                    }
+                                }
+                            });
+                            if let Some(r) = ref_voltage {
+                                ui.label(RichText::new(format!("Ref: {r}")).color(tokens.text_dim()).small());
+                            }
+                        });
                         ui.end_row();
                     });
 

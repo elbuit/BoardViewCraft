@@ -311,3 +311,4 @@
 	side_panel.unpin_net	Netz lösen
 	side_panel.pinned_nets	Angeheftete Netze
 	side_panel.unpin_all	Alle lösen
+	prefs.measurement_tolerance	Messtoleranz

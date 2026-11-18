@@ -13,7 +13,7 @@ pub mod spatial;
 
 pub use board::{compute_part_bounds, compute_pin_pitch, synthesize_part_outline, Board, RelatedNet};
 pub use model::{is_ground_net, BoardMetadata, ComponentKind, Net, NetMembership, Part, PartType, Pin, Point, Rect, Side, Via, MILS_PER_MM};
-pub use notes::{BoardNote, BoardNotesStore, NoteTarget, TechnicalMeasurements};
+pub use notes::{compare_measurement, parse_engineering_value, BoardNote, BoardNotesStore, MeasurementComparison, NoteTarget, TechnicalMeasurements};
 pub use obdata::OpenBoardData;
 pub use scene::BothFacesScene;
 pub use parser::{cad::CadParser, gencad::GenCadParser, registry::ParserRegistry, FormatParser, ParseError};

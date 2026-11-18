@@ -311,3 +311,4 @@
 	side_panel.unpin_net	Désépingler le net
 	side_panel.pinned_nets	Nets épinglés
 	side_panel.unpin_all	Tout désépingler
+	prefs.measurement_tolerance	Tolérance des mesures

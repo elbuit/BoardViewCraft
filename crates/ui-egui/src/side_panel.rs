@@ -304,6 +304,7 @@ pub fn show_side_panel(
     current_sy: f32,
     lang: Language,
     on_load_photo: &mut Option<Side>,
+    tolerance_pct: f32,
 ) {
     // Overlay adjustment stays on screen while a pin alignment is running, so it
     // can always be finished or cancelled.
@@ -471,8 +472,10 @@ pub fn show_side_panel(
                                     };
 
                                     let is_cur_side = pin.side.visible_on(current_side);
+                                    let meta = pin_metadata(b, part_name, pin);
+                                    let meas_suffix = pin_technician_measurements_suffix(notes_store, part_name, &pin.name, Some(&meta), tolerance_pct);
                                     let label_text = format!(
-                                        "{}.{} ({}) [{:.1}, {:.1}]{}",
+                                        "{}.{} ({}) [{:.1}, {:.1}]{}{}",
                                         part_name,
                                         pin.name,
                                         side_str,
@@ -482,7 +485,8 @@ pub fn show_side_panel(
                                         b.metadata
                                             .pin_reading(part_name, &pin.name)
                                             .map(|r| format!(" · {}: {r}", i18n::tr(lang, "side_panel.diode")))
-                                            .unwrap_or_default()
+                                            .unwrap_or_default(),
+                                        meas_suffix
                                     );
 
                                     let color = if is_cur_side {
@@ -604,7 +608,8 @@ pub fn show_side_panel(
                                 let pin_idx = part.pin_indices[row_idx];
                                 if let Some(pin) = b.pins.get(pin_idx) {
                                     let is_selected = *selected_pin_idx == Some(pin_idx);
-                                    let meas_suffix = pin_technician_measurements_suffix(notes_store, &part.name, &pin.name);
+                                    let meta = pin_metadata(b, &part.name, pin);
+                                    let meas_suffix = pin_technician_measurements_suffix(notes_store, &part.name, &pin.name, Some(&meta), tolerance_pct);
                                     let pin_label = format!(
                                         "Pin {}: Net '{}'{}{}",
                                         pin.name,
@@ -675,6 +680,9 @@ pub fn show_side_panel(
                         d_val: Option<String>,
                         r_val: Option<String>,
                         v_val: Option<String>,
+                        d_comp: Option<bvc_core::MeasurementComparison>,
+                        r_comp: Option<bvc_core::MeasurementComparison>,
+                        v_comp: Option<bvc_core::MeasurementComparison>,
                         comments: Option<String>,
                         has_user_note: bool,
                     }
@@ -688,9 +696,17 @@ pub fn show_side_panel(
                             let user_v = note.and_then(|n| n.measurements.voltage.clone());
                             let user_comm = note.and_then(|n| (!n.text.trim().is_empty()).then(|| n.text.clone()));
 
-                            let d_val = user_d.or_else(|| b.metadata.pin_reading(&part.name, &pin.name).map(String::from));
-                            let r_val = user_r;
-                            let v_val = user_v.or_else(|| (!pin.net_name.is_empty()).then(|| b.metadata.net_voltage(&pin.net_name).map(String::from)).flatten());
+                            let ref_d = b.metadata.pin_reading(&part.name, &pin.name);
+                            let ref_r = (!pin.net_name.is_empty()).then(|| b.metadata.net_resistance(&pin.net_name)).flatten();
+                            let ref_v = (!pin.net_name.is_empty()).then(|| b.metadata.net_voltage(&pin.net_name)).flatten();
+
+                            let d_comp = user_d.as_deref().zip(ref_d).and_then(|(u, r)| bvc_core::compare_measurement(u, r, tolerance_pct));
+                            let r_comp = user_r.as_deref().zip(ref_r).and_then(|(u, r)| bvc_core::compare_measurement(u, r, tolerance_pct));
+                            let v_comp = user_v.as_deref().zip(ref_v).and_then(|(u, r)| bvc_core::compare_measurement(u, r, tolerance_pct));
+
+                            let d_val = user_d.or_else(|| ref_d.map(String::from));
+                            let r_val = user_r.or_else(|| ref_r.map(String::from));
+                            let v_val = user_v.or_else(|| ref_v.map(String::from));
                             let comments = user_comm;
 
                             if d_val.is_some() || r_val.is_some() || v_val.is_some() || comments.is_some() {
@@ -701,6 +717,9 @@ pub fn show_side_panel(
                                     d_val,
                                     r_val,
                                     v_val,
+                                    d_comp,
+                                    r_comp,
+                                    v_comp,
                                     comments,
                                     has_user_note: note.is_some(),
                                 });
@@ -767,12 +786,36 @@ pub fn show_side_panel(
                                         ui.horizontal_wrapped(|ui| {
                                             if let Some(ref d) = mp.d_val {
                                                 ui.label(RichText::new(format!("D: {d}")).color(tokens.accent()).strong());
+                                                if let Some(ref comp) = mp.d_comp {
+                                                    let badge_color = if comp.is_pass {
+                                                        egui::Color32::from_rgb(0x40, 0xc0, 0x57)
+                                                    } else {
+                                                        egui::Color32::from_rgb(0xfa, 0x52, 0x52)
+                                                    };
+                                                    ui.label(RichText::new(comp.badge_text()).color(badge_color).strong().small());
+                                                }
                                             }
                                             if let Some(ref r) = mp.r_val {
                                                 ui.label(RichText::new(format!("R: {r}")).color(tokens.text()).strong());
+                                                if let Some(ref comp) = mp.r_comp {
+                                                    let badge_color = if comp.is_pass {
+                                                        egui::Color32::from_rgb(0x40, 0xc0, 0x57)
+                                                    } else {
+                                                        egui::Color32::from_rgb(0xfa, 0x52, 0x52)
+                                                    };
+                                                    ui.label(RichText::new(comp.badge_text()).color(badge_color).strong().small());
+                                                }
                                             }
                                             if let Some(ref v) = mp.v_val {
                                                 ui.label(RichText::new(format!("V: {v}")).color(tokens.accent()).strong());
+                                                if let Some(ref comp) = mp.v_comp {
+                                                    let badge_color = if comp.is_pass {
+                                                        egui::Color32::from_rgb(0x40, 0xc0, 0x57)
+                                                    } else {
+                                                        egui::Color32::from_rgb(0xfa, 0x52, 0x52)
+                                                    };
+                                                    ui.label(RichText::new(comp.badge_text()).color(badge_color).strong().small());
+                                                }
                                             }
                                         });
 
@@ -1476,21 +1519,51 @@ fn pin_metadata_suffix(b: &Board, lang: Language, part_name: &str, pin: &bvc_cor
         .collect()
 }
 
-/// Suffix for technician measurements on a pin (e.g. ` · C: 100nF · D: 0.450V · R: 10k · V: 3.3V 📝`). Empty if none.
-fn pin_technician_measurements_suffix(notes_store: &bvc_core::BoardNotesStore, part_name: &str, pin_name: &str) -> String {
+/// Suffix for technician measurements on a pin (e.g. ` · C: 100nF · D: 0.450V · R: 10k · V: 3.3V [PASS +2.2%] 📝`). Empty if none.
+fn pin_technician_measurements_suffix(
+    notes_store: &bvc_core::BoardNotesStore,
+    part_name: &str,
+    pin_name: &str,
+    ref_meta: Option<&PinMetadata<'_>>,
+    tolerance_pct: f32,
+) -> String {
     let Some(note) = notes_store.find_for_pin(part_name, pin_name) else {
         return String::new();
     };
     let mut parts = Vec::new();
+    let mut comp_badges = Vec::new();
+
     if let Some(d) = note.measurements.diode_drop.as_deref() {
         parts.push(format!("D: {d}"));
+        if let Some(ref_d) = ref_meta.and_then(|m| m.diode) {
+            if let Some(comp) = bvc_core::compare_measurement(d, ref_d, tolerance_pct) {
+                comp_badges.push(format!("D: {}", comp.badge_text()));
+            }
+        }
     }
     if let Some(r) = note.measurements.resistance.as_deref() {
         parts.push(format!("R: {r}"));
+        if let Some(ref_r) = ref_meta.and_then(|m| m.resistance) {
+            if let Some(comp) = bvc_core::compare_measurement(r, ref_r, tolerance_pct) {
+                comp_badges.push(format!("R: {}", comp.badge_text()));
+            }
+        }
     }
     if let Some(v) = note.measurements.voltage.as_deref() {
         parts.push(format!("V: {v}"));
+        if let Some(ref_v) = ref_meta.and_then(|m| m.voltage) {
+            if let Some(comp) = bvc_core::compare_measurement(v, ref_v, tolerance_pct) {
+                comp_badges.push(format!("V: {}", comp.badge_text()));
+            }
+        }
     }
+
+    let badge_str = if comp_badges.is_empty() {
+        String::new()
+    } else {
+        format!(" [{}]", comp_badges.join(", "))
+    };
+
     if parts.is_empty() {
         if !note.text.trim().is_empty() {
             " 📝".to_string()
@@ -1499,7 +1572,7 @@ fn pin_technician_measurements_suffix(notes_store: &bvc_core::BoardNotesStore, p
         }
     } else {
         let note_icon = if !note.text.trim().is_empty() { " 📝" } else { "" };
-        format!(" · {}{}", parts.join(" · "), note_icon)
+        format!(" · {}{}{}", parts.join(" · "), badge_str, note_icon)
     }
 }
 
@@ -1745,9 +1818,9 @@ mod tests {
     fn test_pin_technician_measurements_suffix() {
         let mut notes_store = bvc_core::BoardNotesStore::default();
         // No notes yet
-        assert_eq!(pin_technician_measurements_suffix(&notes_store, "U7", "1"), "");
+        assert_eq!(pin_technician_measurements_suffix(&notes_store, "U7", "1", None, 10.0), "");
 
-        // With measurements
+        // With measurements but no reference metadata
         notes_store.upsert(
             bvc_core::NoteTarget::pin("U7", "1"),
             "Tested OK".to_string(),
@@ -1759,12 +1832,31 @@ mod tests {
                 other: None,
             },
         );
-        let suffix = pin_technician_measurements_suffix(&notes_store, "U7", "1");
+        let suffix = pin_technician_measurements_suffix(&notes_store, "U7", "1", None, 10.0);
         assert!(!suffix.contains("C:"));
         assert!(suffix.contains("D: 0.450V"));
         assert!(suffix.contains("R: 10k"));
         assert!(suffix.contains("V: 3.3V"));
         assert!(suffix.contains("📝"));
+        assert!(!suffix.contains("PASS"));
+
+        // With reference metadata within tolerance (10%)
+        let ref_meta = PinMetadata {
+            diode: Some("0.460V"),
+            resistance: Some("9.8k"),
+            voltage: Some("3.3V"),
+        };
+        let suffix_with_ref = pin_technician_measurements_suffix(&notes_store, "U7", "1", Some(&ref_meta), 10.0);
+        assert!(suffix_with_ref.contains("PASS"));
+
+        // With reference metadata out of tolerance
+        let ref_meta_fail = PinMetadata {
+            diode: Some("0.300V"), // > 10% diff
+            resistance: None,
+            voltage: None,
+        };
+        let suffix_fail = pin_technician_measurements_suffix(&notes_store, "U7", "1", Some(&ref_meta_fail), 10.0);
+        assert!(suffix_fail.contains("FAIL"));
     }
 
     fn board_with_part(side: Side, bbox: Option<bvc_core::Rect>) -> Board {

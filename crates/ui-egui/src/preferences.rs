@@ -29,6 +29,10 @@ fn default_cross_layer_transparency() -> f32 {
     0.60
 }
 
+fn default_measurement_tolerance_pct() -> f32 {
+    10.0
+}
+
 fn default_split_ratio() -> f32 {
     0.5
 }
@@ -113,6 +117,8 @@ pub struct Preferences {
     pub color_components: bool,
     #[serde(default = "default_cross_layer_transparency")]
     pub cross_layer_transparency: f32,
+    #[serde(default = "default_measurement_tolerance_pct")]
+    pub measurement_tolerance_pct: f32,
     pub show_part_labels: bool,
     pub show_pin_annotations: bool,
     pub high_density_lod: bool,
@@ -189,6 +195,7 @@ impl Default for Preferences {
             net_lines_dashed: false,
             color_components: false,
             cross_layer_transparency: 0.60,
+            measurement_tolerance_pct: 10.0,
             show_part_labels: true,
             show_pin_annotations: true,
             high_density_lod: true,
@@ -1265,6 +1272,15 @@ pub fn show_preferences_window(
                         changed = true;
                     }
 
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(i18n::tr(lang, "prefs.measurement_tolerance")).color(tokens.text()));
+                        let mut tol = prefs.measurement_tolerance_pct.round() as u32;
+                        if ui.add(egui::Slider::new(&mut tol, 1..=50).suffix("%")).changed() {
+                            prefs.measurement_tolerance_pct = tol as f32;
+                            changed = true;
+                        }
+                    });
+
                     if ui
                         .checkbox(
                             &mut prefs.show_vias,
@@ -1382,6 +1398,7 @@ mod tests {
             via_display_mode: ViaDisplayMode::Radial,
             net_lines_dashed: true,
             cross_layer_transparency: 0.60,
+            measurement_tolerance_pct: 10.0,
             show_part_labels: true,
             show_pin_annotations: false,
             high_density_lod: true,
