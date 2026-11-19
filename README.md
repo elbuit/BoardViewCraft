@@ -12,6 +12,18 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
 
 ## Features
 
+- **Multi-Net Pinning & Inspection**:
+  - Pin multiple nets simultaneously, each highlighted in a dedicated, distinct high-contrast color across both faces of the board.
+  - Active net selection remains highlighted while pinned nets maintain persistent visual traces for comparison and bus tracing.
+- **Related Nets Discovery**:
+  - Automatically identifies and displays related signals connected through passive bridge components (series resistors, low-value inductors, coupling capacitors).
+- **Measurement Tolerance Comparison**:
+  - Evaluates recorded technician measurements against expected reference values with configurable tolerance thresholds.
+  - Displays instant visual pass/fail/deviation badges (green/yellow/red) in both pin lists and component overview.
+- **Smart Board Orientation**:
+  - Automatically detects vertical boards and PCIe edge connectors, rotating them to comfortable landscape orientation with PCIe connectors positioned at the bottom.
+- **Unified Quick View & Pads Controls**:
+  - Consolidated view toggles (vias, pins, test points, substrate hatching) and pad styling into a single streamlined toolbar menu.
 - **Fast Canvas**: Parallel spatial grid queries (`Rayon`) and hardware-accelerated tessellation (`Lyon`). Cached geometry meshes are re-mapped during pan/zoom for 60+ FPS navigation on dense PCBs with tens of thousands of pins and vias.
 - **Quick Navigation Toolbar**:
   - History back/forward navigation (`<` / `>`) tracking inspected parts and nets.
@@ -27,6 +39,7 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
   ![BoardViewCraft: Split view with board layout on the left, PDF schematic on the right with page scrubber, and side panel](docs/screenshots/boardviewcraft-v020.png)
 - **Readable Board Rendering & Visual Flight Lines**:
   - Filled part bodies, component outlines, pin names, and physical pad geometries (round, rectangular, rotated) read from GenCAD `$PADS` and CAD records.
+  - Clean pin selection: clicking an individual pin highlights only that pin and its connected net, without tinting the parent component body.
   - Accurate rotated component body outlines automatically synthesized for diagonal components (e.g. 45° or custom-angled parts) when file formats omit vector contours.
   - Radial and web net flight lines showing all connected pins on selected nets.
   - Optional dashed / dotted net flight lines mode to reduce visual clutter on dense nets.
@@ -64,8 +77,8 @@ BoardViewCraft is an open-source boardview and schematic inspection workbench bu
 - **Display & UI Scaling**:
   - Configurable interface scaling in Preferences (Auto-detecting desktop text scale, or manual presets from 80% to 175%) for sharp rendering on HiDPI and 4K displays.
 - **Extensive Format Support**:
-  - GenCAD (`.cad`), TVW, KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2), `.pcb` / `.xzz` multi-layer boardview, OpenBoardData (`.obdata`), ODB++, IPC-2581, and IPC-D-356.
-  - Transparent `.zip` archive extraction and file sniffing.
+  - GenCAD (`.cad`), TVW (with physical PCIe fingers and layer decoding), Specctra DSN (`.dsn`), KiCad (`.kicad_pcb`), Eagle (`.brd`), EasyEDA (Standard & Pro), Altium Designer (`.PcbDoc`), Allegro (`.brd`), Boardview (BRD/BRD2, BDV, BV2, FlexBV, CST binary), `.pcb` / `.xzz` multi-layer boardview, OpenBoardData (`.obdata`), ODB++ (directories and `.tar.gz`/`.tgz`), IPC-2581, and IPC-D-356.
+  - Transparent `.zip`, `.tar.gz`, and `.tgz` archive extraction and file sniffing.
 - **Multilingual Support**: English, Spanish, Catalan, French, German, and Italian.
 
 ---
