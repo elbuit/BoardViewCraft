@@ -148,3 +148,72 @@ fn test_odbpp_parsing() {
     assert_eq!(board.pins.len(), 2);
     assert_eq!(board.outline_polygon.len(), 4);
 }
+
+fn make_tar_gz(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    use std::io::Write;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+
+    let mut tar_bytes = Vec::new();
+    for (name, data) in entries {
+        let mut header = [0u8; 512];
+        let name_bytes = name.as_bytes();
+        let copy_len = name_bytes.len().min(100);
+        header[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+
+        // File mode: 0644
+        header[100..107].copy_from_slice(b"0000644");
+        // Size in octal ASCII
+        let size_octal = format!("{:011o}", data.len());
+        header[124..135].copy_from_slice(size_octal.as_bytes());
+        // Typeflag '0'
+        header[156] = b'0';
+        // Magic 'ustar\0'
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+
+        // Checksum calculation (with checksum field treated as 8 spaces)
+        header[148..156].fill(b' ');
+        let chksum: u32 = header.iter().map(|&b| b as u32).sum();
+        let chksum_octal = format!("{:06o}\0 ", chksum);
+        header[148..156].copy_from_slice(chksum_octal.as_bytes());
+
+        tar_bytes.extend_from_slice(&header);
+        tar_bytes.extend_from_slice(data);
+        let pad = (512 - (data.len() % 512)) % 512;
+        if pad > 0 {
+            tar_bytes.extend_from_slice(&vec![0u8; pad]);
+        }
+    }
+    // End of archive: 1024 zero bytes
+    tar_bytes.extend_from_slice(&[0u8; 1024]);
+
+    // Compress with Gzip
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(&tar_bytes).unwrap();
+    encoder.finish().unwrap()
+}
+
+#[test]
+fn test_odbpp_tar_gz_archive_parsing() {
+    let matrix_content = "STEP { NAME=default }\nLAYER { NAME=comp_+_top TYPE=COMPONENT }\n";
+    let profile_content = "OB 0.0 0.0\nOS 3.0 0.0\nOS 3.0 2.0\nOS 0.0 2.0\n";
+    let eda_content = "PKG DFN8\nPIN 1 -0.1 -0.1\nPIN 2 0.1 -0.1\n";
+    let comp_top_content = "CMP 1 DFN8 1.5 1.0 0.0 N U1\n";
+
+    let tgz_bytes = make_tar_gz(&[
+        ("matrix/matrix", matrix_content.as_bytes()),
+        ("steps/default/profile", profile_content.as_bytes()),
+        ("steps/default/eda/data", eda_content.as_bytes()),
+        ("steps/default/layers/comp_+_top", comp_top_content.as_bytes()),
+    ]);
+
+    let registry = ParserRegistry::default();
+    let board = registry.parse_file("design.tar.gz", &tgz_bytes).expect("ODB++ tar.gz parsing failed");
+
+    assert_eq!(board.parts.len(), 1);
+    assert_eq!(board.parts[0].name, "U1");
+    assert_eq!(board.pins.len(), 2);
+    assert_eq!(board.outline_polygon.len(), 4);
+}
+
