@@ -705,6 +705,33 @@ impl TvwParser {
             let mut part_sides = std::collections::HashSet::new();
             let mut pin_indices = Vec::new();
 
+            // Detect if this component's pins use footprint-local Y coordinates (relative to cy)
+            // as in the 164-pin PCIe edge connector CN1.
+            let y_offset_mils = if comp.cy != 0 {
+                let cy_mils = comp.cy as f64 / 100.0;
+                let min_y = comp.min_y as f64 / 100.0;
+                let max_y = comp.max_y as f64 / 100.0;
+                let first_pin_y = comp.pin_groups.first().and_then(|g| {
+                    let layer = resolve_layer(g.kind)?;
+                    let first_ref = g.pins.first()?;
+                    let pad = layer.pads.get((first_ref.uid / 8) as usize)?;
+                    Some(pad.y as f64 / 100.0)
+                });
+                if let Some(py) = first_pin_y {
+                    if (py < min_y - 50.0 || py > max_y + 50.0)
+                        && (py + cy_mils >= min_y - 50.0 && py + cy_mils <= max_y + 50.0)
+                    {
+                        cy_mils
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                }
+            } else {
+                0.0
+            };
+
             for group in &comp.pin_groups {
                 let layer = match resolve_layer(group.kind) {
                     Some(l) => l,
@@ -737,31 +764,8 @@ impl TvwParser {
                             crate::model::PadShape::Rect
                         };
 
-                        // Check if pad coordinates are footprint-local (e.g. edge connectors like CN1)
-                        // where raw pad coordinates are relative to placement center cy/cx.
-                        let (px, py) = {
-                            let mut x = pad.x as f64 / 100.0;
-                            let mut y = pad.y as f64 / 100.0;
-                            let min_y = comp.min_y as f64 / 100.0;
-                            let max_y = comp.max_y as f64 / 100.0;
-                            let cy = comp.cy as f64 / 100.0;
-                            if comp.cy != 0 && (y < min_y - 50.0 || y > max_y + 50.0) {
-                                let trans_y = y + cy;
-                                if trans_y >= min_y - 50.0 && trans_y <= max_y + 50.0 {
-                                    y = trans_y;
-                                }
-                            }
-                            let min_x = comp.min_x as f64 / 100.0;
-                            let max_x = comp.max_x as f64 / 100.0;
-                            let cx = comp.cx as f64 / 100.0;
-                            if comp.cx != 0 && (x < min_x - 50.0 || x > max_x + 50.0) {
-                                let trans_x = x + cx;
-                                if trans_x >= min_x - 50.0 && trans_x <= max_x + 50.0 {
-                                    x = trans_x;
-                                }
-                            }
-                            (x, y)
-                        };
+                        let px = pad.x as f64 / 100.0;
+                        let py = pad.y as f64 / 100.0 + y_offset_mils;
 
                         board.pins.push(Pin {
                             id: pin_id,
@@ -794,20 +798,34 @@ impl TvwParser {
             let bx2 = comp.max_x as f64 / 100.0;
             let by2 = comp.max_y as f64 / 100.0;
 
-            let mut min_x = bx1.min(bx2);
-            let mut min_y = by1.min(by2);
-            let mut max_x = bx1.max(bx2);
-            let mut max_y = by1.max(by2);
-
-            for &pi in &pin_indices {
-                let p = &board.pins[pi];
-                let pw = p.width.unwrap_or(p.radius * 2.0);
-                let ph = p.height.unwrap_or(p.radius * 2.0);
-                min_x = min_x.min(p.pos.x - pw / 2.0);
-                max_x = max_x.max(p.pos.x + pw / 2.0);
-                min_y = min_y.min(p.pos.y - ph / 2.0);
-                max_y = max_y.max(p.pos.y + ph / 2.0);
-            }
+            // Compute component bounds and outline.
+            // When a component has pins, derive bounds directly from physical pin extents
+            // (matching OpenBoardView / TRACE Boardviewer), avoiding bloated CAD fabrication /
+            // panel drawing boxes that extend far outside the board (e.g. MEC* mounting holes).
+            const BODY_MARGIN_MILS: f64 = 5.0;
+            let (min_x, min_y, max_x, max_y) = if !pin_indices.is_empty() {
+                let mut p_min_x = f64::INFINITY;
+                let mut p_min_y = f64::INFINITY;
+                let mut p_max_x = f64::NEG_INFINITY;
+                let mut p_max_y = f64::NEG_INFINITY;
+                for &pi in &pin_indices {
+                    let p = &board.pins[pi];
+                    let pw = p.width.unwrap_or(p.radius * 2.0);
+                    let ph = p.height.unwrap_or(p.radius * 2.0);
+                    p_min_x = p_min_x.min(p.pos.x - pw / 2.0);
+                    p_max_x = p_max_x.max(p.pos.x + pw / 2.0);
+                    p_min_y = p_min_y.min(p.pos.y - ph / 2.0);
+                    p_max_y = p_max_y.max(p.pos.y + ph / 2.0);
+                }
+                (
+                    p_min_x - BODY_MARGIN_MILS,
+                    p_min_y - BODY_MARGIN_MILS,
+                    p_max_x + BODY_MARGIN_MILS,
+                    p_max_y + BODY_MARGIN_MILS,
+                )
+            } else {
+                (bx1.min(bx2), by1.min(by2), bx1.max(bx2), by1.max(by2))
+            };
 
             let outline = if min_x < max_x && min_y < max_y {
                 vec![
