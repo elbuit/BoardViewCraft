@@ -240,6 +240,157 @@ impl BrdParser {
         board.rebuild_indices();
         Ok(board)
     }
+
+    /// Checks if text looks like FlexBV boardview format
+    pub fn looks_like_flexbv(text: &str) -> bool {
+        let lines: Vec<&str> = text.lines().take(10).map(|l| l.trim()).collect();
+        if lines.iter().any(|l| l.to_ascii_lowercase().starts_with("format:") && l.to_ascii_lowercase().contains("flexbv")) {
+            return true;
+        }
+        let mut has_part = false;
+        let mut has_pin_or_net = false;
+        for line in text.lines().take(40) {
+            let l = line.trim();
+            if l.is_empty() || l.starts_with('#') || l.starts_with(';') || l.starts_with("//") {
+                continue;
+            }
+            let toks: Vec<&str> = l.split_whitespace().collect();
+            if toks.is_empty() {
+                continue;
+            }
+            let kw = toks[0].to_ascii_lowercase();
+            if kw == "part" && toks.len() >= 5 {
+                has_part = true;
+            } else if (kw == "pin" || kw == "net") && toks.len() >= 6 {
+                has_pin_or_net = true;
+            }
+            if has_part && has_pin_or_net {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Parses FlexBV plain-text board format (supporting both `pin` and `net` pin line variants)
+    pub fn parse_flexbv(text: &str) -> Result<Board, ParseError> {
+        let mut board = Board::new();
+        let mut parts_map: BTreeMap<String, usize> = BTreeMap::new();
+
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with(';') || trimmed.starts_with("//") {
+                continue;
+            }
+            let toks: Vec<&str> = trimmed.split_whitespace().collect();
+            if toks.is_empty() {
+                continue;
+            }
+            let kw = toks[0].to_ascii_lowercase();
+
+            if kw == "part" && toks.len() >= 5 {
+                let refdes = toks[1].to_string();
+                let x: f64 = toks[2].parse().unwrap_or(0.0);
+                let y: f64 = toks[3].parse().unwrap_or(0.0);
+                let side = if toks[4].eq_ignore_ascii_case("B") { Side::Bottom } else { Side::Top };
+                if !parts_map.contains_key(&refdes) {
+                    let part_id = board.parts.len();
+                    board.parts.push(Part {
+                        id: part_id,
+                        name: refdes.clone(),
+                        mfg_code: String::new(),
+                        side,
+                        part_type: PartType::Smd,
+                        p1: Point::new(x, y),
+                        p2: Point::new(x, y),
+                        pin_indices: Vec::new(),
+                        bounding_box: None,
+                        ..Default::default()
+                    });
+                    parts_map.insert(refdes, part_id);
+                }
+            } else if (kw == "pin" || kw == "net") && toks.len() >= 6 {
+                let refdes = toks[1];
+                let num = toks[2];
+                let net = toks[3];
+                let x: f64 = match toks[4].parse() { Ok(v) => v, Err(_) => continue };
+                let y: f64 = match toks[5].parse() { Ok(v) => v, Err(_) => continue };
+                let radius: f64 = if toks.len() >= 7 { toks[6].parse().unwrap_or(5.0) } else { 5.0 };
+
+                let part_id = match parts_map.get(refdes) {
+                    Some(&id) => id,
+                    None => {
+                        let id = board.parts.len();
+                        board.parts.push(Part {
+                            id,
+                            name: refdes.to_string(),
+                            mfg_code: String::new(),
+                            side: Side::Top,
+                            part_type: PartType::Smd,
+                            p1: Point::new(x, y),
+                            p2: Point::new(x, y),
+                            pin_indices: Vec::new(),
+                            bounding_box: None,
+                            ..Default::default()
+                        });
+                        parts_map.insert(refdes.to_string(), id);
+                        id
+                    }
+                };
+
+                let pin_id = board.pins.len();
+                let pin_side = board.parts[part_id].side;
+                board.pins.push(Pin {
+                    id: pin_id,
+                    part_id,
+                    name: num.to_string(),
+                    net_name: net.to_string(),
+                    pos: Point::new(x, y),
+                    side: pin_side,
+                    radius,
+                    ..Default::default()
+                });
+                board.parts[part_id].pin_indices.push(pin_id);
+            } else if (kw == "outline" || kw == "border" || kw == "board") && toks.len() >= 5 {
+                if let (Ok(x1), Ok(y1), Ok(x2), Ok(y2)) = (toks[1].parse(), toks[2].parse(), toks[3].parse(), toks[4].parse()) {
+                    board.outline_polygon.push(Point::new(x1, y1));
+                    board.outline_polygon.push(Point::new(x2, y2));
+                }
+            }
+        }
+
+        // Compute centroid for parts whose coordinates were 0,0
+        for part in &mut board.parts {
+            if part.p1 == Point::ZERO && !part.pin_indices.is_empty() {
+                let mut sum_x = 0.0;
+                let mut sum_y = 0.0;
+                for &pid in &part.pin_indices {
+                    let p = &board.pins[pid];
+                    sum_x += p.pos.x;
+                    sum_y += p.pos.y;
+                }
+                let count = part.pin_indices.len() as f64;
+                part.p1 = Point::new(sum_x / count, sum_y / count);
+                part.p2 = part.p1;
+            }
+        }
+
+        board.rebuild_indices();
+
+        if board.outline_polygon.is_empty() && (!board.pins.is_empty() || !board.vias.is_empty()) {
+            if let Some(bbox) = board.bounding_box {
+                const MARGIN: f64 = 20.0;
+                board.outline_polygon = vec![
+                    Point::new(bbox.min_x - MARGIN, bbox.min_y - MARGIN),
+                    Point::new(bbox.max_x + MARGIN, bbox.min_y - MARGIN),
+                    Point::new(bbox.max_x + MARGIN, bbox.max_y + MARGIN),
+                    Point::new(bbox.min_x - MARGIN, bbox.max_y + MARGIN),
+                ];
+                board.recompute_bounds();
+            }
+        }
+
+        Ok(board)
+    }
 }
 
 impl Default for BrdParser {
@@ -269,6 +420,9 @@ impl FormatParser for BrdParser {
         if s.contains("BRDOUT:") {
             return true;
         }
+        if Self::looks_like_flexbv(&s) {
+            return true;
+        }
         (s.contains("str_length:") && s.contains("var_data:")) || (s.contains("var_data:") && (s.contains("Format:") || s.contains("FORMAT:")))
     }
 
@@ -285,12 +439,17 @@ impl FormatParser for BrdParser {
 
         let s = String::from_utf8_lossy(data);
 
-        // 3. BRD2
+        // 3. FlexBV plain-text format
+        if Self::looks_like_flexbv(&s) {
+            return Self::parse_flexbv(&s);
+        }
+
+        // 4. BRD2
         if s.contains("BRDOUT:") {
             return Brd2Parser::parse_content(&s);
         }
 
-        // 4. Test_Link standard ASCII
+        // 5. Test_Link standard ASCII
         TestLinkEngine::parse_text(&s, &DialectMarkers::default())
     }
 }

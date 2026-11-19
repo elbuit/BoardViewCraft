@@ -500,3 +500,42 @@ fn test_real_test1_tvw_production_binary() {
     }
 }
 
+#[test]
+fn test_flexbv_dialect_with_mixed_pin_and_net_keywords() {
+    let flexbv_sample = r#"
+format: flexbv 1.0
+outline 0 0 100 0
+outline 100 0 100 100
+outline 100 100 0 100
+outline 0 100 0 0
+part U1 20.0 30.0 T
+pin U1 1 VCC 21.0 31.0 4.0
+net U1 2 GND 22.0 32.0 4.0
+part R1 50.0 50.0 B
+pin R1 1 NET_A 51.0 51.0 3.0
+net R1 2 NET_B 52.0 52.0 3.0
+"#;
+
+    let registry = ParserRegistry::default();
+    let board = registry.parse_file("board.brd", flexbv_sample.as_bytes()).expect("parse flexbv brd");
+
+    assert_eq!(board.parts.len(), 2);
+    assert_eq!(board.parts[0].name, "U1");
+    assert_eq!(board.parts[0].side, Side::Top);
+    assert_eq!(board.parts[1].name, "R1");
+    assert_eq!(board.parts[1].side, Side::Bottom);
+
+    assert_eq!(board.pins.len(), 4);
+    assert_eq!(board.pins[0].name, "1");
+    assert_eq!(board.pins[0].net_name, "VCC");
+    assert_eq!(board.pins[1].name, "2");
+    assert_eq!(board.pins[1].net_name, "GND");
+    assert_eq!(board.pins[2].name, "1");
+    assert_eq!(board.pins[2].net_name, "NET_A");
+    assert_eq!(board.pins[3].name, "2");
+    assert_eq!(board.pins[3].net_name, "NET_B");
+
+    assert!(!board.outline_polygon.is_empty());
+}
+
+
