@@ -162,6 +162,27 @@ BoardViewCraft/
 
 ---
 
+## Roadmap & Planned Features
+
+### Live Multimeter Integration (TODO)
+Direct telemetry capture from USB/Bluetooth digital multimeters to automatically record and verify pin measurements against reference values.
+
+- **Planned Multimeter Brands**:
+  - **UNI-T**
+  - **OWON**
+  - **Victor**
+  - **Mastech**
+  - **Voltcraft**
+  - **B&K Precision**
+  - **GW Instek**
+  - **Vici**
+  - **Metex**
+
+> **Help Wanted / Hardware Testing**:
+> I currently do not own these physical hardware multimeter models to test communication protocols and live data acquisition directly. If you own any of these devices and are interested in testing or contributing sample captures, assistance is very welcome! Please open an issue or reach out via GitHub.
+
+---
+
 ## License
 
 Licensed under either of:
