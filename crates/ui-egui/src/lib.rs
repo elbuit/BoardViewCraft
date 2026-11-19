@@ -3165,5 +3165,20 @@ mod tab_tests {
             BoardViewApp::compute_initial_board_rotation(&gpu_board, gpu_board.bounding_box.unwrap()),
             canvas::Rotation::Deg270
         );
+
+        // 4. Real test1.tvw if present on disk
+        let path = std::path::Path::new("/media/no_raid/devel/boarview/test1.tvw");
+        if let Ok(data) = std::fs::read(path) {
+            use bvc_core::FormatParser;
+            if let Ok(board) = bvc_core::parser::tvw::TvwParser::new().parse(&data) {
+                if let Some(bbox) = board.bounding_box {
+                    assert_eq!(
+                        BoardViewApp::compute_initial_board_rotation(&board, bbox),
+                        canvas::Rotation::Deg270,
+                        "Real test1.tvw should auto-rotate to Deg270 so PCIe is at the bottom"
+                    );
+                }
+            }
+        }
     }
 }

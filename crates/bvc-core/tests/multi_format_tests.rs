@@ -496,6 +496,24 @@ fn test_real_test1_tvw_production_binary() {
         assert!(!board.vias.is_empty(), "Expected test pads mapped as vias, got {}", board.vias.len());
         assert!(!board.outline_polygon.is_empty(), "Expected non-empty board outline polygon");
         assert!(board.outline_polygon.len() >= 4, "Expected real surface polygon outline, got {} vertices", board.outline_polygon.len());
+        if let Some(cn1) = board.parts.iter().find(|p| p.name == "CN1") {
+            assert_eq!(cn1.pin_indices.len(), 164, "Expected 164 pins for PCIe edge connector CN1");
+            assert!(!cn1.outline.is_empty(), "Expected non-empty outline for CN1");
+            for &pi in &cn1.pin_indices {
+                let pin = &board.pins[pi];
+                assert!(pin.shape == bvc_core::model::PadShape::Rect, "Expected rectangular pad shape for PCIe finger pin {}", pin.name);
+                assert!(pin.width.is_some() && pin.height.is_some(), "Expected physical dimensions for PCIe finger pin {}", pin.name);
+                // Ensure pin coordinates fall within the CN1 bounding box
+                if let Some(bbox) = &cn1.bounding_box {
+                    assert!(
+                        pin.pos.x >= bbox.min_x - 50.0 && pin.pos.x <= bbox.max_x + 50.0
+                            && pin.pos.y >= bbox.min_y - 50.0 && pin.pos.y <= bbox.max_y + 50.0,
+                        "Pin {} at {:?} outside CN1 bbox {:?}",
+                        pin.name, pin.pos, bbox
+                    );
+                }
+            }
+        }
         assert!(!board.nets.is_empty(), "Expected non-empty net list");
     }
 }

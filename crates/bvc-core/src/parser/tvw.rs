@@ -728,15 +728,53 @@ impl TvwParser {
                         let h_mils = pad.height.abs() as f64 / 100.0;
                         let radius = (w_mils.max(h_mils) / 2.0 * PAD_RENDER_SHRINK).max(DEFAULT_PAD_RADIUS_MILS);
 
+                        let is_round = pad.shape_type == 0 && (w_mils - h_mils).abs() < 1e-3;
+                        let shape = if is_round {
+                            crate::model::PadShape::Round
+                        } else if (w_mils - h_mils).abs() < 1e-3 {
+                            crate::model::PadShape::Square
+                        } else {
+                            crate::model::PadShape::Rect
+                        };
+
+                        // Check if pad coordinates are footprint-local (e.g. edge connectors like CN1)
+                        // where raw pad coordinates are relative to placement center cy/cx.
+                        let (px, py) = {
+                            let mut x = pad.x as f64 / 100.0;
+                            let mut y = pad.y as f64 / 100.0;
+                            let min_y = comp.min_y as f64 / 100.0;
+                            let max_y = comp.max_y as f64 / 100.0;
+                            let cy = comp.cy as f64 / 100.0;
+                            if comp.cy != 0 && (y < min_y - 50.0 || y > max_y + 50.0) {
+                                let trans_y = y + cy;
+                                if trans_y >= min_y - 50.0 && trans_y <= max_y + 50.0 {
+                                    y = trans_y;
+                                }
+                            }
+                            let min_x = comp.min_x as f64 / 100.0;
+                            let max_x = comp.max_x as f64 / 100.0;
+                            let cx = comp.cx as f64 / 100.0;
+                            if comp.cx != 0 && (x < min_x - 50.0 || x > max_x + 50.0) {
+                                let trans_x = x + cx;
+                                if trans_x >= min_x - 50.0 && trans_x <= max_x + 50.0 {
+                                    x = trans_x;
+                                }
+                            }
+                            (x, y)
+                        };
+
                         board.pins.push(Pin {
                             id: pin_id,
                             part_id,
                             name: if p_ref.name.is_empty() { p_ref.ordinal.to_string() } else { p_ref.name.clone() },
                             net_name,
-                            pos: Point::new(pad.x as f64 / 100.0, pad.y as f64 / 100.0),
+                            pos: Point::new(px, py),
                             side: layer.side,
                             radius,
-                            ..Default::default()
+                            shape,
+                            width: if w_mils > 0.0 { Some(w_mils) } else { None },
+                            height: if h_mils > 0.0 { Some(h_mils) } else { None },
+                            rotation_deg: 0.0,
                         });
                         pin_indices.push(pin_id);
                     }
@@ -756,6 +794,33 @@ impl TvwParser {
             let bx2 = comp.max_x as f64 / 100.0;
             let by2 = comp.max_y as f64 / 100.0;
 
+            let mut min_x = bx1.min(bx2);
+            let mut min_y = by1.min(by2);
+            let mut max_x = bx1.max(bx2);
+            let mut max_y = by1.max(by2);
+
+            for &pi in &pin_indices {
+                let p = &board.pins[pi];
+                let pw = p.width.unwrap_or(p.radius * 2.0);
+                let ph = p.height.unwrap_or(p.radius * 2.0);
+                min_x = min_x.min(p.pos.x - pw / 2.0);
+                max_x = max_x.max(p.pos.x + pw / 2.0);
+                min_y = min_y.min(p.pos.y - ph / 2.0);
+                max_y = max_y.max(p.pos.y + ph / 2.0);
+            }
+
+            let outline = if min_x < max_x && min_y < max_y {
+                vec![
+                    Point::new(min_x, min_y),
+                    Point::new(max_x, min_y),
+                    Point::new(max_x, max_y),
+                    Point::new(min_x, max_y),
+                    Point::new(min_x, min_y),
+                ]
+            } else {
+                Vec::new()
+            };
+
             board.parts.push(Part {
                 id: part_id,
                 name: comp.refdes.clone(),
@@ -766,11 +831,12 @@ impl TvwParser {
                 p2: Point::new(bx2, by2),
                 pin_indices,
                 bounding_box: Some(Rect {
-                    min_x: bx1.min(bx2),
-                    min_y: by1.min(by2),
-                    max_x: bx1.max(bx2),
-                    max_y: by1.max(by2),
+                    min_x,
+                    min_y,
+                    max_x,
+                    max_y,
                 }),
+                outline,
                 ..Default::default()
             });
         }
