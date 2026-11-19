@@ -1,8 +1,9 @@
 //! Teleplan / TestView `.tvw` format parser.
 //!
 //! Handles both:
-//! 1. Production binary walker (little-endian records, Pascal strings, aperture table, zero-copy pin records,
-//!    component section matching refdes & PINS canonical mapping).
+//! 1. Production binary walker with full physical layer decoding (TOP / BOTTOM),
+//!    UID-to-physical-pad canonical indexing (`uid / 8`), coordinate axis swapping `(x=raw_y, y=raw_x)`,
+//!    and validated component & net registries.
 //! 2. Obfuscated ASCII (+3/+10 rotation cipher) delegating to `TestLinkEngine`.
 
 use crate::board::Board;
@@ -13,59 +14,71 @@ use std::collections::HashMap;
 
 const TVW_MAGIC_SIG: (u8, &[u8]) = (0x13, b"O95w-28ps49m 02v9o.");
 const TVW_VERSION_LE: [u8; 4] = [0x01, 0x00, 0x00, 0x00];
-const MAX_COORD_CMILS: i64 = 5_000_000;
 const PAD_RENDER_SHRINK: f64 = 0.65;
 const DEFAULT_PAD_RADIUS_MILS: f64 = 8.0;
 
+const TVW_LAYER_TOP: u32 = 1;
+const TVW_LAYER_BOTTOM: u32 = 2;
+
 #[derive(Clone, Debug)]
-struct TvwPin {
-    part_index: u32,
-    pin_local: u32,
+struct TvwLayerPad {
     x: i32,
     y: i32,
-    pad_bbox: Option<(i32, i32, i32, i32)>,
-}
-
-#[derive(Clone, Debug, Copy)]
-struct Aperture {
     width: i32,
     height: i32,
     #[allow(dead_code)]
-    type_: u32,
+    shape_type: u32,
+    net: i32,
 }
 
 #[derive(Clone, Debug)]
-struct SurfaceRecord {
+struct TvwLayer {
     #[allow(dead_code)]
-    kind: i32,
-    vertices: Vec<(i32, i32)>,
-    void_count: u32,
+    name: String,
+    side: Side,
+    pads: Vec<TvwLayerPad>,
 }
 
 #[derive(Clone, Debug)]
-struct ComponentPin {
-    pad_index: u32,
-    pin_index: u32,
+struct LayerHeader {
+    #[allow(dead_code)]
+    index: usize,
+    #[allow(dead_code)]
+    name: String,
+    #[allow(dead_code)]
+    layer_type: u32,
+    layer: Option<TvwLayer>,
+}
+
+#[derive(Clone, Debug)]
+struct TvwPinRef {
+    uid: u32,
+    ordinal: u32,
     name: String,
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
-struct ComponentRecord {
+struct TvwPinGroup {
+    kind: u32,
+    pins: Vec<TvwPinRef>,
+}
+
+#[derive(Clone, Debug)]
+struct TvwComponent {
     refdes: String,
     value: String,
-    comment: String,
-    footprint: String,
+    package: String,
+    min_x: i32,
+    min_y: i32,
+    max_x: i32,
+    max_y: i32,
+    #[allow(dead_code)]
     cx: i32,
+    #[allow(dead_code)]
     cy: i32,
-    bx1: i32,
-    by1: i32,
-    bx2: i32,
-    by2: i32,
-    footprint_index: u32,
-    part_class: u32,
-    side: u32,
-    pins: Vec<ComponentPin>,
+    #[allow(dead_code)]
+    rotation: i32,
+    pin_groups: Vec<TvwPinGroup>,
 }
 
 pub struct TvwParser;
@@ -132,1049 +145,668 @@ impl TvwParser {
         buf.get(off).copied()
     }
 
-    fn read_pin_record(buf: &[u8], off0: usize, region_end: usize) -> (Option<TvwPin>, usize) {
-        let mut off = off0;
-        if off + 18 > region_end {
-            return (None, off);
-        }
-
-        let part_idx = match Self::rd_u32(buf, off) {
-            Some(v) => { off += 4; v },
-            None => return (None, off),
-        };
-        let pin_local = match Self::rd_u32(buf, off) {
-            Some(v) => { off += 4; v },
-            None => return (None, off),
-        };
-        let x = match Self::rd_i32(buf, off) {
-            Some(v) => { off += 4; v },
-            None => return (None, off),
-        };
-        let y = match Self::rd_i32(buf, off) {
-            Some(v) => { off += 4; v },
-            None => return (None, off),
-        };
-        let _flag1 = match Self::rd_u8(buf, off) {
-            Some(v) => { off += 1; v },
-            None => return (None, off),
-        };
-        let has_ext = match Self::rd_u8(buf, off) {
-            Some(v) => { off += 1; v },
-            None => return (None, off),
-        };
-
-        let mut pad_bbox = None;
-
-        if has_ext != 0 {
-            if off + 3 > region_end {
-                return (None, off);
-            }
-            let sub_a = match Self::rd_u8(buf, off) {
-                Some(v) => { off += 1; v },
-                None => return (None, off),
-            };
-            if sub_a == 1 {
-                if off + 12 > region_end {
-                    return (None, off);
-                }
-                off += 12;
-            }
-            let sub_b = match Self::rd_u8(buf, off) {
-                Some(v) => { off += 1; v },
-                None => return (None, off),
-            };
-            if sub_b != 0 {
-                if off + 16 > region_end {
-                    return (None, off);
-                }
-                let dx1 = Self::rd_i32(buf, off).unwrap_or(0);
-                let dy1 = Self::rd_i32(buf, off + 4).unwrap_or(0);
-                let dx2 = Self::rd_i32(buf, off + 8).unwrap_or(0);
-                let dy2 = Self::rd_i32(buf, off + 12).unwrap_or(0);
-                pad_bbox = Some((dx1, dy1, dx2, dy2));
-                off += 16;
-            }
-            let sub_c = match Self::rd_u8(buf, off) {
-                Some(v) => { off += 1; v },
-                None => return (None, off),
-            };
-            if sub_c != 0 {
-                if off + 16 > region_end {
-                    return (None, off);
-                }
-                off += 16;
-            }
-        }
-
-        if off + 1 > region_end {
-            return (None, off);
-        }
-        let _flag3 = match Self::rd_u8(buf, off) {
-            Some(v) => { off += 1; v },
-            None => return (None, off),
-        };
-
-        (
-            Some(TvwPin {
-                part_index: part_idx,
-                pin_local,
-                x,
-                y,
-                pad_bbox,
-            }),
-            off,
-        )
-    }
-
-    #[inline]
-    fn is_plausible_pin(p: &TvwPin) -> bool {
-        if (p.x as i64).abs() > MAX_COORD_CMILS {
-            return false;
-        }
-        if (p.y as i64).abs() > MAX_COORD_CMILS {
-            return false;
-        }
-        if p.part_index >= (1u32 << 31) {
-            return false;
-        }
-        if p.pin_local > 0x100000 {
-            return false;
-        }
-        true
-    }
-
-    fn try_walk_pins_at(
-        buf: &[u8],
-        off: usize,
-        region_end: usize,
-        max_pin_count: u32,
-        min_partial_ratio: f64,
-    ) -> Option<(Vec<TvwPin>, usize, u32)> {
-        if off + 12 > region_end {
+    fn read_pascal_string(buf: &[u8], off: usize, empty_allowed: bool) -> Option<(String, usize)> {
+        let len = *buf.get(off)? as usize;
+        if len == 0 && !empty_allowed {
             return None;
         }
-        let first_count = Self::rd_u32(buf, off)?;
-        let pin_count = Self::rd_u32(buf, off + 4)?;
-        let mut off2 = off + 8;
-        if pin_count == 0 {
-            return Some((Vec::new(), off2, 0));
-        }
-        if pin_count > max_pin_count || first_count > max_pin_count {
+        let end = off.checked_add(1)?.checked_add(len)?;
+        if end > buf.len() {
             return None;
         }
-        let _gap = Self::rd_u32(buf, off2)?;
-        off2 += 4;
+        let bytes = &buf[off + 1..end];
+        let s = String::from_utf8_lossy(bytes).into_owned();
+        Some((s, end))
+    }
 
-        let mut pins = Vec::new();
-        let mut cur = off2;
-        for _ in 0..pin_count {
-            let (rec, new_off) = Self::read_pin_record(buf, cur, region_end);
-            match rec {
-                Some(r) if Self::is_plausible_pin(&r) => {
-                    pins.push(r);
-                    cur = new_off;
-                }
-                _ => break,
-            }
-        }
-        if pins.is_empty() {
+    /// Finds and parses the net names table
+    fn read_net_table(buf: &[u8]) -> Option<(Vec<String>, usize, usize)> {
+        const PREFIX: usize = 69;
+        let len = buf.len();
+        if len < 100 {
             return None;
         }
-        if pin_count >= 10 && (pins.len() as f64) < f64::max(2.0, pin_count as f64 * min_partial_ratio) {
-            return None;
-        }
-        Some((pins, cur, pin_count))
-    }
 
-    #[inline]
-    fn looks_like_pin_record(buf: &[u8], off: usize, region_end: usize) -> bool {
-        if off + 18 > region_end {
-            return false;
-        }
-        let x = match Self::rd_i32(buf, off + 8) {
-            Some(v) => v,
-            None => return false,
-        };
-        let y = match Self::rd_i32(buf, off + 12) {
-            Some(v) => v,
-            None => return false,
-        };
-        (x as i64).abs() <= MAX_COORD_CMILS && (y as i64).abs() <= MAX_COORD_CMILS
-    }
-
-    #[inline]
-    fn looks_like_pin_section_header(buf: &[u8], off: usize, region_end: usize) -> bool {
-        if off + 12 + 18 > region_end || off + 16 > buf.len() {
-            return false;
-        }
-        if buf[off + 3] != 0 || buf[off + 7] != 0 || buf[off + 11] != 0 || buf[off + 15] != 0 {
-            return false;
-        }
-        let first_count = match Self::rd_u32(buf, off) {
-            Some(v) => v,
-            None => return false,
-        };
-        let pin_count = match Self::rd_u32(buf, off + 4) {
-            Some(v) => v,
-            None => return false,
-        };
-        if pin_count < 1 || pin_count > 100_000 || first_count > 100_000 {
-            return false;
-        }
-        Self::looks_like_pin_record(buf, off + 12, region_end)
-    }
-
-    fn scan_best_pin_section(
-        buf: &[u8],
-        scan_start: usize,
-        scan_end: usize,
-        region_end: usize,
-        step: usize,
-    ) -> Option<(usize, Vec<TvwPin>, usize, u32)> {
-        let mut best = None;
-        let mut best_len = 0usize;
-        let step = step.max(1);
-        let mut cand = scan_start;
-        while cand < scan_end {
-            if Self::looks_like_pin_section_header(buf, cand, region_end) {
-                if let Some((pins, end, declared)) = Self::try_walk_pins_at(buf, cand, region_end, 200_000, 0.5) {
-                    if pins.len() > best_len {
-                        best_len = pins.len();
-                        best = Some((cand, pins, end, declared));
+        let mut candidate_offsets = Vec::new();
+        // Priority 1: standard prefix pattern (words 7 and 4)
+        for q in PREFIX..len.saturating_sub(9) {
+            if buf[q - 56] == 7 && buf[q - 44] == 4 {
+                if let (Some(w1), Some(w2)) = (Self::rd_u32(buf, q - 56), Self::rd_u32(buf, q - 44)) {
+                    if w1 == 7 && w2 == 4 {
+                        candidate_offsets.push(q);
                     }
                 }
             }
-            cand += step;
-        }
-        best
-    }
-
-    fn read_regular_dcode_at(buf: &[u8], off: usize, region_end: usize) -> (Option<Aperture>, usize) {
-        if off + 24 > region_end {
-            return (None, off);
-        }
-        let w = match Self::rd_i32(buf, off + 4) {
-            Some(v) => v,
-            None => return (None, off),
-        };
-        let h = match Self::rd_i32(buf, off + 8) {
-            Some(v) => v,
-            None => return (None, off),
-        };
-        let type_ = match Self::rd_u32(buf, off + 12) {
-            Some(v) => v,
-            None => return (None, off),
-        };
-        if type_ != 0 && type_ != 1 && type_ != 3 {
-            return (None, off);
-        }
-        if w < 1 || h < 1 || w > 0x100000 || h > 0x100000 {
-            return (None, off);
-        }
-        (Some(Aperture { width: w, height: h, type_ }), off + 24)
-    }
-
-    fn find_custom_polygon_marker(window: &[u8]) -> bool {
-        // Look for 05 00 00 00 00 00 00 00 [len] 'Custom'
-        if window.len() < 15 {
-            return false;
-        }
-        window.starts_with(&[0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-            && window[8] >= 6
-            && window[8] <= 15
-            && &window[9..15] == b"Custom"
-    }
-
-    fn read_dcodes(buf: &[u8], off: usize, region_end: usize) -> HashMap<u32, Aperture> {
-        let mut apertures = HashMap::new();
-        if off + 4 > region_end {
-            return apertures;
-        }
-        let count = match Self::rd_u32(buf, off) {
-            Some(v) => v,
-            None => return apertures,
-        };
-        if count == 0 || count > 1_000_000 {
-            return apertures;
         }
 
-        let mut cur = off + 4;
-        let mut i = 0;
-        while i < count {
-            if cur + 20 > region_end {
-                break;
+        // Priority 2: direct search for duplicate counts
+        let try_table_at = |q: usize| -> Option<(Vec<String>, usize, usize)> {
+            let c1 = Self::rd_u32(buf, q)?;
+            let c2 = Self::rd_u32(buf, q + 4)?;
+            if c1 == 0 || c1 > 100_000 || c1 != c2 {
+                return None;
             }
-            let t = match Self::rd_u32(buf, cur + 12) {
+            let mut cur = q + 8;
+            let mut names = Vec::with_capacity(c1 as usize);
+            for _ in 0..c1 {
+                let (name, next) = Self::read_pascal_string(buf, cur, true)?;
+                names.push(name);
+                cur = next;
+            }
+            if cur + 21 > len {
+                return None;
+            }
+            let _px = Self::rd_i32(buf, cur)?;
+            let _py = Self::rd_i32(buf, cur + 4)?;
+            let kind = Self::rd_u32(buf, cur + 8)?;
+            if kind != 4 {
+                return None;
+            }
+            let (probe_name, probe_end) = Self::read_pascal_string(buf, cur + 12, false)?;
+            if probe_name != "ProbeDB" {
+                return None;
+            }
+            let mut after_probe = probe_end;
+            if probe_end + 8 <= len {
+                let size = Self::rd_u32(buf, probe_end)?;
+                let packs = Self::rd_u32(buf, probe_end + 4)?;
+                if size > 0 && size <= 2_000_000 && packs > 0 && packs <= 4096 {
+                    after_probe = probe_end + 8;
+                }
+            }
+            let table_start = if q >= PREFIX { q - PREFIX } else { q };
+            Some((names, table_start, after_probe))
+        };
+
+        for q in candidate_offsets {
+            if let Some(res) = try_table_at(q) {
+                return Some(res);
+            }
+        }
+
+        for q in 0..len.saturating_sub(9) {
+            if let Some(res) = try_table_at(q) {
+                return Some(res);
+            }
+        }
+
+        None
+    }
+
+    /// Read layer headers and decoded pads from top/bottom layers
+    fn read_layers(buf: &[u8], net_table_start: usize, net_count: usize) -> (Vec<LayerHeader>, HashMap<usize, TvwLayer>) {
+        let mut headers = Vec::new();
+        let mut layers_map = HashMap::new();
+        let mut p = 0;
+
+        while p + 35 <= net_table_start {
+            // Check 16-byte fixed layer prefix
+            if buf[p] != 0 || buf[p + 1] != 0 || buf[p + 2] != 0 || buf[p + 3] != 0
+                || (buf[p + 4] != 1 && buf[p + 4] != 3) || buf[p + 5] != 0 || buf[p + 6] != 0 || buf[p + 7] != 0
+                || buf[p + 8] != 2 || buf[p + 9] != 0 || buf[p + 10] != 0 || buf[p + 11] != 0
+                || buf[p + 12] != 1 || buf[p + 13] != 0 || buf[p + 14] != 0 || buf[p + 15] != 0
+            {
+                p += 1;
+                continue;
+            }
+
+            let mut cur = p + 16;
+            let name_res = Self::read_pascal_string(buf, cur, true);
+            let (name, next1) = match name_res {
                 Some(v) => v,
-                None => break,
+                None => { p += 1; continue; }
+            };
+            cur = next1;
+
+            let initial_res = Self::read_pascal_string(buf, cur, true);
+            let (initial, next2) = match initial_res {
+                Some(v) => v,
+                None => { p += 1; continue; }
+            };
+            cur = next2;
+
+            let desc_res = Self::read_pascal_string(buf, cur, true);
+            cur = match desc_res {
+                Some((_, next3)) => next3,
+                None => { p += 1; continue; }
             };
 
-            if t != 0 && t != 1 && t != 3 {
-                // If type == 5 (Custom polygon records)
-                if t == 5 {
-                    // Collect custom aperture definitions
-                    let mut search_off = cur;
-                    let search_limit = (cur + 250_000).min(region_end);
-                    while search_off + 15 <= search_limit {
-                        if Self::find_custom_polygon_marker(&buf[search_off..]) {
-                            let rec_start = search_off.saturating_sub(12);
-                            if rec_start >= cur && rec_start + 20 <= region_end {
-                                if let (Some(cw), Some(ch)) = (Self::rd_i32(buf, rec_start + 4), Self::rd_i32(buf, rec_start + 8)) {
-                                    if cw >= 1 && ch >= 1 && cw <= 0x100000 && ch <= 0x100000 {
-                                        let idx = (apertures.len() + 1) as u32;
-                                        apertures.insert(idx, Aperture { width: cw, height: ch, type_: 5 });
-                                        if apertures.len() >= count as usize {
-                                            break;
-                                        }
-                                    }
+            let l_type = match Self::rd_u32(buf, cur) {
+                Some(v) => { cur += 4; v },
+                None => { p += 1; continue; }
+            };
+            cur += 8; // skip 2 words
+            let dcode_count = match Self::rd_u32(buf, cur) {
+                Some(v) => { cur += 4; v },
+                None => { p += 1; continue; }
+            };
+
+            let named = !name.is_empty() && !initial.is_empty();
+            if !named {
+                if buf[p + 4] == 3 && name.is_empty() && l_type == 0 && dcode_count == 0 && cur == p + 35 {
+                    // Empty layer slot
+                    headers.push(LayerHeader {
+                        index: headers.len(),
+                        name: String::new(),
+                        layer_type: 0,
+                        layer: None,
+                    });
+                    p += 82;
+                    continue;
+                }
+                p += 1;
+                continue;
+            }
+
+            let header_idx = headers.len();
+            if l_type != TVW_LAYER_TOP && l_type != TVW_LAYER_BOTTOM {
+                headers.push(LayerHeader {
+                    index: header_idx,
+                    name,
+                    layer_type: l_type,
+                    layer: None,
+                });
+                p = cur;
+                continue;
+            }
+
+            if dcode_count < 10 {
+                p = cur;
+                continue;
+            }
+
+            // Decode D-code apertures
+            let mut defs = Vec::with_capacity((dcode_count - 10) as usize);
+            let mut valid_defs = true;
+            for _ in 0..(dcode_count - 10) {
+                if cur + 20 > net_table_start {
+                    valid_defs = false;
+                    break;
+                }
+                if Self::rd_u32(buf, cur) != Some(1) {
+                    valid_defs = false;
+                    break;
+                }
+                cur += 4;
+                // Height then Width (disk Y, X order)
+                let h = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_defs = false; break; } };
+                let w = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_defs = false; break; } };
+                let stype = match Self::rd_u32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_defs = false; break; } };
+                let extra = match Self::rd_u32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_defs = false; break; } };
+
+                if stype <= 3 {
+                    cur += 4;
+                } else if stype == 5 && extra == 0 {
+                    // Custom macro
+                    if let Some((_, cnext)) = Self::read_pascal_string(buf, cur, false) {
+                        cur = cnext + 16;
+                        if let Some(c_cnt) = Self::rd_u32(buf, cur) {
+                            cur += 4;
+                            for _ in 0..c_cnt {
+                                if cur + 16 > net_table_start { valid_defs = false; break; }
+                                let prim = match Self::rd_u32(buf, cur) { Some(v) => { cur += 16; v }, None => { valid_defs = false; break; } };
+                                if prim == 2 {
+                                    if let Some(edges) = Self::rd_u32(buf, cur) {
+                                        cur += 4 + (edges as usize * 8);
+                                    } else { valid_defs = false; break; }
+                                } else if prim == 5 {
+                                    cur += 20;
                                 }
                             }
                         }
-                        search_off += 1;
                     }
                 }
-                break;
+                defs.push((w, h, stype));
             }
 
-            let (ap, next_cur) = Self::read_regular_dcode_at(buf, cur, region_end);
-            match ap {
-                Some(a) => {
-                    let idx = (apertures.len() + 1) as u32;
-                    apertures.insert(idx, a);
-                    cur = next_cur;
-                }
-                None => break,
+            if !valid_defs {
+                p = cur;
+                continue;
             }
-            i += 1;
-        }
 
-        apertures
-    }
-
-    fn read_surfaces(buf: &[u8], off: usize, region_end: usize) -> (Vec<SurfaceRecord>, usize) {
-        let mut surfaces = Vec::new();
-        if off + 4 > region_end {
-            return (surfaces, off);
-        }
-        let count = match Self::rd_u32(buf, off) {
-            Some(v) => v,
-            None => return (surfaces, off),
-        };
-        if count == 0 || count > 1_000_000 {
-            return (surfaces, off);
-        }
-        let mut cur = off + 8; // skip count and unknown u32
-
-        for _ in 0..count {
-            if cur + 8 > region_end {
-                break;
+            // Fixed trailer [1, 0, 1]
+            if cur + 12 > net_table_start || Self::rd_u32(buf, cur) != Some(1) || Self::rd_u32(buf, cur + 4) != Some(0) || Self::rd_u32(buf, cur + 8) != Some(1) {
+                p = cur;
+                continue;
             }
-            let kind = match Self::rd_i32(buf, cur) {
-                Some(v) => v,
-                None => break,
+            cur += 12;
+
+            let pad_count = match Self::rd_u32(buf, cur) {
+                Some(v) => { cur += 4; v },
+                None => { p = cur; continue; }
             };
-            let vc = match Self::rd_i32(buf, cur + 4) {
-                Some(v) => v,
-                None => break,
-            };
-            cur += 8;
-
-            if vc < 0 || vc > 50_000 {
-                return (surfaces, cur);
+            if Self::rd_u32(buf, cur) != Some(2) {
+                p = cur;
+                continue;
             }
-            if cur + (8 * vc as usize) > region_end {
-                break;
-            }
-
-            let mut vertices = Vec::with_capacity(vc as usize);
-            for _ in 0..vc {
-                let x = match Self::rd_i32(buf, cur) {
-                    Some(v) => v,
-                    None => return (surfaces, cur),
-                };
-                let y = match Self::rd_i32(buf, cur + 4) {
-                    Some(v) => v,
-                    None => return (surfaces, cur),
-                };
-                cur += 8;
-                vertices.push((x, y));
-            }
-
-            if vc > 0 {
-                if cur + 4 > region_end {
-                    break;
-                }
-                cur += 4; // trailing unknown
-            }
-
-            if cur + 4 > region_end {
-                break;
-            }
-            let void_count = match Self::rd_u32(buf, cur) {
-                Some(v) => v,
-                None => break,
-            };
             cur += 4;
 
-            if void_count > 100_000 {
-                return (surfaces, cur);
-            }
-            if void_count > 0 {
-                if cur + 4 > region_end {
-                    return (surfaces, cur);
-                }
-                cur += 4;
-            }
-
-            let mut valid_voids = true;
-            for _ in 0..void_count {
-                if cur + 4 > region_end {
-                    valid_voids = false;
+            let mut pads = Vec::with_capacity(pad_count as usize);
+            let mut valid_pads = true;
+            for _ in 0..pad_count {
+                if cur + 18 > net_table_start {
+                    valid_pads = false;
                     break;
                 }
-                let vv = match Self::rd_u32(buf, cur) {
-                    Some(v) => v,
-                    None => { valid_voids = false; break; },
-                };
-                cur += 4;
+                let net = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                let dcode = match Self::rd_u32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                // Disk coordinates are (Y, X)
+                let y = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                let x = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                let flag = match Self::rd_u8(buf, cur) { Some(v) => { cur += 1; v }, None => { valid_pads = false; break; } };
+                let details = match Self::rd_u8(buf, cur) { Some(v) => { cur += 1; v }, None => { valid_pads = false; break; } };
 
-                if vv > 50_000 || cur + (8 * vv as usize) > region_end {
-                    valid_voids = false;
-                    break;
-                }
-                cur += 8 * vv as usize;
-
-                if vv > 0 {
-                    if cur + 4 > region_end {
-                        valid_voids = false;
-                        break;
-                    }
-                    cur += 4;
-                }
-            }
-
-            if !valid_voids {
-                return (surfaces, cur);
-            }
-
-            surfaces.push(SurfaceRecord {
-                kind,
-                vertices,
-                void_count,
-            });
-        }
-
-        (surfaces, cur)
-    }
-
-    fn scan_pascal_string_run(buf: &[u8], start: usize, end: usize) -> (Vec<String>, usize) {
-        let mut names = Vec::new();
-        let mut cur = start;
-        while cur < end {
-            let n = buf[cur] as usize;
-            if n == 0 || cur + 1 + n > end || n > 64 {
-                break;
-            }
-            let s_bytes = &buf[cur + 1..cur + 1 + n];
-            if s_bytes.iter().all(|&b| (32..=126).contains(&b)) {
-                names.push(String::from_utf8_lossy(s_bytes).into_owned());
-                cur += 1 + n;
-            } else {
-                break;
-            }
-        }
-        (names, cur)
-    }
-
-    fn scan_network_names(buf: &[u8]) -> Vec<String> {
-        let end = buf.len();
-        let safe_window = end.saturating_sub(end / 4 + 4096);
-        let mut cur = safe_window;
-
-        // Try deterministic header: u32 count, u32 count (§4.15)
-        while cur + 8 < end {
-            if let (Some(c1), Some(c2)) = (Self::rd_u32(buf, cur), Self::rd_u32(buf, cur + 4)) {
-                if c1 > 0 && c1 == c2 && c1 <= 100_000 {
-                    let (names, _) = Self::scan_pascal_string_run(buf, cur + 8, end);
-                    if names.len() == c1 as usize {
-                        return names;
-                    }
-                }
-            }
-            cur += 1;
-        }
-
-        // Fallback to longest Pascal string run
-        cur = safe_window;
-        let mut best_names = Vec::new();
-        while cur + 4 < end {
-            let (names, _) = Self::scan_pascal_string_run(buf, cur, end);
-            if names.len() >= best_names.len() && !names.is_empty() {
-                best_names = names;
-            }
-            cur += 1;
-        }
-        best_names
-    }
-
-    /// Check if body matches refdes pattern: 1-5 letters followed by 1-5 digits.
-    fn is_refdes_pattern(body: &[u8]) -> bool {
-        if body.is_empty() || body.len() > 10 {
-            return false;
-        }
-        let mut letters = 0;
-        let mut digits = 0;
-        let mut in_digits = false;
-
-        for &b in body {
-            if !in_digits {
-                if b.is_ascii_alphabetic() {
-                    letters += 1;
-                    if letters > 5 {
-                        return false;
-                    }
-                } else if b.is_ascii_digit() {
-                    if letters == 0 {
-                        return false;
-                    }
-                    in_digits = true;
-                    digits += 1;
+                let (mut w, mut h, stype) = if (dcode as usize) >= 10 && ((dcode - 10) as usize) < defs.len() {
+                    defs[(dcode - 10) as usize]
                 } else {
-                    return false;
+                    (0, 0, 0)
+                };
+
+                if details != 0 {
+                    let extended = match Self::rd_u8(buf, cur) { Some(v) => { cur += 1; v }, None => { valid_pads = false; break; } };
+                    if extended != 0 {
+                        cur += 12;
+                    }
+                    let geom = match Self::rd_u8(buf, cur) { Some(v) => { cur += 1; v }, None => { valid_pads = false; break; } };
+                    if geom == 1 {
+                        let min_y = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                        let min_x = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                        let max_y = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                        let max_x = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v }, None => { valid_pads = false; break; } };
+                        w = (max_x - min_x).abs();
+                        h = (max_y - min_y).abs();
+                        let hole = match Self::rd_u8(buf, cur) { Some(v) => { cur += 1; v }, None => { valid_pads = false; break; } };
+                        if hole != 0 {
+                            cur += 16;
+                        }
+                    } else if geom == 0 && (flag != 0 || (Self::rd_u32(buf, cur) == Some(1) && Self::rd_u32(buf, cur + 4) == Some(0) && Self::rd_u8(buf, cur + 8) == Some(0))) {
+                        cur += 9;
+                        h = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v * 2 }, None => { valid_pads = false; break; } };
+                        w = match Self::rd_i32(buf, cur) { Some(v) => { cur += 4; v * 2 }, None => { valid_pads = false; break; } };
+                    } else if geom == 0 {
+                        let hole = match Self::rd_u8(buf, cur) { Some(v) => { cur += 1; v }, None => { valid_pads = false; break; } };
+                        if hole != 0 {
+                            cur += 16;
+                        }
+                    }
                 }
-            } else if b.is_ascii_digit() {
-                digits += 1;
-                if digits > 5 {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        letters > 0 && digits > 0
-    }
+                cur += 1; // opaque final flag
 
-    fn scan_component_records(buf: &[u8]) -> Vec<ComponentRecord> {
-        let n = buf.len();
-        let mut candidates = Vec::new();
+                pads.push(TvwLayerPad {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                    shape_type: stype,
+                    net: if net >= 0 && (net as usize) < net_count { net } else { -1 },
+                });
+            }
 
-        for i in 0..n.saturating_sub(40) {
-            let plen = buf[i] as usize;
-            if !(2..=8).contains(&plen) || i + 1 + plen + 32 > n {
-                continue;
-            }
-            let body = &buf[i + 1..i + 1 + plen];
-            if !Self::is_refdes_pattern(body) {
-                continue;
-            }
-            // Skip false-positive layer names like L1..L15
-            if (plen == 2 || plen == 3) && body[0] == b'L' && body[1..].iter().all(|b| b.is_ascii_digit()) {
+            if !valid_pads {
+                p = cur;
                 continue;
             }
 
-            let o = i + 1 + plen;
-            let bx1 = match Self::rd_i32(buf, o) { Some(v) => v, None => continue };
-            let by1 = match Self::rd_i32(buf, o + 4) { Some(v) => v, None => continue };
-            let bx2 = match Self::rd_i32(buf, o + 8) { Some(v) => v, None => continue };
-            let by2 = match Self::rd_i32(buf, o + 12) { Some(v) => v, None => continue };
-            let cx = match Self::rd_i32(buf, o + 16) { Some(v) => v, None => continue };
-            let cy = match Self::rd_i32(buf, o + 20) { Some(v) => v, None => continue };
-
-            if [bx1, by1, bx2, by2, cx, cy].iter().any(|&v| (v as i64).abs() > 10_000_000) {
-                continue;
-            }
-            if bx1 >= bx2 || by1 >= by2 {
-                continue;
-            }
-            let w = bx2 - bx1;
-            let h = by2 - by1;
-            if w < 100 || h < 100 || w > 5_000_000 || h > 5_000_000 {
-                continue;
-            }
-            let mx = w / 2;
-            let my = h / 2;
-            if !(bx1 - mx <= cx && cx <= bx2 + mx && by1 - my <= cy && cy <= by2 + my) {
-                continue;
-            }
-            candidates.push(i);
-        }
-
-        let mut components = Vec::new();
-        for idx in 0..candidates.len() {
-            let start = candidates[idx];
-            let next_start = if idx + 1 < candidates.len() {
-                candidates[idx + 1]
-            } else {
-                n
+            let side = if l_type == TVW_LAYER_TOP { Side::Top } else { Side::Bottom };
+            let layer = TvwLayer {
+                name: name.clone(),
+                side,
+                pads,
             };
 
-            if let Some(comp) = Self::parse_component_at(buf, start, next_start) {
-                components.push(comp);
-            }
+            layers_map.insert(header_idx, layer.clone());
+            headers.push(LayerHeader {
+                index: header_idx,
+                name,
+                layer_type: l_type,
+                layer: Some(layer),
+            });
+
+            p = cur;
         }
-        components
+
+        (headers, layers_map)
     }
 
-    fn parse_component_at(buf: &[u8], start: usize, region_end: usize) -> Option<ComponentRecord> {
-        let mut o = start;
-        let plen = buf.get(o).copied()? as usize;
-        o += 1;
-        if !(1..=12).contains(&plen) || o + plen + 32 > region_end {
-            return None;
-        }
-        let refdes_bytes = &buf[o..o + plen];
-        if !refdes_bytes.iter().all(|&b| (32..=126).contains(&b)) {
-            return None;
-        }
-        let refdes = String::from_utf8_lossy(refdes_bytes).into_owned();
-        o += plen;
-
-        let bx1 = Self::rd_i32(buf, o)?; o += 4;
-        let by1 = Self::rd_i32(buf, o)?; o += 4;
-        let bx2 = Self::rd_i32(buf, o)?; o += 4;
-        let by2 = Self::rd_i32(buf, o)?; o += 4;
-        let cx = Self::rd_i32(buf, o)?; o += 4;
-        let cy = Self::rd_i32(buf, o)?; o += 4;
-        let _rotation = Self::rd_u32(buf, o)?; o += 4;
-        let footprint_index = Self::rd_u32(buf, o)?; o += 4; // +28
-        let part_class = Self::rd_u32(buf, o)?; o += 4;      // +32
-        if o + 8 > region_end {
-            return None;
-        }
-        o += 8; // 8 zero bytes (+36..+44)
-
-        let mut value = String::new();
-        let mut comment = String::new();
-        let mut footprint = String::new();
-        let mut string_region_ok = true;
-
-        if o + 2 <= region_end {
-            let sep_v = buf[o];
-            let plen_v = buf[o + 1] as usize;
-            if sep_v == 0x01 && plen_v <= 64 && o + 2 + plen_v <= region_end {
-                o += 2;
-                value = String::from_utf8_lossy(&buf[o..o + plen_v]).into_owned();
-                o += plen_v;
-            } else {
-                string_region_ok = false;
-            }
-        }
-        if string_region_ok && o + 1 <= region_end {
-            let plen_a = buf[o] as usize;
-            if plen_a <= 64 && o + 1 + plen_a <= region_end {
-                o += 1;
-                comment = String::from_utf8_lossy(&buf[o..o + plen_a]).into_owned();
-                o += plen_a;
-            } else {
-                string_region_ok = false;
-            }
-        }
-        if string_region_ok && o + 1 <= region_end {
-            let plen_b = buf[o] as usize;
-            if plen_b <= 64 && o + 1 + plen_b <= region_end {
-                o += 1 + plen_b; // duplicate comment
-            } else {
-                string_region_ok = false;
-            }
-        }
-        if string_region_ok && o + 1 <= region_end {
-            let plen_f = buf[o] as usize;
-            if plen_f <= 64 && o + 1 + plen_f <= region_end {
-                o += 1;
-                footprint = String::from_utf8_lossy(&buf[o..o + plen_f]).into_owned();
-                o += plen_f;
-            }
-        }
-
-        // part_code Pascal string (§4.16 row 17)
-        if string_region_ok && o + 1 <= region_end {
-            let plen_pc = buf[o] as usize;
-            if plen_pc <= 64 && o + 1 + plen_pc <= region_end {
-                o += 1 + plen_pc;
-            }
-        }
-
-        // u32 zero (§4.16 row 18)
-        if o + 4 <= region_end {
-            o += 4;
-        }
-
-        let mut pins = Vec::new();
-        let mut side = 2u32; // Default 2 = Top
-
-        if o + 4 <= region_end {
-            let cnt_u32 = Self::rd_u32(buf, o).unwrap_or(0);
-            o += 4;
-            let pin_count = if cnt_u32 <= 10_000 { cnt_u32 } else { 0 };
-
-            // side u32 (§4.16 row 20) and zero u32 (§4.16 row 21)
-            if o + 8 <= region_end {
-                side = Self::rd_u32(buf, o).unwrap_or(2);
-                o += 4;
-                let _zero = Self::rd_u32(buf, o).unwrap_or(0);
-                o += 4;
-
-                for _ in 0..pin_count {
-                    if o + 12 > region_end {
-                        break;
-                    }
-                    let pad_idx = Self::rd_u32(buf, o)?; o += 4;
-                    let _u = Self::rd_u32(buf, o)?; o += 4;
-                    let pin_idx = Self::rd_u32(buf, o)?; o += 4;
-                    if o + 1 > region_end {
-                        break;
-                    }
-                    let name_len = buf[o] as usize;
-                    o += 1;
-                    if name_len > 16 || o + name_len + 4 > region_end {
-                        break;
-                    }
-                    let pin_name = String::from_utf8_lossy(&buf[o..o + name_len]).into_owned();
-                    o += name_len;
-                    let _trailer = Self::rd_u32(buf, o)?; o += 4;
-
-                    pins.push(ComponentPin {
-                        pad_index: pad_idx,
-                        pin_index: pin_idx,
-                        name: pin_name,
-                    });
+    /// Read components starting after the net table / ProbeDB registry
+    fn read_components(buf: &[u8], after_probe: usize) -> Vec<TvwComponent> {
+        let len = buf.len();
+        let stop = (after_probe + 256 * 1024).min(len.saturating_sub(8));
+        let mut header_opt = None;
+        for q in after_probe..stop {
+            if let (Some(c), Some(k)) = (Self::rd_u32(buf, q), Self::rd_u32(buf, q + 4)) {
+                if c > 0 && c <= 250_000 && k == 12 {
+                    header_opt = Some((q + 8, c as usize));
+                    break;
                 }
             }
         }
 
-        Some(ComponentRecord {
-            refdes,
-            value,
-            comment,
-            footprint,
-            cx,
-            cy,
-            bx1,
-            by1,
-            bx2,
-            by2,
-            footprint_index,
-            part_class,
-            side,
-            pins,
-        })
+        let (mut cur, total_count) = match header_opt {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+
+        let mut components = Vec::with_capacity(total_count);
+        for _ in 0..total_count {
+            if cur >= len {
+                break;
+            }
+            let (refdes, a) = match Self::read_pascal_string(buf, cur, false) {
+                Some(v) => v,
+                None => break,
+            };
+            if a + 36 > len {
+                break;
+            }
+
+            let min_y = Self::rd_i32(buf, a).unwrap_or(0);
+            let min_x = Self::rd_i32(buf, a + 4).unwrap_or(0);
+            let max_y = Self::rd_i32(buf, a + 8).unwrap_or(0);
+            let max_x = Self::rd_i32(buf, a + 12).unwrap_or(0);
+            let cy = Self::rd_i32(buf, a + 16).unwrap_or(0);
+            let cx = Self::rd_i32(buf, a + 20).unwrap_or(0);
+            let rot = Self::rd_i32(buf, a + 24).unwrap_or(0);
+            let classif = Self::rd_u32(buf, a + 32).unwrap_or(0);
+
+            let mut matched = false;
+            for &fixed in &[44usize, 48usize] {
+                if a + fixed >= len {
+                    continue;
+                }
+                let flag = buf[a + fixed];
+                let mut tails = Vec::new();
+                if flag == 0 {
+                    if classif == 18 || classif == 0xffff_ffff {
+                        tails.push((String::new(), String::new(), a + fixed + 1));
+                    }
+                } else if flag == 1 {
+                    if let Some((val, v_end)) = Self::read_pascal_string(buf, a + fixed + 1, true) {
+                        let e1_res = Self::read_pascal_string(buf, v_end, true);
+                        let e2_res = if let Some((_, e1_end)) = &e1_res {
+                            Self::read_pascal_string(buf, *e1_end, true)
+                        } else {
+                            None
+                        };
+                        let mut pkg_offsets = vec![v_end + 2];
+                        if let Some((_, e2_end)) = e2_res {
+                            pkg_offsets.push(e2_end);
+                        }
+                        for pkg_off in pkg_offsets {
+                            if let Some((pkg, pkg_end)) = Self::read_pascal_string(buf, pkg_off, classif == 18) {
+                                if let Some((_serial, s_end)) = Self::read_pascal_string(buf, pkg_end, true) {
+                                    tails.push((val.clone(), pkg, s_end));
+                                }
+                            }
+                        }
+                    }
+                }
+
+                for (val, pkg, s_end) in tails {
+                    let reserved = if fixed == 44 { 4 } else { 0 };
+                    if s_end + 12 + reserved > len || Self::rd_u32(buf, s_end) != Some(0) {
+                        continue;
+                    }
+                    let p_cnt = match Self::rd_u32(buf, s_end + 4) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let p_kind = match Self::rd_u32(buf, s_end + 8) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    if p_cnt > 16_384 {
+                        continue;
+                    }
+
+                    let mut p_cur = s_end + 12 + reserved;
+                    let mut g_cnt = p_cnt;
+                    let mut g_kind = p_kind;
+                    let mut pin_groups = Vec::new();
+                    let mut complete = true;
+
+                    for g in 0..2 {
+                        if g_cnt > 16_384 {
+                            complete = false;
+                            break;
+                        }
+                        let mut grp_pins = Vec::with_capacity(g_cnt as usize);
+                        for pi in 0..g_cnt {
+                            if p_cur + 13 > len || Self::rd_u32(buf, p_cur + 4) != Some(0) {
+                                complete = false;
+                                break;
+                            }
+                            let uid = match Self::rd_u32(buf, p_cur) { Some(v) => v, None => { complete = false; break; } };
+                            let ord_idx = match Self::rd_u32(buf, p_cur + 8) { Some(v) => v, None => { complete = false; break; } };
+                            let is_test_pt = g_cnt == 1 && (classif == 18 || pkg.is_empty());
+                            let (pname, p_next) = match Self::read_pascal_string(buf, p_cur + 12, is_test_pt) {
+                                Some(v) => v,
+                                None => { complete = false; break; }
+                            };
+                            grp_pins.push(TvwPinRef {
+                                uid,
+                                ordinal: ord_idx,
+                                name: pname,
+                            });
+                            p_cur = p_next;
+                            if pi + 1 < g_cnt || reserved == 0 {
+                                if Self::rd_u32(buf, p_cur) != Some(0) {
+                                    complete = false;
+                                    break;
+                                }
+                                p_cur += 4;
+                            }
+                        }
+
+                        if !complete || grp_pins.len() != g_cnt as usize {
+                            complete = false;
+                            break;
+                        }
+                        pin_groups.push(TvwPinGroup {
+                            kind: g_kind,
+                            pins: grp_pins,
+                        });
+
+                        if reserved == 0 || g_cnt == 0 || g == 1 {
+                            break;
+                        }
+                        g_cnt = match Self::rd_u32(buf, p_cur) { Some(v) => { p_cur += 4; v }, None => break };
+                        if g_cnt == 0 {
+                            break;
+                        }
+                        if p_cur + 8 > len || Self::rd_u32(buf, p_cur + 4) != Some(0) {
+                            complete = false;
+                            break;
+                        }
+                        g_kind = match Self::rd_u32(buf, p_cur) { Some(v) => { p_cur += 8; v }, None => { complete = false; break; } };
+                    }
+
+                    if complete {
+                        components.push(TvwComponent {
+                            refdes: refdes.clone(),
+                            value: val,
+                            package: pkg,
+                            min_x,
+                            min_y,
+                            max_x,
+                            max_y,
+                            cx,
+                            cy,
+                            rotation: rot,
+                            pin_groups,
+                        });
+                        cur = p_cur;
+                        matched = true;
+                        break;
+                    }
+                }
+
+                if matched {
+                    break;
+                }
+            }
+
+            if !matched {
+                break;
+            }
+        }
+
+        components
     }
 
     /// Walk binary TVW
     pub fn parse_binary(buf: &[u8]) -> Result<Board, ParseError> {
+        let (net_names, net_table_start, after_probe) = match Self::read_net_table(buf) {
+            Some(v) => v,
+            None => return Err(ParseError::UnrecognizedFormat("TVW: missing net name registry".to_string())),
+        };
+
+        let (headers, layers_map) = Self::read_layers(buf, net_table_start, net_names.len());
+        let components = Self::read_components(buf, after_probe);
+
+        if components.is_empty() {
+            return Err(ParseError::UnrecognizedFormat("TVW: no valid components found".to_string()));
+        }
+
         let mut board = Board::new();
 
-        // 1. Scan network names table
-        let net_names = Self::scan_network_names(buf);
-
-        // 2. Scan component records
-        let components = Self::scan_component_records(buf);
-
-        // 3. Scan pin sections and surfaces across layers
-        // Find layers marked by TOP, BOTTOM, etc.
-        let mut layer_markers = Vec::new();
-        let target_names: &[&[u8]] = &[b"TOP", b"BOTTOM", b"top", b"bottom"];
-        for &layer_name in target_names {
-            let marker = [layer_name.len() as u8];
-            let mut search_from = 0;
-            while let Some(pos) = buf[search_from..].windows(layer_name.len() + 1).position(|w| w[0] == marker[0] && &w[1..] == layer_name) {
-                let actual_pos = search_from + pos;
-                layer_markers.push((actual_pos, String::from_utf8_lossy(layer_name).to_uppercase()));
-                search_from = actual_pos + 1;
-            }
-        }
-        layer_markers.sort_by_key(|&(pos, _)| pos);
-
-        // Walk pin sections, apertures and surfaces
-        let mut top_pins = Vec::new();
-        let mut bot_pins = Vec::new();
-        let mut top_apertures = HashMap::new();
-        let mut bot_apertures = HashMap::new();
-        let mut all_surfaces = Vec::new();
-
-        if !layer_markers.is_empty() {
-            for i in 0..layer_markers.len() {
-                let (marker_pos, ref name) = layer_markers[i];
-                let layer_end = if i + 1 < layer_markers.len() {
-                    layer_markers[i + 1].0
-                } else {
-                    buf.len().saturating_sub(buf.len() / 4)
-                };
-
-                if marker_pos >= layer_end {
-                    continue;
+        // Helper to resolve layer by reference kind
+        let resolve_layer = |kind: u32| -> Option<&TvwLayer> {
+            if let Some(hdr) = headers.get(kind as usize) {
+                if let Some(layer) = &hdr.layer {
+                    return Some(layer);
                 }
-
-                let is_top = name.contains("TOP");
-                let scan_start = marker_pos;
-                let scan_end = layer_end.saturating_sub(30);
-
-                // Read apertures for this layer
-                let apertures = Self::read_dcodes(buf, marker_pos, layer_end);
-
-                if let Some((_header_off, pins, pins_end, declared)) = Self::scan_best_pin_section(buf, scan_start, scan_end, layer_end, 4) {
-                    // If all declared pins were read, attempt to read lines, arcs, surfaces
-                    if declared > 0 && pins.len() == declared as usize {
-                        let mut cur = pins_end;
-                        // lines
-                        if let Some(lc) = Self::rd_u32(buf, cur) {
-                            if lc <= 10_000_000 && cur + 8 + (lc as usize * 24) <= layer_end {
-                                cur += 8 + (lc as usize * 24);
-                                // arcs
-                                if let Some(ac) = Self::rd_i32(buf, cur) {
-                                    if ac <= 0 {
-                                        cur += 4;
-                                    } else if ac <= 10_000_000 && cur + 8 + (ac as usize * 28) <= layer_end {
-                                        cur += 8 + (ac as usize * 28);
-                                    }
-                                    // surfaces
-                                    let (surfs, _) = Self::read_surfaces(buf, cur, layer_end);
-                                    all_surfaces.extend(surfs);
-                                }
-                            }
-                        }
+            }
+            // Fallback for legacy kinds
+            if kind == 2 {
+                for layer in layers_map.values() {
+                    if layer.side == Side::Top {
+                        return Some(layer);
                     }
-
-                    if is_top {
-                        if pins.len() > top_pins.len() {
-                            top_pins = pins;
-                            top_apertures = apertures;
-                        }
-                    } else if pins.len() > bot_pins.len() {
-                        bot_pins = pins;
-                        bot_apertures = apertures;
+                }
+            } else if kind == 5 || kind == 7 {
+                for layer in layers_map.values() {
+                    if layer.side == Side::Bottom {
+                        return Some(layer);
                     }
                 }
             }
-        }
-
-        // If markers didn't yield pins, fallback to brute force scan across whole file
-        if top_pins.is_empty() && bot_pins.is_empty() {
-            let end = buf.len().saturating_sub(buf.len() / 4);
-            if let Some((_, pins, _, _)) = Self::scan_best_pin_section(buf, 64, end.saturating_sub(30), end, 4) {
-                top_pins = pins;
-            }
-        }
-
-        // Helper to resolve net name from part_index
-        let resolve_net = |part_idx: u32| -> String {
-            let idx = part_idx as usize;
-            if idx < net_names.len() {
-                net_names[idx].clone()
-            } else {
-                String::new()
-            }
+            None
         };
 
-        // Helper to compute pin radius from pad_bbox or layer apertures
-        let compute_pin_radius = |p: &TvwPin, aps: &HashMap<u32, Aperture>| -> f64 {
-            if let Some((dx1, dy1, dx2, dy2)) = p.pad_bbox {
-                let w = (dx2 - dx1).abs() as f64 / 100.0;
-                let h = (dy2 - dy1).abs() as f64 / 100.0;
-                let max_dim = w.max(h);
-                if max_dim > 0.0 {
-                    return (max_dim / 2.0) * PAD_RENDER_SHRINK;
-                }
-            }
-            if let Some(ap) = aps.get(&p.pin_local) {
-                let w = ap.width.abs() as f64 / 100.0;
-                let h = ap.height.abs() as f64 / 100.0;
-                let max_dim = w.max(h);
-                if max_dim > 0.0 {
-                    return (max_dim / 2.0) * PAD_RENDER_SHRINK;
-                }
-            }
-            DEFAULT_PAD_RADIUS_MILS
-        };
-
-        // Construct parts from ComponentRecords
-        let mut part_id_map: HashMap<String, usize> = HashMap::new();
-        let mut claimed_top_indices = std::collections::HashSet::new();
-        let mut claimed_bot_indices = std::collections::HashSet::new();
+        let mut claimed_pads: HashMap<usize, std::collections::HashSet<usize>> = HashMap::new();
 
         for comp in &components {
-            // TVW specification §4.16 row 20: 2 = Top, 11 (0x0B) = Bottom
-            let side = if comp.side == 2 {
-                Side::Top
-            } else if comp.side == 11 {
-                Side::Bottom
-            } else if (comp.footprint_index & 1) == 1 {
-                Side::Top
-            } else {
-                Side::Bottom
-            };
             let part_id = board.parts.len();
-            part_id_map.insert(comp.refdes.clone(), part_id);
+            if !comp.value.is_empty() {
+                board.metadata.set_part_value(&comp.refdes, &comp.value);
+            }
 
-            board.metadata.set_part_value(&comp.refdes, &comp.value);
+            let mut part_sides = std::collections::HashSet::new();
+            let mut pin_indices = Vec::new();
+
+            for group in &comp.pin_groups {
+                let layer = match resolve_layer(group.kind) {
+                    Some(l) => l,
+                    None => continue,
+                };
+                part_sides.insert(layer.side);
+                let layer_claimed = claimed_pads.entry(group.kind as usize).or_default();
+
+                for p_ref in &group.pins {
+                    let pad_idx = (p_ref.uid / 8) as usize;
+                    if let Some(pad) = layer.pads.get(pad_idx) {
+                        layer_claimed.insert(pad_idx);
+                        let pin_id = board.pins.len();
+                        let net_name = if pad.net >= 0 && (pad.net as usize) < net_names.len() {
+                            net_names[pad.net as usize].clone()
+                        } else {
+                            String::new()
+                        };
+
+                        let w_mils = pad.width.abs() as f64 / 100.0;
+                        let h_mils = pad.height.abs() as f64 / 100.0;
+                        let radius = (w_mils.max(h_mils) / 2.0 * PAD_RENDER_SHRINK).max(DEFAULT_PAD_RADIUS_MILS);
+
+                        board.pins.push(Pin {
+                            id: pin_id,
+                            part_id,
+                            name: if p_ref.name.is_empty() { p_ref.ordinal.to_string() } else { p_ref.name.clone() },
+                            net_name,
+                            pos: Point::new(pad.x as f64 / 100.0, pad.y as f64 / 100.0),
+                            side: layer.side,
+                            radius,
+                            ..Default::default()
+                        });
+                        pin_indices.push(pin_id);
+                    }
+                }
+            }
+
+            let part_side = if part_sides.len() == 1 {
+                part_sides.into_iter().next().unwrap()
+            } else if part_sides.len() > 1 {
+                Side::Both
+            } else {
+                Side::Top
+            };
+
+            let bx1 = comp.min_x as f64 / 100.0;
+            let by1 = comp.min_y as f64 / 100.0;
+            let bx2 = comp.max_x as f64 / 100.0;
+            let by2 = comp.max_y as f64 / 100.0;
+
             board.parts.push(Part {
                 id: part_id,
                 name: comp.refdes.clone(),
-                mfg_code: comp.footprint.clone(),
-                side,
+                mfg_code: comp.package.clone(),
+                side: part_side,
                 part_type: PartType::Smd,
-                p1: Point::new(comp.bx1 as f64 / 100.0, comp.by1 as f64 / 100.0),
-                p2: Point::new(comp.bx2 as f64 / 100.0, comp.by2 as f64 / 100.0),
-                pin_indices: Vec::new(),
+                p1: Point::new(bx1, by1),
+                p2: Point::new(bx2, by2),
+                pin_indices,
                 bounding_box: Some(Rect {
-                    min_x: comp.bx1 as f64 / 100.0,
-                    min_y: comp.by1 as f64 / 100.0,
-                    max_x: comp.bx2 as f64 / 100.0,
-                    max_y: comp.by2 as f64 / 100.0,
+                    min_x: bx1.min(bx2),
+                    min_y: by1.min(by2),
+                    max_x: bx1.max(bx2),
+                    max_y: by1.max(by2),
                 }),
                 ..Default::default()
             });
-
-            // Canonical pin mapping: pad_index // 8
-            for cp in &comp.pins {
-                let idx = (cp.pad_index / 8) as usize;
-                let top_pr = top_pins.get(idx);
-                let bot_pr = bot_pins.get(idx);
-
-                let chosen = match (top_pr, bot_pr) {
-                    (Some(tp), Some(bp)) => {
-                        let dt = (tp.x - comp.cx).pow(2) + (tp.y - comp.cy).pow(2);
-                        let db = (bp.x - comp.cx).pow(2) + (bp.y - comp.cy).pow(2);
-                        if dt <= db {
-                            claimed_top_indices.insert(idx);
-                            Some((Side::Top, tp, &top_apertures))
-                        } else {
-                            claimed_bot_indices.insert(idx);
-                            Some((Side::Bottom, bp, &bot_apertures))
-                        }
-                    }
-                    (Some(tp), None) => {
-                        claimed_top_indices.insert(idx);
-                        Some((Side::Top, tp, &top_apertures))
-                    }
-                    (None, Some(bp)) => {
-                        claimed_bot_indices.insert(idx);
-                        Some((Side::Bottom, bp, &bot_apertures))
-                    }
-                    (None, None) => None,
-                };
-
-                if let Some((pin_side, pr, aps)) = chosen {
-                    let pin_id = board.pins.len();
-                    let net = resolve_net(pr.part_index);
-                    let radius = compute_pin_radius(pr, aps);
-                    board.pins.push(Pin {
-                        id: pin_id,
-                        part_id,
-                        name: if cp.name.is_empty() { cp.pin_index.to_string() } else { cp.name.clone() },
-                        net_name: net,
-                        pos: Point::new(pr.x as f64 / 100.0, pr.y as f64 / 100.0),
-                        side: pin_side,
-                        radius,
-                        ..Default::default()
-                    });
-                    board.parts[part_id].pin_indices.push(pin_id);
-                }
-            }
         }
 
-        // Add remaining unclaimed pins as Vias or Pins
-        let add_unclaimed_pins = |pins: &[TvwPin], claimed: &std::collections::HashSet<usize>, side: Side, aps: &HashMap<u32, Aperture>, board: &mut Board| {
-            for (idx, pr) in pins.iter().enumerate() {
-                if claimed.contains(&idx) {
+        // Add unclaimed physical pads as vias / test pads
+        for (layer_idx, layer) in &layers_map {
+            let empty_claimed = std::collections::HashSet::new();
+            let claimed = claimed_pads.get(layer_idx).unwrap_or(&empty_claimed);
+            for (p_idx, pad) in layer.pads.iter().enumerate() {
+                if claimed.contains(&p_idx) {
                     continue;
                 }
-                let net = resolve_net(pr.part_index);
-                let px = pr.x as f64 / 100.0;
-                let py = pr.y as f64 / 100.0;
-                let radius = compute_pin_radius(pr, aps);
-
-                // Check if pin falls inside any component bbox
-                let mut owning_part = None;
-                for part in &mut board.parts {
-                    if part.side == side {
-                        if let Some(bbox) = &part.bounding_box {
-                            if px >= bbox.min_x - 5.0 && px <= bbox.max_x + 5.0 && py >= bbox.min_y - 5.0 && py <= bbox.max_y + 5.0 {
-                                owning_part = Some(part.id);
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if let Some(pid) = owning_part {
-                    let pin_id = board.pins.len();
-                    board.parts[pid].pin_indices.push(pin_id);
-                    board.pins.push(Pin {
-                        id: pin_id,
-                        part_id: pid,
-                        name: pr.pin_local.to_string(),
-                        net_name: net,
-                        pos: Point::new(px, py),
-                        side,
-                        radius,
-                        ..Default::default()
-                    });
+                let net_name = if pad.net >= 0 && (pad.net as usize) < net_names.len() {
+                    net_names[pad.net as usize].clone()
                 } else {
-                    // Stray pin/pad -> via / test nail
-                    let via_id = board.vias.len();
-                    board.vias.push(Via {
-                        id: via_id,
-                        pos: Point::new(px, py),
-                        side,
-                        net_name: net,
-                        radius,
-                    });
-                }
-            }
-        };
+                    String::new()
+                };
 
-        add_unclaimed_pins(&top_pins, &claimed_top_indices, Side::Top, &top_apertures, &mut board);
-        add_unclaimed_pins(&bot_pins, &claimed_bot_indices, Side::Bottom, &bot_apertures, &mut board);
+                let w_mils = pad.width.abs() as f64 / 100.0;
+                let h_mils = pad.height.abs() as f64 / 100.0;
+                let radius = (w_mils.max(h_mils) / 2.0 * PAD_RENDER_SHRINK).max(DEFAULT_PAD_RADIUS_MILS);
 
-        // Select board surface outline (§6.6, _select_surface_outline)
-        // Note: Surfaces with high void counts (void_count > 10) or thousands of vertices are typically copper ground fills
-        // rather than the clean board edge contour. In TVW, if a clean perimeter contour (void_count == 0) is available,
-        // it is strongly preferred over porous copper planes.
-        let mut best_outline: Option<(i64, u32, usize, Vec<Point>)> = None;
-        for s in &all_surfaces {
-            if s.vertices.len() < 4 {
-                continue;
+                let via_id = board.vias.len();
+                board.vias.push(Via {
+                    id: via_id,
+                    pos: Point::new(pad.x as f64 / 100.0, pad.y as f64 / 100.0),
+                    side: layer.side,
+                    net_name,
+                    radius,
+                });
             }
-            let mut min_x = i32::MAX;
-            let mut max_x = i32::MIN;
-            let mut min_y = i32::MAX;
-            let mut max_y = i32::MIN;
-            for &(vx, vy) in &s.vertices {
-                if vx < min_x { min_x = vx; }
-                if vx > max_x { max_x = vx; }
-                if vy < min_y { min_y = vy; }
-                if vy > max_y { max_y = vy; }
-            }
-            let w = max_x - min_x;
-            let h = max_y - min_y;
-            // Board-scale gate: 500 mil minimum in both directions (50_000 cmils)
-            if w < 50_000 || h < 50_000 {
-                continue;
-            }
-            let area = (w as i64) * (h as i64);
-            // Rank clean contours (0 voids) above perforated planes, then larger area, then vertex count
-            let is_clean = if s.void_count == 0 { 1u32 } else { 0u32 };
-            let score = (area, is_clean, s.vertices.len());
-
-            let is_better = match &best_outline {
-                Some(prev) => score > (prev.0, prev.1, prev.2),
-                None => true,
-            };
-
-            if is_better {
-                let pts: Vec<Point> = s.vertices.iter().map(|&(vx, vy)| Point::new(vx as f64 / 100.0, vy as f64 / 100.0)).collect();
-                best_outline = Some((score.0, score.1, score.2, pts));
-            }
-        }
-
-        if let Some((_, _, _, outline_pts)) = best_outline {
-            board.outline_polygon = outline_pts;
         }
 
         board.rebuild_indices();
 
-        // Synthesize outline bounding box with 20-mil margin as fallback if no surface outline was found
+        // Synthesize board outline from bounding box with 20-mil margin
         if board.outline_polygon.is_empty() && (!board.pins.is_empty() || !board.parts.is_empty()) {
             if let Some(bbox) = board.bounding_box {
                 const MARGIN: f64 = 20.0;
