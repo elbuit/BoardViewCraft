@@ -1270,7 +1270,7 @@ pub fn show_canvas(
             }
             if let Some(ref c_rect) = part.bounding_box {
                 if c_rect.intersects(&visible_world) {
-                    let is_selected = selected_p_idx == Some(part.id);
+                    let is_selected = selected_p_idx == Some(part.id) && selected_pn_idx.is_none();
                     if !is_selected && !prefs.show_part_labels {
                         continue;
                     }
@@ -2405,7 +2405,7 @@ pub fn generate_board_meshes_in(
             Mesh::default,
             |mut mesh, part| {
                 if let Some(bbox) = part.bounding_box {
-                    let is_part_selected = selected_part_idx == Some(part.id);
+                    let is_part_selected = selected_part_idx == Some(part.id) && selected_pin_idx.is_none();
                     append_part_body(&mut mesh, part, bbox, is_part_selected, vp.scale, axis_x, axis_y, &to_screen, tokens, color_components);
                 }
                 mesh
@@ -4622,6 +4622,72 @@ mod tests {
         let has_scl_still = meshes_sel.iter().any(|m| m.vertices.iter().any(|v| v.color == color_scl));
         assert!(has_active_hl, "Active net NET_SDA must use active selection highlight");
         assert!(has_scl_still, "Pinned net NET_SCL must still render with its pinned color");
+    }
+
+    #[test]
+    fn test_selecting_pin_does_not_highlight_component_body() {
+        let mut board = Board::default();
+        board.outline_polygon = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 0.0),
+            Point::new(100.0, 100.0),
+            Point::new(0.0, 100.0),
+        ];
+        board.parts.push(bvc_core::Part {
+            id: 0,
+            name: "C1".into(),
+            side: Side::Top,
+            pin_indices: vec![0, 1],
+            bounding_box: Some(Rect { min_x: 10.0, min_y: 10.0, max_x: 30.0, max_y: 20.0 }),
+            ..Default::default()
+        });
+        board.pins.push(bvc_core::Pin {
+            id: 0,
+            part_id: 0,
+            name: "1".into(),
+            net_name: "GND".into(),
+            pos: Point::new(12.0, 15.0),
+            side: Side::Top,
+            radius: 2.0,
+            ..Default::default()
+        });
+        board.pins.push(bvc_core::Pin {
+            id: 1,
+            part_id: 0,
+            name: "2".into(),
+            net_name: "VCC".into(),
+            pos: Point::new(28.0, 15.0),
+            side: Side::Top,
+            radius: 2.0,
+            ..Default::default()
+        });
+        board.rebuild_indices();
+
+        let canvas_rect = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 400.0));
+        let mut vp = Viewport::default();
+        vp.fit_to_rect(board.bounding_box.unwrap(), canvas_rect);
+        let tokens = Tokens::LIGHT;
+        let mut renderer = Renderer::new();
+        let pinned_nets = std::collections::BTreeMap::new();
+
+        // 1. When selecting part alone (selected_part_idx = Some(0), selected_pin_idx = None)
+        let meshes_part_selected = generate_board_meshes_in(
+            &board, &vp, canvas_rect, view_cull_rect(&vp, canvas_rect), &tokens,
+            None, None, Some(0), None, &pinned_nets, None, None, &mut renderer,
+            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false, false, false, false,
+        );
+        let part_has_selection_color = meshes_part_selected.iter().any(|m| m.vertices.iter().any(|v| v.color == tokens.selection));
+        assert!(part_has_selection_color, "When part alone is selected, its body must use tokens.selection");
+
+        // 2. When selecting pin 0 (selected_part_idx = Some(0), selected_pin_idx = Some(0))
+        let meshes_pin_selected = generate_board_meshes_in(
+            &board, &vp, canvas_rect, view_cull_rect(&vp, canvas_rect), &tokens,
+            Some(0), None, Some(0), Some("GND"), &pinned_nets, None, None, &mut renderer,
+            false, ViaDisplayMode::Web, false, 0.60, false, true, false, true, false, false, false, false,
+        );
+        let body_mesh = &meshes_pin_selected[1]; // index 0 is outline/substrate, index 1 is bodies_mesh
+        let body_has_selection_color = body_mesh.vertices.iter().any(|v| v.color == tokens.selection);
+        assert!(!body_has_selection_color, "When pin is selected, component body must NOT be highlighted with tokens.selection");
     }
 }
 
