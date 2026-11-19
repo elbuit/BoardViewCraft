@@ -538,4 +538,73 @@ net R1 2 NET_B 52.0 52.0 3.0
     assert!(!board.outline_polygon.is_empty());
 }
 
+#[test]
+fn test_specctra_dsn_parser() {
+    let dsn_content = r#"(pcb design_test
+  (string_quote ")
+  (parser
+    (string_quote ")
+    (space_in_quoted_tokens on)
+    (host_cad "Altium")
+  )
+  (structure
+    (boundary
+      (rect pcb 0 0 100 80)
+    )
+  )
+  (placement
+    (component SOT23
+      (place Q1 20 30 front 0)
+      (place Q2 50 40 back 90)
+    )
+  )
+  (library
+    (image SOT23
+      (pin round 1 -5 -5)
+      (pin round 2 5 -5)
+      (pin round 3 0 5)
+    )
+  )
+  (network
+    (net +3V3
+      (pins Q1-1 Q2-1)
+    )
+    (net GND
+      (pins Q1-2 Q2-2)
+    )
+    (net SIG_OUT
+      (pins Q1-3)
+    )
+  )
+)"#;
+
+    let registry = ParserRegistry::default();
+    let board = registry.parse_file("sample.dsn", dsn_content.as_bytes()).expect("parse specctra dsn");
+
+    assert_eq!(board.parts.len(), 2);
+    let q1 = board.parts.iter().find(|p| p.name == "Q1").unwrap();
+    assert_eq!(q1.side, Side::Top);
+    assert_eq!(q1.pin_indices.len(), 3);
+
+    let q2 = board.parts.iter().find(|p| p.name == "Q2").unwrap();
+    assert_eq!(q2.side, Side::Bottom);
+    assert_eq!(q2.pin_indices.len(), 3);
+
+    assert_eq!(board.pins.len(), 6);
+    let q1_pin1 = &board.pins[q1.pin_indices[0]];
+    assert_eq!(q1_pin1.name, "1");
+    assert_eq!(q1_pin1.net_name, "+3V3");
+
+    let q1_pin2 = &board.pins[q1.pin_indices[1]];
+    assert_eq!(q1_pin2.name, "2");
+    assert_eq!(q1_pin2.net_name, "GND");
+
+    let q1_pin3 = &board.pins[q1.pin_indices[2]];
+    assert_eq!(q1_pin3.name, "3");
+    assert_eq!(q1_pin3.net_name, "SIG_OUT");
+
+    assert!(!board.outline_polygon.is_empty());
+}
+
+
 

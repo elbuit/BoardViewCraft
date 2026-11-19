@@ -23,6 +23,7 @@ use crate::parser::ipc356::Ipc356Parser;
 use crate::parser::kicad::KicadParser;
 use crate::parser::odbpp::OdbppParser;
 use crate::parser::rejection::{BrdV1Rejector, GerberRejector, PadsBinaryRejector, Vs2Rejector};
+use crate::parser::specctra::SpecctraParser;
 use crate::parser::tvw::TvwParser;
 use crate::parser::xzz::XzzParser;
 use crate::parser::zip_container::ZipArchiveReader;
@@ -50,6 +51,7 @@ impl Default for ParserRegistry {
         reg.register(Arc::new(KicadParser::new()));
         reg.register(Arc::new(Ipc2581Parser::new()));
         reg.register(Arc::new(Ipc356Parser::new()));
+        reg.register(Arc::new(SpecctraParser::new()));
         reg.register(Arc::new(OdbppParser::new()));
         reg.register(Arc::new(TvwParser::new()));
         reg.register(Arc::new(BdvParser::new()));

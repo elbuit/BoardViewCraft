@@ -23,6 +23,7 @@ pub mod kicad;
 pub mod odbpp;
 pub mod registry;
 pub mod rejection;
+pub mod specctra;
 pub mod test_link;
 pub mod tvw;
 pub mod xzz;
