@@ -305,12 +305,129 @@ impl BoardViewApp {
 
         // Center view and request auto-fit to window on next render frame
         if let Some(bbox) = board.bounding_box {
+            let initial_rot = Self::compute_initial_board_rotation(&board, bbox);
+            self.canvases.set_rotation(initial_rot);
             self.canvases.center_all(bbox.center());
             self.pending_auto_fit = true;
         }
 
         self.board = Some(board);
         self.both_scene = None;
+    }
+
+    /// Computes the initial orientation for a newly loaded board:
+    /// 1. If an edge connector / PCIe connector is found, orients it horizontally at the bottom.
+    /// 2. If no PCIe connector is found, but the board is vertical (height > width), orients it horizontally in landscape.
+    /// 3. Otherwise keeps standard 0° rotation.
+    fn compute_initial_board_rotation(board: &Board, bbox: bvc_core::Rect) -> canvas::Rotation {
+        let center = bbox.center();
+        let half_w = bbox.width() / 2.0;
+        let half_h = bbox.height() / 2.0;
+
+        if half_w <= 0.0 || half_h <= 0.0 {
+            return canvas::Rotation::Deg0;
+        }
+
+        // Look for PCIe connector or edge fingers:
+        // A part matching edge finger / PCIe keywords with pins, or parts connected to PCIe/PEX nets.
+        let mut pcie_part: Option<(&bvc_core::Part, f64, f64)> = None;
+        let mut best_score = 0usize;
+
+        for part in &board.parts {
+            let name_upper = part.name.to_ascii_uppercase();
+            let code_upper = part.mfg_code.to_ascii_uppercase();
+            let is_edge_name = name_upper.contains("CON_FINGER")
+                || name_upper.contains("PEX")
+                || name_upper.contains("PCIE")
+                || name_upper.starts_with("GOLD")
+                || name_upper.starts_with("EDGE")
+                || code_upper.contains("CON_FINGER")
+                || code_upper.contains("PEX")
+                || code_upper.contains("PCIE");
+
+            let pin_cnt = part.pin_indices.len();
+            if is_edge_name && pin_cnt >= 8 {
+                let score = 1000 + pin_cnt;
+                if score > best_score {
+                    best_score = score;
+                    let (cx, cy) = if let Some(p_box) = &part.bounding_box {
+                        let c = p_box.center();
+                        (c.x, c.y)
+                    } else {
+                        ((part.p1.x + part.p2.x) / 2.0, (part.p1.y + part.p2.y) / 2.0)
+                    };
+                    pcie_part = Some((part, cx, cy));
+                }
+            }
+        }
+
+        // Fallback: search for a part with high count of PCIe/PEX net pins (e.g. edge connector without clear name)
+        if pcie_part.is_none() {
+            let mut part_pcie_counts: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+            for pin in &board.pins {
+                let net_upper = pin.net_name.to_ascii_uppercase();
+                if net_upper.contains("PCIE") || net_upper.contains("PEX") {
+                    *part_pcie_counts.entry(pin.part_id).or_default() += 1;
+                }
+            }
+
+            for (&part_id, &count) in &part_pcie_counts {
+                if count >= 16 {
+                    if let Some(part) = board.parts.get(part_id) {
+                        let (cx, cy) = if let Some(p_box) = &part.bounding_box {
+                            let c = p_box.center();
+                            (c.x, c.y)
+                        } else {
+                            ((part.p1.x + part.p2.x) / 2.0, (part.p1.y + part.p2.y) / 2.0)
+                        };
+                        // Score based on count and proximity to any outer edge
+                        let norm_x = ((cx - center.x) / half_w).abs();
+                        let norm_y = ((cy - center.y) / half_h).abs();
+                        let edge_proximity = norm_x.max(norm_y);
+                        if edge_proximity > 0.6 && count > best_score {
+                            best_score = count;
+                            pcie_part = Some((part, cx, cy));
+                        }
+                    }
+                }
+            }
+        }
+
+        // If PCIe connector was located, rotate so it lands at the bottom of the screen:
+        if let Some((_, p_x, p_y)) = pcie_part {
+            let dx = p_x - center.x;
+            let dy = p_y - center.y;
+            let norm_x = dx / half_w;
+            let norm_y = dy / half_h;
+
+            if norm_x.abs() > norm_y.abs() {
+                // PCIe is on vertical edges (Left or Right in CAD)
+                if norm_x < 0.0 {
+                    // Left edge -> rotate 270° CW to place at screen bottom
+                    return canvas::Rotation::Deg270;
+                } else {
+                    // Right edge -> rotate 90° CW to place at screen bottom
+                    return canvas::Rotation::Deg90;
+                }
+            } else {
+                // PCIe is on horizontal edges (Top or Bottom in CAD)
+                if norm_y < 0.0 {
+                    // CAD min_y (bottom) -> 0° keeps it at screen bottom
+                    return canvas::Rotation::Deg0;
+                } else {
+                    // CAD max_y (top) -> rotate 180° to place at screen bottom
+                    return canvas::Rotation::Deg180;
+                }
+            }
+        }
+
+        // If no PCIe detected, check if board is vertical (height > width):
+        if bbox.height() > bbox.width() * 1.05 {
+            // Default vertical boards to landscape 90°
+            return canvas::Rotation::Deg90;
+        }
+
+        canvas::Rotation::Deg0
     }
 
     pub fn open_file_from_path(&mut self, path: &std::path::Path) {
@@ -3008,5 +3125,45 @@ mod tab_tests {
         // Empty file
         let empty = std::path::Path::new("");
         assert_eq!(resolve_dropped_file_path(empty), None);
+    }
+
+    #[test]
+    fn test_compute_initial_board_rotation() {
+        use bvc_core::{Part, Point, Rect};
+
+        // 1. Plain horizontal board -> Deg0
+        let mut horiz_board = Board::new();
+        horiz_board.bounding_box = Some(Rect { min_x: 0.0, min_y: 0.0, max_x: 1000.0, max_y: 500.0 });
+        assert_eq!(
+            BoardViewApp::compute_initial_board_rotation(&horiz_board, horiz_board.bounding_box.unwrap()),
+            canvas::Rotation::Deg0
+        );
+
+        // 2. Plain vertical board without PCIe -> rotates to landscape Deg90
+        let mut vert_board = Board::new();
+        vert_board.bounding_box = Some(Rect { min_x: 0.0, min_y: 0.0, max_x: 500.0, max_y: 1000.0 });
+        assert_eq!(
+            BoardViewApp::compute_initial_board_rotation(&vert_board, vert_board.bounding_box.unwrap()),
+            canvas::Rotation::Deg90
+        );
+
+        // 3. Vertical board with PCIe connector on the left (like GPU test1.tvw) -> Deg270 puts PCIe at bottom
+        let mut gpu_board = Board::new();
+        gpu_board.bounding_box = Some(Rect { min_x: -200.0, min_y: 0.0, max_x: 4000.0, max_y: 10000.0 });
+        let pcie_part = Part {
+            id: 0,
+            name: "CN1".to_string(),
+            mfg_code: "CON_FINGER_PEX_164".to_string(),
+            p1: Point::new(-300.0, 3000.0),
+            p2: Point::new(-150.0, 6000.0),
+            pin_indices: (0..164).collect(),
+            bounding_box: Some(Rect { min_x: -300.0, min_y: 3000.0, max_x: -150.0, max_y: 6000.0 }),
+            ..Default::default()
+        };
+        gpu_board.parts.push(pcie_part);
+        assert_eq!(
+            BoardViewApp::compute_initial_board_rotation(&gpu_board, gpu_board.bounding_box.unwrap()),
+            canvas::Rotation::Deg270
+        );
     }
 }
