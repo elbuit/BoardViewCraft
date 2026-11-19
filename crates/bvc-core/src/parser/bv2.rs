@@ -293,7 +293,7 @@ impl FormatParser for PinListParser {
         let text = String::from_utf8_lossy(sample);
         for line in text.lines().take(5) {
             let lower = line.to_ascii_lowercase();
-            if (lower.contains("refdes") || lower.contains("component") || lower.contains("part"))
+            if (lower.contains("refdes") || lower.contains("component") || lower.contains("part") || lower.contains("designator"))
                 && (lower.contains("pin") || lower.contains("pad"))
                 && lower.contains('x')
                 && lower.contains('y')
@@ -339,11 +339,11 @@ impl FormatParser for PinListParser {
                 unit_scale = 25.4;
             }
 
-            if ref_col.is_none() && (lower == "refdes" || lower == "ref" || lower == "part" || lower == "component") {
+            if ref_col.is_none() && (lower == "refdes" || lower == "ref" || lower == "part" || lower == "component" || lower == "designator") {
                 ref_col = Some(idx);
             } else if pin_col.is_none() && (lower == "pin" || lower == "pinno" || lower == "pad" || lower == "pin_number") {
                 pin_col = Some(idx);
-            } else if net_col.is_none() && (lower == "net" || lower == "netname" || lower == "signal") {
+            } else if net_col.is_none() && (lower == "net" || lower == "netname" || lower == "net name" || lower == "signal") {
                 net_col = Some(idx);
             } else if x_col.is_none() && (lower.starts_with('x') || lower == "posx" || lower == "coordx") {
                 x_col = Some(idx);

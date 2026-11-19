@@ -791,6 +791,188 @@ impl FormatParser for BvrParser {
 pub struct CstParser;
 impl CstParser {
     pub const fn new() -> Self { Self }
+
+    pub fn looks_like_cst_binary(data: &[u8]) -> bool {
+        data.len() >= 12 && data[6] == 4 && data[7] == 0 && &data[8..12] == b"CDev"
+    }
+
+    pub fn parse_cst_binary(data: &[u8]) -> Result<Board, ParseError> {
+        if data.len() < 12 {
+            return Err(ParseError::SyntaxError { line: 0, message: "CST binary too short".into() });
+        }
+        let mut cur = 0;
+        let part_count = u16::from_le_bytes([data[cur], data[cur + 1]]) as usize;
+        cur += 2;
+        cur += 4; // skip unknown 4 bytes
+        let sec_len = u16::from_le_bytes([data[cur], data[cur + 1]]) as usize;
+        cur += 2;
+        if cur + sec_len > data.len() || &data[cur..cur + sec_len] != b"CDev" {
+            return Err(ParseError::SyntaxError { line: 0, message: "Missing CDev section in CST".into() });
+        }
+        cur += sec_len;
+
+        let mut board = Board::new();
+        let mut parts_map: Vec<usize> = Vec::with_capacity(part_count);
+
+        for i in 0..part_count {
+            if cur >= data.len() { break; }
+            let name_len = data[cur] as usize;
+            cur += 1;
+            if cur + name_len > data.len() { break; }
+            let name = String::from_utf8_lossy(&data[cur..cur + name_len]).trim().to_string();
+            cur += name_len;
+
+            cur += 4; // skip 4 bytes
+            let layer = if cur < data.len() { data[cur] } else { 0x0c };
+            cur += 1;
+
+            let side = if layer == 0x01 {
+                Side::Bottom
+            } else {
+                Side::Top
+            };
+
+            cur += 6; // skip 6 bytes
+
+            let part_id = board.parts.len();
+            board.parts.push(Part {
+                id: part_id,
+                name: if !name.is_empty() { name } else { format!("U{}", i + 1) },
+                mfg_code: String::new(),
+                side,
+                part_type: PartType::Smd,
+                p1: Point::ZERO,
+                p2: Point::ZERO,
+                pin_indices: Vec::new(),
+                bounding_box: None,
+                ..Default::default()
+            });
+            parts_map.push(part_id);
+        }
+
+        // Net count is at (cur - 2) if standard, or find beginning of nets list
+        if cur >= 2 {
+            cur -= 2;
+        }
+        let net_count = if cur + 2 <= data.len() {
+            let n = u16::from_le_bytes([data[cur], data[cur + 1]]) as usize;
+            cur += 2;
+            n
+        } else {
+            0
+        };
+
+        let mut nets: Vec<String> = Vec::with_capacity(net_count);
+        for _ in 0..net_count {
+            if cur >= data.len() { break; }
+            let net_len = data[cur] as usize;
+            cur += 1;
+            if cur + net_len > data.len() { break; }
+            let net_name = String::from_utf8_lossy(&data[cur..cur + net_len]).trim().to_string();
+            cur += net_len;
+            nets.push(net_name);
+        }
+
+        // Search for "CPad"
+        let cpad_needle = b"CPad";
+        let cpad_pos = data[cur..]
+            .windows(4)
+            .position(|w| w == cpad_needle)
+            .map(|pos| cur + pos);
+
+        if let Some(pos) = cpad_pos {
+            if pos >= 8 {
+                let pin_header_start = pos - 8;
+                let pin_count = u16::from_le_bytes([data[pin_header_start], data[pin_header_start + 1]]) as usize;
+                cur = pos + 4 + 2; // skip "CPad" and trailing 2 bytes (or pos + 6 bytes)
+
+                for pin_idx in 0..pin_count {
+                    if cur + 16 > data.len() { break; }
+                    let part_id_raw = i16::from_le_bytes([data[cur], data[cur + 1]]);
+                    let _probe = i16::from_le_bytes([data[cur + 2], data[cur + 3]]);
+                    let net_id_raw = i16::from_le_bytes([data[cur + 4], data[cur + 5]]) as usize;
+                    let x = i16::from_le_bytes([data[cur + 6], data[cur + 7]]) as f64;
+                    let y = i16::from_le_bytes([data[cur + 8], data[cur + 9]]) as f64;
+                    let _shape = i16::from_le_bytes([data[cur + 10], data[cur + 11]]);
+                    cur += 16;
+
+                    let net_name = if net_id_raw < nets.len() {
+                        nets[net_id_raw].clone()
+                    } else {
+                        String::new()
+                    };
+
+                    let part_id = if part_id_raw >= 0 && (part_id_raw as usize) < board.parts.len() {
+                        part_id_raw as usize
+                    } else if !board.parts.is_empty() {
+                        0
+                    } else {
+                        let id = board.parts.len();
+                        board.parts.push(Part {
+                            id,
+                            name: "ORPHAN".into(),
+                            mfg_code: String::new(),
+                            side: Side::Both,
+                            part_type: PartType::Smd,
+                            p1: Point::ZERO,
+                            p2: Point::ZERO,
+                            pin_indices: Vec::new(),
+                            bounding_box: None,
+                            ..Default::default()
+                        });
+                        id
+                    };
+
+                    let side = board.parts[part_id].side;
+                    let pin_id = board.pins.len();
+                    board.pins.push(Pin {
+                        id: pin_id,
+                        part_id,
+                        name: (pin_idx + 1).to_string(),
+                        net_name,
+                        pos: Point::new(x, y),
+                        side,
+                        radius: 8.0,
+                        ..Default::default()
+                    });
+                    board.parts[part_id].pin_indices.push(pin_id);
+                }
+            }
+        }
+
+        // Calculate part centroids
+        for part in &mut board.parts {
+            if !part.pin_indices.is_empty() {
+                let mut sum_x = 0.0;
+                let mut sum_y = 0.0;
+                for &pid in &part.pin_indices {
+                    sum_x += board.pins[pid].pos.x;
+                    sum_y += board.pins[pid].pos.y;
+                }
+                let cnt = part.pin_indices.len() as f64;
+                part.p1 = Point::new(sum_x / cnt, sum_y / cnt);
+                part.p2 = part.p1;
+            }
+        }
+
+        board.rebuild_indices();
+
+        // Synthesize outline margin if empty
+        if board.outline_polygon.is_empty() && (!board.pins.is_empty() || !board.vias.is_empty()) {
+            if let Some(bbox) = board.bounding_box {
+                const MARGIN: f64 = 20.0;
+                board.outline_polygon = vec![
+                    Point::new(bbox.min_x - MARGIN, bbox.min_y - MARGIN),
+                    Point::new(bbox.max_x + MARGIN, bbox.min_y - MARGIN),
+                    Point::new(bbox.max_x + MARGIN, bbox.max_y + MARGIN),
+                    Point::new(bbox.min_x - MARGIN, bbox.max_y + MARGIN),
+                ];
+                board.recompute_bounds();
+            }
+        }
+
+        Ok(board)
+    }
 }
 impl Default for CstParser {
     fn default() -> Self { Self::new() }
@@ -799,6 +981,9 @@ impl FormatParser for CstParser {
     fn name(&self) -> &'static str { "CST" }
     fn extensions(&self) -> &'static [&'static str] { &["cst"] }
     fn verify_format(&self, data: &[u8]) -> bool {
+        if Self::looks_like_cst_binary(data) {
+            return true;
+        }
         if looks_like_binary(data, 0.30) {
             return false;
         }
@@ -807,8 +992,11 @@ impl FormatParser for CstParser {
         s.contains("[Format]") || s.contains("[Components]") || s.contains("[Parts]") || s.contains("[Pins]")
     }
     fn parse(&self, data: &[u8]) -> Result<Board, ParseError> {
+        if Self::looks_like_cst_binary(data) {
+            return Self::parse_cst_binary(data);
+        }
         if looks_like_binary(data, 0.30) {
-            return Err(ParseError::Other("Binary .cst containers are not supported".into()));
+            return Err(ParseError::Other("Binary .cst containers without CDev are not supported".into()));
         }
         let text = String::from_utf8_lossy(data);
         TestLinkEngine::parse_text(&text, &CST_MARKERS)

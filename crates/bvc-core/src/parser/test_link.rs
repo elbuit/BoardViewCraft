@@ -121,7 +121,14 @@ impl TestLinkEngine {
         let (n_format, n_parts, n_pins, n_nails) = if !markers.header_count_marker.is_empty() {
             if let Some(pos) = lines.iter().position(|l| l.starts_with(markers.header_count_marker)) {
                 let rest = lines[pos][markers.header_count_marker.len()..].trim();
-                let counts: Vec<&str> = rest.split_whitespace().collect();
+                let counts: Vec<&str> = if !rest.is_empty() {
+                    rest.split_whitespace().collect()
+                } else if pos + 1 < lines.len() {
+                    lines[pos + 1].split_whitespace().collect()
+                } else {
+                    Vec::new()
+                };
+
                 if counts.len() < 4 {
                     return Err(ParseError::SyntaxError {
                         line: pos + 1,
